@@ -15,8 +15,11 @@ MonoBehaviour:
   chunkSize: 32
   worldBoundsMin: {x: -500, y: -100, z: -500}
   worldBoundsMax: {x: 500, y: 100, z: 500}
-  useFirebase: 0
-  useLocalCache: 1
+  useFirebase: 1
+  useLocalCache: 0
   enableCompression: 0
   maxCubesPerFrame: 100
+  disablePhysicsDuringLoad: 1
+  useDeferredSetup: 1
+  minBatchSize: 200
   saveFileName: world.dat

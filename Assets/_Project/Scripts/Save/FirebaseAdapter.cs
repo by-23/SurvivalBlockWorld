@@ -2,99 +2,127 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
+using Firebase.Firestore;
+using Firebase.Extensions;
 
 public class FirebaseAdapter
 {
     private SaveConfig config;
     private ChunkManager chunkManager;
+    private FirebaseFirestore db;
 
     public FirebaseAdapter(SaveConfig config, ChunkManager chunkManager)
     {
         this.config = config;
         this.chunkManager = chunkManager;
+        db = FirebaseFirestore.DefaultInstance;
     }
 
     public async Task<bool> SaveChunkToFirestore(ChunkData chunk)
     {
-        // TODO: Implement Firebase Firestore integration
-        // This requires Firebase SDK package installation
+        try
+        {
+            // Используем Base64 для компактного хранения данных чанка
+            string base64Data = chunk.ToBase64();
+            string chunkId = $"chunk_{chunk.chunkCoordinates.x}_{chunk.chunkCoordinates.y}_{chunk.chunkCoordinates.z}";
 
-        Debug.LogWarning("Firebase integration not implemented. Install Firebase SDK to enable cloud sync.");
+            DocumentReference chunkRef = db.Collection("worlds").Document("MainWorld")
+                .Collection("chunks").Document(chunkId);
 
-        // Example implementation structure:
-        // string base64Data = chunk.ToBase64();
-        // string chunkId = $"chunk_{chunk.chunkCoordinates.x}_{chunk.chunkCoordinates.y}_{chunk.chunkCoordinates.z}";
-        // await FirebaseFirestore.DefaultInstance
-        //     .Collection("worlds").Document("world_id")
-        //     .Collection("chunks").Document(chunkId)
-        //     .SetAsync(new { data = base64Data, timestamp = DateTime.UtcNow });
+            var data = new Dictionary<string, object>
+            {
+                { "data", base64Data },
+                { "timestamp", Timestamp.GetCurrentTimestamp() }
+            };
 
-        await Task.Delay(100); // Placeholder
-        return false;
+            await chunkRef.SetAsync(data);
+            Debug.Log($"Chunk {chunkId} saved to Firestore.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error saving chunk {chunk.chunkCoordinates} to Firestore: {e.Message}");
+            return false;
+        }
     }
 
     public async Task<ChunkData> LoadChunkFromFirestore(Vector3Int chunkCoord)
     {
-        // TODO: Implement Firebase Firestore integration
+        try
+        {
+            string chunkId = $"chunk_{chunkCoord.x}_{chunkCoord.y}_{chunkCoord.z}";
+            DocumentReference chunkRef = db.Collection("worlds").Document("MainWorld")
+                .Collection("chunks").Document(chunkId);
 
-        Debug.LogWarning("Firebase integration not implemented. Install Firebase SDK to enable cloud sync.");
+            DocumentSnapshot snapshot = await chunkRef.GetSnapshotAsync();
 
-        // Example implementation structure:
-        // string chunkId = $"chunk_{chunkCoord.x}_{chunkCoord.y}_{chunkCoord.z}";
-        // var snapshot = await FirebaseFirestore.DefaultInstance
-        //     .Collection("worlds").Document("world_id")
-        //     .Collection("chunks").Document(chunkId)
-        //     .GetSnapshotAsync();
-        // 
-        // if (snapshot.Exists)
-        // {
-        //     string base64Data = snapshot.GetValue<string>("data");
-        //     return ChunkData.FromBase64(base64Data);
-        // }
+            if (snapshot.Exists)
+            {
+                string base64Data = snapshot.GetValue<string>("data");
+                Debug.Log($"Chunk {chunkId} loaded from Firestore.");
+                return ChunkData.FromBase64(base64Data);
+            }
 
-        await Task.Delay(100); // Placeholder
-        return null;
-    }
-
-    public async Task<bool> SyncDelta(CubeChange[] changes)
-    {
-        // TODO: Implement delta synchronization
-
-        Debug.LogWarning("Delta sync not implemented. This will send only changed cubes to server.");
-
-        // Group changes by chunk
-        // Dictionary<Vector3Int, List<CubeChange>> changesByChunk = new Dictionary<Vector3Int, List<CubeChange>>();
-        // foreach (var change in changes)
-        // {
-        //     Vector3Int chunkCoord = chunkManager.GetChunkCoordinates(change.position);
-        //     if (!changesByChunk.ContainsKey(chunkCoord))
-        //         changesByChunk[chunkCoord] = new List<CubeChange>();
-        //     changesByChunk[chunkCoord].Add(change);
-        // }
-        //
-        // Send each chunk's changes
-        // foreach (var kvp in changesByChunk)
-        // {
-        //     await SendChunkDelta(kvp.Key, kvp.Value);
-        // }
-
-        await Task.Delay(100); // Placeholder
-        return false;
+            Debug.LogWarning($"Chunk {chunkId} not found in Firestore.");
+            return null;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error loading chunk {chunkCoord} from Firestore: {e.Message}");
+            return null;
+        }
     }
 
     public async Task<WorldSaveData> LoadWorldFromFirestore(string worldId)
     {
-        // TODO: Load entire world from Firestore
-        Debug.LogWarning("Firebase world loading not implemented.");
+        try
+        {
+            QuerySnapshot snapshot = await db.Collection("worlds").Document(worldId)
+                .Collection("chunks").GetSnapshotAsync();
+
+            if (snapshot.Count > 0)
+            {
+                WorldSaveData worldData = new WorldSaveData(worldId, config.worldBoundsMin, config.worldBoundsMax);
+
+                foreach (DocumentSnapshot document in snapshot.Documents)
+                {
+                    string base64Data = document.GetValue<string>("data");
+                    ChunkData chunk = ChunkData.FromBase64(base64Data);
+                    worldData.chunks[chunk.chunkCoordinates] = chunk;
+                }
+
+                Debug.Log($"World '{worldId}' with {worldData.chunks.Count} chunks loaded from Firestore.");
+                return worldData;
+            }
+
+            Debug.LogWarning($"World '{worldId}' not found or has no chunks in Firestore.");
+            return null;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to load world '{worldId}' from Firestore: {e.Message}");
+            return null;
+        }
+    }
+
+    // Метод SyncDelta оставлен для будущей реализации, если потребуется синхронизация только изменений
+    public async Task<bool> SyncDelta(CubeChange[] changes)
+    {
+        Debug.LogWarning("Delta sync not implemented.");
         await Task.Delay(100);
-        return null;
+        return false;
     }
 }
 
 [Serializable]
 public struct CubeChange
 {
-    public enum ChangeType { Add, Remove, Update }
+    public enum ChangeType
+    {
+        Add,
+        Remove,
+        Update
+    }
 
     public ChangeType type;
     public Vector3 position;
@@ -109,4 +137,3 @@ public struct CubeChange
         timestamp = DateTime.UtcNow.Ticks;
     }
 }
-

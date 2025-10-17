@@ -7,6 +7,7 @@ using UnityEngine;
 public class SaveSystem : MonoBehaviour
 {
     private static SaveSystem instance;
+
     public static SaveSystem Instance
     {
         get
@@ -17,15 +18,15 @@ public class SaveSystem : MonoBehaviour
                 instance = go.AddComponent<SaveSystem>();
                 DontDestroyOnLoad(go);
             }
+
             return instance;
         }
     }
 
-    [Header("Configuration")]
-    [SerializeField] private SaveConfig config;
+    [Header("Configuration")] [SerializeField]
+    private SaveConfig config;
 
-    [Header("Spawning")]
-    [SerializeField] private CubeSpawner cubeSpawner;
+    [Header("Spawning")] [SerializeField] private CubeSpawner cubeSpawner;
 
     private ChunkManager chunkManager;
     private FileManager fileManager;
@@ -91,16 +92,20 @@ public class SaveSystem : MonoBehaviour
 
             if (config.useLocalCache)
             {
-                bool success = await fileManager.SaveWorldAsync(worldData, (p) => progressCallback?.Invoke(0.7f + p * 0.3f));
+                bool success =
+                    await fileManager.SaveWorldAsync(worldData, (p) => progressCallback?.Invoke(0.7f + p * 0.3f));
                 if (!success) return false;
             }
 
             if (config.useFirebase)
             {
+                List<System.Threading.Tasks.Task> saveTasks = new List<System.Threading.Tasks.Task>();
                 foreach (var chunk in chunks.Values)
                 {
-                    await firebaseAdapter.SaveChunkToFirestore(chunk);
+                    saveTasks.Add(firebaseAdapter.SaveChunkToFirestore(chunk));
                 }
+
+                await System.Threading.Tasks.Task.WhenAll(saveTasks);
             }
 
             chunkManager.ClearDirtyChunks();
@@ -188,7 +193,8 @@ public class SaveSystem : MonoBehaviour
         return allCubes;
     }
 
-    private async System.Threading.Tasks.Task SpawnWorldFromData(WorldSaveData worldData, Action<float> progressCallback = null)
+    private async System.Threading.Tasks.Task SpawnWorldFromData(WorldSaveData worldData,
+        Action<float> progressCallback = null)
     {
         bool wasAutoSimulation = Physics.autoSimulation;
         if (config.disablePhysicsDuringLoad)

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 public class UIManager : MonoBehaviour
 {
@@ -8,6 +9,10 @@ public class UIManager : MonoBehaviour
     [SerializeField] private PlayerMovement _playerMovement;
     [SerializeField] private RopeGenerator _ropeGenerator;
     [SerializeField] private VehicleForce _vehicleForce;
+    [SerializeField] private Button _saveButton;
+    [SerializeField] private Button _loadButton;
+    [SerializeField] private Button _mapsButton;
+
 
     private void Awake()
     {
@@ -21,7 +26,30 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    private void Start()
+    {
+        if (_saveButton != null)
+        {
+            _saveButton.onClick.AddListener(OnSaveButtonPressed);
+        }
+
+        if (_loadButton != null)
+        {
+            _loadButton.onClick.AddListener(OnLoadButtonPressed);
+        }
+    }
+
     // Button functions
+    public void OnSaveButtonPressed()
+    {
+        SaveSystem.Instance.SaveWorld();
+    }
+
+    public void OnLoadButtonPressed()
+    {
+        SaveSystem.Instance.LoadWorld();
+    }
+
     public void OnLaserRemoveButtonPressed(bool isPressed)
     {
         if (_laser != null)
