@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 671c9d24ead9c3947976c7b0564722a1
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 162025
+  packageName: Stylized Water For URP
+  packageVersion: 1.2.1
+  assetPath: Assets/Stylized Water For URP/Demos/Buoyancy/Object.mat
+  uploadId: 520011

@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: d08d737d809248046b7aba7d3bb3b1cc
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 162025
+  packageName: Stylized Water For URP
+  packageVersion: 1.2.1
+  assetPath: Assets/Stylized Water For URP/Demos/URP Pipeline.asset
+  uploadId: 520011
