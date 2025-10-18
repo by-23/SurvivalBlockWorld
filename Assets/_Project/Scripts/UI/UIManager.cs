@@ -1,3 +1,4 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -5,13 +6,25 @@ public class UIManager : MonoBehaviour
 {
     public static UIManager Instance { get; private set; }
 
-    [SerializeField] private Laser _laser;
+    [Header("Gameplay UI")] [SerializeField]
+    private Laser _laser;
+
     [SerializeField] private PlayerMovement _playerMovement;
     [SerializeField] private RopeGenerator _ropeGenerator;
     [SerializeField] private VehicleForce _vehicleForce;
-    [SerializeField] private Button _saveButton;
+
+    [Header("Buttons")] [SerializeField] private Button _saveButton;
     [SerializeField] private Button _loadButton;
     [SerializeField] private Button _mapsButton;
+
+    [Header("Save UI")] [SerializeField] private GameObject _savePanel;
+    [SerializeField] private TMP_InputField _saveNameInput;
+    [SerializeField] private Button _confirmSaveButton;
+    [SerializeField] private Button _cancelSaveButton;
+
+    [Header("Load UI")] [SerializeField] private GameObject _loadPanel;
+    [SerializeField] private SaveListManager _saveListManager;
+    [SerializeField] private Button _closeLoadPanelButton;
 
 
     private void Awake()
@@ -37,17 +50,110 @@ public class UIManager : MonoBehaviour
         {
             _loadButton.onClick.AddListener(OnLoadButtonPressed);
         }
+
+        if (_confirmSaveButton != null)
+        {
+            _confirmSaveButton.onClick.AddListener(OnConfirmSaveButtonPressed);
+        }
+
+        if (_cancelSaveButton != null)
+        {
+            _cancelSaveButton.onClick.AddListener(OnCancelSaveButtonPressed);
+        }
+
+        if (_closeLoadPanelButton != null)
+        {
+            _closeLoadPanelButton.onClick.AddListener(OnCloseLoadPanelButtonPressed);
+        }
+
+        if (_savePanel != null)
+        {
+            _savePanel.SetActive(false);
+        }
+
+        if (_loadPanel != null)
+        {
+            _loadPanel.SetActive(false);
+        }
+
+        // Subscribe to save list manager events
+        if (_saveListManager != null)
+        {
+            _saveListManager.OnMapLoadRequested += OnMapLoadRequested;
+        }
     }
 
     // Button functions
     public void OnSaveButtonPressed()
     {
-        SaveSystem.Instance.SaveWorld();
+        if (_savePanel != null)
+        {
+            _savePanel.SetActive(true);
+            // Optionally clear previous input
+            if (_saveNameInput != null)
+            {
+                _saveNameInput.text = "";
+            }
+        }
     }
 
     public void OnLoadButtonPressed()
     {
-        SaveSystem.Instance.LoadWorld();
+        if (_loadPanel != null)
+        {
+            _loadPanel.SetActive(true);
+            if (_saveListManager != null)
+            {
+                _saveListManager.LoadSaveList();
+            }
+        }
+    }
+
+    private void OnConfirmSaveButtonPressed()
+    {
+        if (_saveNameInput != null && !string.IsNullOrEmpty(_saveNameInput.text))
+        {
+            string worldName = _saveNameInput.text;
+            SaveSystem.Instance.SaveWorld(worldName);
+        }
+        else
+        {
+            Debug.LogError("Save name cannot be empty.");
+            // Here you might want to show a message to the user
+        }
+
+        if (_savePanel != null)
+        {
+            _savePanel.SetActive(false);
+        }
+    }
+
+    private void OnCancelSaveButtonPressed()
+    {
+        if (_savePanel != null)
+        {
+            _savePanel.SetActive(false);
+        }
+    }
+
+    private void OnCloseLoadPanelButtonPressed()
+    {
+        if (_loadPanel != null)
+        {
+            _loadPanel.SetActive(false);
+        }
+    }
+
+    private void OnMapLoadRequested(string mapName)
+    {
+        Debug.Log($"Loading map: {mapName}");
+        SaveSystem.Instance.LoadWorld(mapName);
+
+        // Close the load panel after starting the load
+        if (_loadPanel != null)
+        {
+            _loadPanel.SetActive(false);
+        }
     }
 
     public void OnLaserRemoveButtonPressed(bool isPressed)
@@ -118,5 +224,14 @@ public class UIManager : MonoBehaviour
     public void OnRemoveButtonPressed()
     {
         Debug.Log("Remove button pressed - functionality not implemented.");
+    }
+
+    private void OnDestroy()
+    {
+        // Unsubscribe from events to prevent memory leaks
+        if (_saveListManager != null)
+        {
+            _saveListManager.OnMapLoadRequested -= OnMapLoadRequested;
+        }
     }
 }

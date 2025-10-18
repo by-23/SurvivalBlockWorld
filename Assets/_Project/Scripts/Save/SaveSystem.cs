@@ -6,109 +6,124 @@ using UnityEngine;
 
 public class SaveSystem : MonoBehaviour
 {
-    private static SaveSystem instance;
+    private static SaveSystem _instance;
 
     public static SaveSystem Instance
     {
         get
         {
-            if (instance == null)
+            if (_instance == null)
             {
                 GameObject go = new GameObject("SaveSystem");
-                instance = go.AddComponent<SaveSystem>();
+                _instance = go.AddComponent<SaveSystem>();
                 DontDestroyOnLoad(go);
             }
 
-            return instance;
+            return _instance;
         }
     }
 
     [Header("Configuration")] [SerializeField]
-    private SaveConfig config;
+    private SaveConfig _config;
 
-    [Header("Spawning")] [SerializeField] private CubeSpawner cubeSpawner;
+    [Header("Screenshot")] [SerializeField]
+    private Camera _screenshotCamera;
 
-    private ChunkManager chunkManager;
-    private FileManager fileManager;
-    private FirebaseAdapter firebaseAdapter;
+    [SerializeField] private int _screenshotWidth = 1920;
+    [SerializeField] private int _screenshotHeight = 1080;
+
+    [Header("Spawning")] [SerializeField] private CubeSpawner _cubeSpawner;
+
+    private ChunkManager _chunkManager;
+    private FileManager _fileManager;
+    private FirebaseAdapter _firebaseAdapter;
 
     private void Awake()
     {
-        if (instance != null && instance != this)
+        if (_instance != null && _instance != this)
         {
             Destroy(gameObject);
             return;
         }
 
-        instance = this;
+        _instance = this;
         DontDestroyOnLoad(gameObject);
 
-        if (config == null)
+        if (_config == null)
         {
             Debug.LogError("SaveConfig not assigned to SaveSystem!");
             return;
         }
 
-        chunkManager = new ChunkManager(config);
-        fileManager = new FileManager(config);
-        firebaseAdapter = new FirebaseAdapter(config, chunkManager);
+        _chunkManager = new ChunkManager(_config);
+        _fileManager = new FileManager(_config);
+        _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
 
-        if (cubeSpawner == null)
+        if (_cubeSpawner == null)
         {
-            cubeSpawner = gameObject.AddComponent<CubeSpawner>();
+            _cubeSpawner = gameObject.AddComponent<CubeSpawner>();
         }
     }
 
     [ContextMenu("Save Current World")]
-    public async void SaveWorld()
+    public void SaveWorld(string worldName)
     {
-        await SaveWorldAsync();
+        _ = SaveWorldAsync(worldName);
     }
 
-    public async System.Threading.Tasks.Task<bool> SaveWorldAsync(Action<float> progressCallback = null)
+    public async System.Threading.Tasks.Task<bool> SaveWorldAsync(string worldName,
+        Action<float> progressCallback = null)
     {
         try
         {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Save failed: World name cannot be empty.");
+                return false;
+            }
+
             progressCallback?.Invoke(0.1f);
+
+            string screenshotPath = TakeScreenshot(worldName);
+
+            progressCallback?.Invoke(0.2f);
 
             List<CubeData> allCubes = CollectAllCubesFromScene();
             Debug.Log($"Collected {allCubes.Count} cubes from scene");
 
             progressCallback?.Invoke(0.3f);
 
-            Dictionary<Vector3Int, ChunkData> chunks = chunkManager.OrganizeCubesIntoChunks(allCubes);
+            Dictionary<Vector3Int, ChunkData> chunks = _chunkManager.OrganizeCubesIntoChunks(allCubes);
             Debug.Log($"Organized into {chunks.Count} chunks");
 
             progressCallback?.Invoke(0.5f);
 
             WorldSaveData worldData = new WorldSaveData(
-                "MainWorld",
-                config.worldBoundsMin,
-                config.worldBoundsMax
-            );
-            worldData.chunks = chunks;
+                worldName,
+                _config.worldBoundsMin,
+                _config.worldBoundsMax
+            )
+            {
+                Chunks = chunks,
+                ScreenshotPath = screenshotPath
+            };
 
             progressCallback?.Invoke(0.7f);
 
-            if (config.useLocalCache)
+            if (_config.useLocalCache)
             {
                 bool success =
-                    await fileManager.SaveWorldAsync(worldData, (p) => progressCallback?.Invoke(0.7f + p * 0.3f));
+                    await _fileManager.SaveWorldAsync(worldData, (p) => progressCallback?.Invoke(0.7f + p * 0.15f));
                 if (!success) return false;
             }
 
-            if (config.useFirebase)
+            if (_config.useFirebase)
             {
-                List<System.Threading.Tasks.Task> saveTasks = new List<System.Threading.Tasks.Task>();
-                foreach (var chunk in chunks.Values)
-                {
-                    saveTasks.Add(firebaseAdapter.SaveChunkToFirestore(chunk));
-                }
-
-                await System.Threading.Tasks.Task.WhenAll(saveTasks);
+                bool success = await _firebaseAdapter.SaveWorldToFirestore(worldData);
+                if (!success) return false;
             }
 
-            chunkManager.ClearDirtyChunks();
+            _chunkManager.ClearDirtyChunks();
             progressCallback?.Invoke(1f);
 
             return true;
@@ -121,31 +136,41 @@ public class SaveSystem : MonoBehaviour
     }
 
     [ContextMenu("Load World")]
-    public async void LoadWorld()
+    public void LoadWorld(string worldName)
     {
-        await LoadWorldAsync();
+        _ = LoadWorldAsync(worldName);
     }
 
-    public async System.Threading.Tasks.Task<bool> LoadWorldAsync(Action<float> progressCallback = null)
+    public async System.Threading.Tasks.Task<bool> LoadWorldAsync(string worldName,
+        Action<float> progressCallback = null)
     {
         try
         {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Load failed: World name cannot be empty.");
+                return false;
+            }
+
             progressCallback?.Invoke(0.1f);
 
             WorldSaveData worldData = null;
 
-            if (config.useLocalCache && fileManager.SaveFileExists())
+            // TODO: Add logic to prefer local cache if available and newer
+            if (_config.useFirebase)
             {
-                worldData = await fileManager.LoadWorldAsync((p) => progressCallback?.Invoke(0.1f + p * 0.3f));
+                worldData = await _firebaseAdapter.LoadWorldFromFirestore(worldName);
             }
-            else if (config.useFirebase)
+            else if (_config.useLocalCache &&
+                     _fileManager.SaveFileExists()) // This part might need adjustment for multiple saves
             {
-                worldData = await firebaseAdapter.LoadWorldFromFirestore("MainWorld");
+                worldData = await _fileManager.LoadWorldAsync((p) => progressCallback?.Invoke(0.1f + p * 0.3f));
             }
+
 
             if (worldData == null)
             {
-                Debug.LogWarning("No save data found");
+                Debug.LogWarning($"No save data found for world '{worldName}'");
                 return false;
             }
 
@@ -163,7 +188,7 @@ public class SaveSystem : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError($"LoadWorld failed: {e.Message}");
+            Debug.LogError($"LoadWorld failed for world '{worldName}': {e.Message}");
             return false;
         }
     }
@@ -171,18 +196,50 @@ public class SaveSystem : MonoBehaviour
     [ContextMenu("Clear Save Data")]
     public void ClearSaveData()
     {
-        if (config.useLocalCache)
+        if (_config.useLocalCache)
         {
-            fileManager.DeleteSaveFile();
+            _fileManager.DeleteSaveFile();
         }
 
         Debug.Log("Save data cleared");
     }
 
+    private string TakeScreenshot(string worldName)
+    {
+        if (_screenshotCamera == null)
+        {
+            Debug.LogError("Screenshot camera is not assigned in SaveSystem.");
+            return string.Empty;
+        }
+
+        try
+        {
+            RenderTexture rt = new RenderTexture(_screenshotWidth, _screenshotHeight, 24);
+            _screenshotCamera.targetTexture = rt;
+            Texture2D screenShot = new Texture2D(_screenshotWidth, _screenshotHeight, TextureFormat.RGB24, false);
+            _screenshotCamera.Render();
+            RenderTexture.active = rt;
+            screenShot.ReadPixels(new Rect(0, 0, _screenshotWidth, _screenshotHeight), 0, 0);
+            _screenshotCamera.targetTexture = null;
+            RenderTexture.active = null;
+            Destroy(rt);
+            byte[] bytes = screenShot.EncodeToPNG();
+            string filename = System.IO.Path.Combine(Application.persistentDataPath, worldName + ".png");
+            System.IO.File.WriteAllBytes(filename, bytes);
+            Debug.Log($"Screenshot saved to {filename}");
+            return filename;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to take screenshot: {e.Message}");
+            return string.Empty;
+        }
+    }
+
     private List<CubeData> CollectAllCubesFromScene()
     {
         List<CubeData> allCubes = new List<CubeData>();
-        Entity[] entities = FindObjectsOfType<Entity>();
+        Entity[] entities = FindObjectsByType<Entity>(FindObjectsSortMode.None);
 
         foreach (var entity in entities)
         {
@@ -196,19 +253,19 @@ public class SaveSystem : MonoBehaviour
     private async System.Threading.Tasks.Task SpawnWorldFromData(WorldSaveData worldData,
         Action<float> progressCallback = null)
     {
-        bool wasAutoSimulation = Physics.autoSimulation;
-        if (config.disablePhysicsDuringLoad)
+        bool wasAutoSimulation = Physics.simulationMode == SimulationMode.Update;
+        if (_config.disablePhysicsDuringLoad)
         {
-            Physics.autoSimulation = false;
+            Physics.simulationMode = SimulationMode.Script;
         }
 
-        int totalCubes = worldData.chunks.Values.Sum(c => c.cubes.Count);
+        int totalCubes = worldData.Chunks.Values.Sum(c => c.cubes.Count);
         int spawnedCubes = 0;
 
         Dictionary<Vector3Int, List<CubeData>> cubesByEntity = GroupCubesByEntity(worldData);
-        List<Entity> allEntities = config.useDeferredSetup ? new List<Entity>(cubesByEntity.Count) : null;
+        List<Entity> allEntities = _config.useDeferredSetup ? new List<Entity>(cubesByEntity.Count) : null;
 
-        int batchSize = Mathf.Max(config.maxCubesPerFrame, config.minBatchSize);
+        int batchSize = Mathf.Max(_config.maxCubesPerFrame, _config.minBatchSize);
         int processedInBatch = 0;
 
         foreach (var kvp in cubesByEntity)
@@ -219,18 +276,21 @@ public class SaveSystem : MonoBehaviour
             Vector3 minPos = kvp.Value[0].Position;
             foreach (var cube in kvp.Value)
             {
-                if (cube.Position.x < minPos.x) minPos.x = cube.Position.x;
-                if (cube.Position.y < minPos.y) minPos.y = cube.Position.y;
-                if (cube.Position.z < minPos.z) minPos.z = cube.Position.z;
+                if (cube.Position != null)
+                {
+                    if (cube.Position.x < minPos.x) minPos.x = cube.Position.x;
+                    if (cube.Position.y < minPos.y) minPos.y = cube.Position.y;
+                    if (cube.Position.z < minPos.z) minPos.z = cube.Position.z;
+                }
             }
 
             GameObject entityObj = new GameObject("Entity");
             entityObj.transform.position = minPos;
 
             Entity entity = entityObj.AddComponent<Entity>();
-            await entity.LoadFromDataAsync(kvp.Value.ToArray(), cubeSpawner, deferredSetup: config.useDeferredSetup);
+            await entity.LoadFromDataAsync(kvp.Value.ToArray(), _cubeSpawner, deferredSetup: _config.useDeferredSetup);
 
-            if (config.useDeferredSetup)
+            if (_config.useDeferredSetup)
             {
                 allEntities.Add(entity);
             }
@@ -246,7 +306,7 @@ public class SaveSystem : MonoBehaviour
             }
         }
 
-        if (config.useDeferredSetup && allEntities != null)
+        if (_config.useDeferredSetup && allEntities != null)
         {
             progressCallback?.Invoke(0.85f);
 
@@ -259,9 +319,9 @@ public class SaveSystem : MonoBehaviour
             await System.Threading.Tasks.Task.Yield();
         }
 
-        if (config.disablePhysicsDuringLoad)
+        if (_config.disablePhysicsDuringLoad)
         {
-            Physics.autoSimulation = wasAutoSimulation;
+            Physics.simulationMode = wasAutoSimulation ? SimulationMode.Update : SimulationMode.Script;
         }
 
         progressCallback?.Invoke(1f);
@@ -272,7 +332,7 @@ public class SaveSystem : MonoBehaviour
     private Dictionary<Vector3Int, List<CubeData>> GroupCubesByEntity(WorldSaveData worldData)
     {
         List<CubeData> allCubes = new List<CubeData>();
-        foreach (var chunk in worldData.chunks.Values)
+        foreach (var chunk in worldData.Chunks.Values)
         {
             allCubes.AddRange(chunk.cubes);
         }
@@ -335,7 +395,7 @@ public class SaveSystem : MonoBehaviour
 
     private void ClearCurrentWorld()
     {
-        Entity[] entities = FindObjectsOfType<Entity>();
+        Entity[] entities = FindObjectsByType<Entity>(FindObjectsSortMode.None);
         foreach (var entity in entities)
         {
             Destroy(entity.gameObject);
@@ -346,12 +406,23 @@ public class SaveSystem : MonoBehaviour
 
     public void MarkCubeDirty(Vector3 position)
     {
-        chunkManager.MarkChunkDirty(position);
+        _chunkManager.MarkChunkDirty(position);
     }
 
-    public SaveConfig Config => config;
-    public ChunkManager ChunkManager => chunkManager;
-    public CubeSpawner CubeSpawner => cubeSpawner;
+    public SaveConfig Config => _config;
+    public ChunkManager ChunkManager => _chunkManager;
+    public CubeSpawner CubeSpawner => _cubeSpawner;
+
+    public async System.Threading.Tasks.Task<List<WorldMetadata>> GetAllWorldsMetadata()
+    {
+        if (_firebaseAdapter == null)
+        {
+            Debug.LogError("FirebaseAdapter not initialized!");
+            return new List<WorldMetadata>();
+        }
+
+        return await _firebaseAdapter.GetAllWorldsMetadata();
+    }
 }
 
 

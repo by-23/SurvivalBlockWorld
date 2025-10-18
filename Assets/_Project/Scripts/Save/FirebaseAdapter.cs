@@ -3,22 +3,57 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using Firebase.Firestore;
-using Firebase.Extensions;
 
 public class FirebaseAdapter
 {
-    private SaveConfig config;
-    private ChunkManager chunkManager;
-    private FirebaseFirestore db;
+    private readonly SaveConfig _config;
+    private readonly ChunkManager _chunkManager;
+    private readonly FirebaseFirestore _db;
 
     public FirebaseAdapter(SaveConfig config, ChunkManager chunkManager)
     {
-        this.config = config;
-        this.chunkManager = chunkManager;
-        db = FirebaseFirestore.DefaultInstance;
+        _config = config;
+        _chunkManager = chunkManager;
+        _db = FirebaseFirestore.DefaultInstance;
     }
 
-    public async Task<bool> SaveChunkToFirestore(ChunkData chunk)
+    public async Task<bool> SaveWorldToFirestore(WorldSaveData worldData)
+    {
+        try
+        {
+            DocumentReference worldRef = _db.Collection("worlds").Document(worldData.WorldName);
+
+            var worldMetadata = new Dictionary<string, object>
+            {
+                { "worldName", worldData.WorldName },
+                { "screenshotPath", worldData.ScreenshotPath },
+                { "worldBoundsMinX", worldData.WorldBoundsMin.x },
+                { "worldBoundsMinY", worldData.WorldBoundsMin.y },
+                { "worldBoundsMinZ", worldData.WorldBoundsMin.z },
+                { "worldBoundsMaxX", worldData.WorldBoundsMax.x },
+                { "worldBoundsMaxY", worldData.WorldBoundsMax.y },
+                { "worldBoundsMaxZ", worldData.WorldBoundsMax.z },
+                { "timestamp", worldData.Timestamp }
+            };
+
+            await worldRef.SetAsync(worldMetadata);
+            Debug.Log($"World metadata for '{worldData.WorldName}' saved to Firestore.");
+
+            foreach (var chunk in worldData.Chunks.Values)
+            {
+                await SaveChunkToFirestore(worldData.WorldName, chunk);
+            }
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error saving world '{worldData.WorldName}' to Firestore: {e.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> SaveChunkToFirestore(string worldId, ChunkData chunk)
     {
         try
         {
@@ -26,7 +61,7 @@ public class FirebaseAdapter
             string base64Data = chunk.ToBase64();
             string chunkId = $"chunk_{chunk.chunkCoordinates.x}_{chunk.chunkCoordinates.y}_{chunk.chunkCoordinates.z}";
 
-            DocumentReference chunkRef = db.Collection("worlds").Document("MainWorld")
+            DocumentReference chunkRef = _db.Collection("worlds").Document(worldId)
                 .Collection("chunks").Document(chunkId);
 
             var data = new Dictionary<string, object>
@@ -36,22 +71,23 @@ public class FirebaseAdapter
             };
 
             await chunkRef.SetAsync(data);
-            Debug.Log($"Chunk {chunkId} saved to Firestore.");
+            Debug.Log($"Chunk {chunkId} for world '{worldId}' saved to Firestore.");
             return true;
         }
         catch (Exception e)
         {
-            Debug.LogError($"Error saving chunk {chunk.chunkCoordinates} to Firestore: {e.Message}");
+            Debug.LogError(
+                $"Error saving chunk {chunk.chunkCoordinates} for world '{worldId}' to Firestore: {e.Message}");
             return false;
         }
     }
 
-    public async Task<ChunkData> LoadChunkFromFirestore(Vector3Int chunkCoord)
+    public async Task<ChunkData> LoadChunkFromFirestore(string worldId, Vector3Int chunkCoord)
     {
         try
         {
             string chunkId = $"chunk_{chunkCoord.x}_{chunkCoord.y}_{chunkCoord.z}";
-            DocumentReference chunkRef = db.Collection("worlds").Document("MainWorld")
+            DocumentReference chunkRef = _db.Collection("worlds").Document(worldId)
                 .Collection("chunks").Document(chunkId);
 
             DocumentSnapshot snapshot = await chunkRef.GetSnapshotAsync();
@@ -63,12 +99,12 @@ public class FirebaseAdapter
                 return ChunkData.FromBase64(base64Data);
             }
 
-            Debug.LogWarning($"Chunk {chunkId} not found in Firestore.");
+            Debug.LogWarning($"Chunk {chunkId} not found in Firestore for world '{worldId}'.");
             return null;
         }
         catch (Exception e)
         {
-            Debug.LogError($"Error loading chunk {chunkCoord} from Firestore: {e.Message}");
+            Debug.LogError($"Error loading chunk {chunkCoord} from Firestore for world '{worldId}': {e.Message}");
             return null;
         }
     }
@@ -77,31 +113,86 @@ public class FirebaseAdapter
     {
         try
         {
-            QuerySnapshot snapshot = await db.Collection("worlds").Document(worldId)
+            DocumentReference worldRef = _db.Collection("worlds").Document(worldId);
+            DocumentSnapshot worldSnapshot = await worldRef.GetSnapshotAsync();
+
+            if (!worldSnapshot.Exists)
+            {
+                Debug.LogWarning($"World '{worldId}' not found in Firestore.");
+                return null;
+            }
+
+            Vector3Int boundsMin = new Vector3Int(
+                worldSnapshot.GetValue<int>("worldBoundsMinX"),
+                worldSnapshot.GetValue<int>("worldBoundsMinY"),
+                worldSnapshot.GetValue<int>("worldBoundsMinZ")
+            );
+            Vector3Int boundsMax = new Vector3Int(
+                worldSnapshot.GetValue<int>("worldBoundsMaxX"),
+                worldSnapshot.GetValue<int>("worldBoundsMaxY"),
+                worldSnapshot.GetValue<int>("worldBoundsMaxZ")
+            );
+
+            WorldSaveData worldData = new WorldSaveData(worldId, boundsMin, boundsMax)
+            {
+                ScreenshotPath = worldSnapshot.GetValue<string>("screenshotPath"),
+                Timestamp = worldSnapshot.GetValue<long>("timestamp")
+            };
+
+            QuerySnapshot snapshot = await _db.Collection("worlds").Document(worldId)
                 .Collection("chunks").GetSnapshotAsync();
 
             if (snapshot.Count > 0)
             {
-                WorldSaveData worldData = new WorldSaveData(worldId, config.worldBoundsMin, config.worldBoundsMax);
-
                 foreach (DocumentSnapshot document in snapshot.Documents)
                 {
                     string base64Data = document.GetValue<string>("data");
                     ChunkData chunk = ChunkData.FromBase64(base64Data);
-                    worldData.chunks[chunk.chunkCoordinates] = chunk;
+                    worldData.Chunks[chunk.chunkCoordinates] = chunk;
                 }
-
-                Debug.Log($"World '{worldId}' with {worldData.chunks.Count} chunks loaded from Firestore.");
-                return worldData;
             }
 
-            Debug.LogWarning($"World '{worldId}' not found or has no chunks in Firestore.");
-            return null;
+            Debug.Log($"World '{worldId}' with {worldData.Chunks.Count} chunks loaded from Firestore.");
+            return worldData;
         }
         catch (Exception e)
         {
             Debug.LogError($"Failed to load world '{worldId}' from Firestore: {e.Message}");
             return null;
+        }
+    }
+
+    public async Task<List<WorldMetadata>> GetAllWorldsMetadata()
+    {
+        try
+        {
+            QuerySnapshot snapshot = await _db.Collection("worlds").GetSnapshotAsync();
+            List<WorldMetadata> worlds = new List<WorldMetadata>();
+
+            foreach (DocumentSnapshot document in snapshot.Documents)
+            {
+                try
+                {
+                    WorldMetadata metadata = new WorldMetadata
+                    {
+                        WorldName = document.Id,
+                        ScreenshotPath = document.GetValue<string>("screenshotPath"),
+                        Timestamp = document.GetValue<long>("timestamp")
+                    };
+                    worlds.Add(metadata);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"Error processing world metadata for {document.Id}: {e.Message}");
+                }
+            }
+
+            return worlds;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to get worlds metadata: {e.Message}");
+            return new List<WorldMetadata>();
         }
     }
 
@@ -115,6 +206,14 @@ public class FirebaseAdapter
 }
 
 [Serializable]
+public class WorldMetadata
+{
+    public string WorldName;
+    public string ScreenshotPath;
+    public long Timestamp;
+}
+
+[Serializable]
 public struct CubeChange
 {
     public enum ChangeType
@@ -124,16 +223,16 @@ public struct CubeChange
         Update
     }
 
-    public ChangeType type;
-    public Vector3 position;
-    public CubeData data;
-    public long timestamp;
+    public ChangeType Type;
+    public Vector3 Position;
+    public CubeData Data;
+    public long Timestamp;
 
     public CubeChange(ChangeType changeType, CubeData cubeData)
     {
-        type = changeType;
-        position = cubeData.Position;
-        data = cubeData;
-        timestamp = DateTime.UtcNow.Ticks;
+        Type = changeType;
+        Position = cubeData.Position;
+        Data = cubeData;
+        Timestamp = DateTime.UtcNow.Ticks;
     }
 }

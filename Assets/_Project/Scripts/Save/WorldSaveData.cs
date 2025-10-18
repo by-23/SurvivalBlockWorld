@@ -6,18 +6,20 @@ using UnityEngine;
 [Serializable]
 public class WorldSaveData
 {
-    public string worldName;
-    public Vector3Int worldBoundsMin;
-    public Vector3Int worldBoundsMax;
-    public long timestamp;
-    public Dictionary<Vector3Int, ChunkData> chunks = new Dictionary<Vector3Int, ChunkData>();
+    public string WorldName;
+    public string ScreenshotPath;
+    public Vector3Int WorldBoundsMin;
+    public Vector3Int WorldBoundsMax;
+    public long Timestamp;
+    public Dictionary<Vector3Int, ChunkData> Chunks = new Dictionary<Vector3Int, ChunkData>();
 
     public WorldSaveData(string name, Vector3Int boundsMin, Vector3Int boundsMax)
     {
-        worldName = name;
-        worldBoundsMin = boundsMin;
-        worldBoundsMax = boundsMax;
-        timestamp = DateTime.UtcNow.Ticks;
+        WorldName = name;
+        WorldBoundsMin = boundsMin;
+        WorldBoundsMax = boundsMax;
+        Timestamp = DateTime.UtcNow.Ticks;
+        ScreenshotPath = string.Empty;
     }
 
     public byte[] PackToBinary()
@@ -25,17 +27,18 @@ public class WorldSaveData
         using (MemoryStream ms = new MemoryStream())
         using (BinaryWriter writer = new BinaryWriter(ms))
         {
-            writer.Write(worldName ?? "");
-            writer.Write(worldBoundsMin.x);
-            writer.Write(worldBoundsMin.y);
-            writer.Write(worldBoundsMin.z);
-            writer.Write(worldBoundsMax.x);
-            writer.Write(worldBoundsMax.y);
-            writer.Write(worldBoundsMax.z);
-            writer.Write(timestamp);
-            writer.Write(chunks.Count);
+            writer.Write(WorldName ?? "");
+            writer.Write(ScreenshotPath ?? "");
+            writer.Write(WorldBoundsMin.x);
+            writer.Write(WorldBoundsMin.y);
+            writer.Write(WorldBoundsMin.z);
+            writer.Write(WorldBoundsMax.x);
+            writer.Write(WorldBoundsMax.y);
+            writer.Write(WorldBoundsMax.z);
+            writer.Write(Timestamp);
+            writer.Write(Chunks.Count);
 
-            foreach (var kvp in chunks)
+            foreach (var kvp in Chunks)
             {
                 byte[] chunkData = kvp.Value.PackToBinary();
                 writer.Write(chunkData.Length);
@@ -52,6 +55,7 @@ public class WorldSaveData
         using (BinaryReader reader = new BinaryReader(ms))
         {
             string name = reader.ReadString();
+            string screenshotPath = reader.ReadString();
             Vector3Int boundsMin = new Vector3Int(
                 reader.ReadInt32(),
                 reader.ReadInt32(),
@@ -65,7 +69,8 @@ public class WorldSaveData
 
             WorldSaveData world = new WorldSaveData(name, boundsMin, boundsMax)
             {
-                timestamp = reader.ReadInt64()
+                Timestamp = reader.ReadInt64(),
+                ScreenshotPath = screenshotPath
             };
 
             int chunkCount = reader.ReadInt32();
@@ -74,7 +79,7 @@ public class WorldSaveData
                 int chunkDataLength = reader.ReadInt32();
                 byte[] chunkData = reader.ReadBytes(chunkDataLength);
                 ChunkData chunk = ChunkData.UnpackFromBinary(chunkData);
-                world.chunks[chunk.chunkCoordinates] = chunk;
+                world.Chunks[chunk.chunkCoordinates] = chunk;
             }
 
             return world;
