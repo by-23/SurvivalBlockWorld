@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 using DG.Tweening;
+using System.Linq;
 
-[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(Rigidbody)), RequireComponent(typeof(EntityMeshCombiner))]
 public class Entity : MonoBehaviour
 {
     public bool _StartCheck;
@@ -18,12 +19,14 @@ public class Entity : MonoBehaviour
 
     private EntityVehicleConnector _vehicleConnector;
     private EntityHookManager _hookManager;
+    private EntityMeshCombiner _meshCombiner;
 
     private void Awake()
     {
         _rb = GetComponent<Rigidbody>();
         _vehicleConnector = GetComponent<EntityVehicleConnector>();
         _hookManager = GetComponent<EntityHookManager>();
+        _meshCombiner = GetComponent<EntityMeshCombiner>();
 
         if (EntityId == 0)
             EntityId = _nextEntityId++;
@@ -35,11 +38,14 @@ public class Entity : MonoBehaviour
     public void StartSetup()
     {
         UpdateMassAndCubes();
+        _meshCombiner.CombineMeshes();
     }
 
     public void AddCube()
     {
+        _meshCombiner.ShowCubes();
         UpdateMassAndCubes();
+        _meshCombiner.CombineMeshes();
     }
 
     private void UpdateMassAndCubes()
@@ -55,11 +61,13 @@ public class Entity : MonoBehaviour
     {
         Vector3 min = Vector3.one * float.MaxValue;
         Vector3 max = Vector3.one * float.MinValue;
-        int childCount = transform.childCount;
+        
+        _cubes = GetComponentsInChildren<Cube>();
+        int childCount = _cubes.Length;
 
         for (int i = 0; i < childCount; i++)
         {
-            Transform child = transform.GetChild(i);
+            Transform child = _cubes[i].transform;
             min = Vector3.Min(min, child.localPosition);
             max = Vector3.Max(max, child.localPosition);
         }
@@ -67,12 +75,10 @@ public class Entity : MonoBehaviour
         Vector3Int delta = Vector3Int.RoundToInt(max - min);
         _cubesInfo = new int[delta.x + 1, delta.y + 1, delta.z + 1];
         _cubesInfoStartPosition = min;
-        _cubes = GetComponentsInChildren<Cube>();
-
-
+        
         for (int i = 0; i < childCount; i++)
         {
-            Vector3Int grid = GridPosition(transform.GetChild(i).localPosition);
+            Vector3Int grid = GridPosition(_cubes[i].transform.localPosition);
             _cubesInfo[grid.x, grid.y, grid.z] = i + 1;
             if (_cubes[i] != null)
             {
@@ -174,6 +180,8 @@ public class Entity : MonoBehaviour
 
     public void DetouchCube(Cube cube)
     {
+        _meshCombiner.ShowCubes();
+        
         Vector3Int grid = GridPosition(cube.transform.localPosition);
         _cubesInfo[grid.x, grid.y, grid.z] = 0;
         _cubes[cube.Id - 1] = null;
@@ -187,6 +195,7 @@ public class Entity : MonoBehaviour
         cube.transform.DOScale(0.0f, 2).OnComplete(() => Destroy(cube.gameObject));
 
         RecalculateCubes();
+        _meshCombiner.CombineMeshes();
     }
 
 
