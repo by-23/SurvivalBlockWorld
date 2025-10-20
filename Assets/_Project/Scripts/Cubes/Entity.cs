@@ -45,7 +45,6 @@ public class Entity : MonoBehaviour
 
     public void AddCube()
     {
-        _meshCombiner.ShowCubes();
         UpdateMassAndCubes();
         RequestDelayedCombine();
     }
@@ -56,7 +55,6 @@ public class Entity : MonoBehaviour
             _rb.mass = transform.childCount / 10;
 
         CollectCubes();
-        RecalculateCubes();
     }
 
     private void CollectCubes()

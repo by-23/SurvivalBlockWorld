@@ -74,9 +74,7 @@ public class EntityMeshCombiner : MonoBehaviour
         _combinedMeshObject = new GameObject("CombinedMesh");
         _combinedMeshObject.transform.SetParent(transform, false);
 
-        var finalMesh = new Mesh();
-        var finalCombine = new List<CombineInstance>();
-        var finalMaterials = new List<Material>();
+        var propBlock = new MaterialPropertyBlock();
 
         foreach (var colorGroup in cubesByColor)
         {
@@ -84,28 +82,21 @@ public class EntityMeshCombiner : MonoBehaviour
             var instances = colorGroup.Value;
 
             var subMesh = new Mesh();
+            subMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             subMesh.CombineMeshes(instances.ToArray(), true, true);
 
-            var combine = new CombineInstance
-            {
-                mesh = subMesh,
-                transform = Matrix4x4.identity
-            };
-            finalCombine.Add(combine);
+            var colorMeshObject = new GameObject($"CombinedMesh_{color.ToString()}");
+            colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
 
-            var material = new Material(sourceMaterial);
-            material.SetColor("_BaseColor", color);
-            finalMaterials.Add(material);
+            var meshFilter = colorMeshObject.AddComponent<MeshFilter>();
+            meshFilter.sharedMesh = subMesh;
+
+            var meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
+            meshRenderer.sharedMaterial = sourceMaterial;
+
+            propBlock.SetColor("_BaseColor", color);
+            meshRenderer.SetPropertyBlock(propBlock);
         }
-
-        finalMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-        finalMesh.CombineMeshes(finalCombine.ToArray(), false, false);
-
-        var meshFilterFinal = _combinedMeshObject.AddComponent<MeshFilter>();
-        meshFilterFinal.sharedMesh = finalMesh;
-
-        var meshRendererFinal = _combinedMeshObject.AddComponent<MeshRenderer>();
-        meshRendererFinal.sharedMaterials = finalMaterials.ToArray();
 
         _isCombined = true;
     }
