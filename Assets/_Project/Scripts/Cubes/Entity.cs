@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using DG.Tweening;
@@ -20,6 +21,7 @@ public class Entity : MonoBehaviour
     private EntityVehicleConnector _vehicleConnector;
     private EntityHookManager _hookManager;
     private EntityMeshCombiner _meshCombiner;
+    private Coroutine _recombineCoroutine;
 
     private void Awake()
     {
@@ -45,7 +47,7 @@ public class Entity : MonoBehaviour
     {
         _meshCombiner.ShowCubes();
         UpdateMassAndCubes();
-        _meshCombiner.CombineMeshes();
+        RequestDelayedCombine();
     }
 
     private void UpdateMassAndCubes()
@@ -195,7 +197,23 @@ public class Entity : MonoBehaviour
         cube.transform.DOScale(0.0f, 2).OnComplete(() => Destroy(cube.gameObject));
 
         RecalculateCubes();
+        RequestDelayedCombine();
+    }
+
+    private void RequestDelayedCombine()
+    {
+        if (_recombineCoroutine != null)
+        {
+            StopCoroutine(_recombineCoroutine);
+        }
+        _recombineCoroutine = StartCoroutine(DelayedCombineMeshes());
+    }
+
+    private IEnumerator DelayedCombineMeshes()
+    {
+        yield return new WaitForSeconds(0.2f);
         _meshCombiner.CombineMeshes();
+        _recombineCoroutine = null;
     }
 
 
