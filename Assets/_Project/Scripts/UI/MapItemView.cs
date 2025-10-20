@@ -10,18 +10,24 @@ public class MapItemView : MonoBehaviour
 
     [SerializeField] private Image _screenshotImage;
     [SerializeField] private Button _loadButton;
-    [SerializeField] private TextMeshProUGUI _loadButtonText;
+    [SerializeField] private Button _deleteButton;
 
     private string _mapName;
     private string _screenshotPath;
 
     public System.Action<string> OnLoadMapRequested;
+    public System.Action<string> OnDeleteMapRequested;
 
     private void Awake()
     {
         if (_loadButton != null)
         {
             _loadButton.onClick.AddListener(OnLoadButtonClicked);
+        }
+
+        if (_deleteButton != null)
+        {
+            _deleteButton.onClick.AddListener(OnDeleteButtonClicked);
         }
     }
 
@@ -38,12 +44,6 @@ public class MapItemView : MonoBehaviour
 
         // Load screenshot
         LoadScreenshot(screenshotPath);
-
-        // Set button text
-        if (_loadButtonText != null)
-        {
-            _loadButtonText.text = "Загрузить";
-        }
     }
 
     private void LoadScreenshot(string screenshotPath)
@@ -82,11 +82,21 @@ public class MapItemView : MonoBehaviour
         OnLoadMapRequested?.Invoke(_mapName);
     }
 
+    private void OnDeleteButtonClicked()
+    {
+        OnDeleteMapRequested?.Invoke(_mapName);
+    }
+
     public void SetInteractable(bool interactable)
     {
         if (_loadButton != null)
         {
             _loadButton.interactable = interactable;
+        }
+
+        if (_deleteButton != null)
+        {
+            _deleteButton.interactable = interactable;
         }
     }
 }

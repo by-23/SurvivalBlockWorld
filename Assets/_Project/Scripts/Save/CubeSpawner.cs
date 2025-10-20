@@ -3,8 +3,9 @@ using UnityEngine;
 
 public class CubeSpawner : MonoBehaviour
 {
-    [Header("Cube Prefabs")]
-    [SerializeField] private GameObject defaultCubePrefab;
+    [Header("Cube Prefabs")] [SerializeField]
+    private GameObject defaultCubePrefab;
+
     [SerializeField] private GameObject[] cubePrefabsByType;
 
     private Dictionary<byte, GameObject> prefabDictionary = new Dictionary<byte, GameObject>();
@@ -62,7 +63,7 @@ public class CubeSpawner : MonoBehaviour
             return null;
         }
 
-        GameObject cube = Instantiate(prefab, data.Position, Quaternion.identity, parent);
+        GameObject cube = Instantiate(prefab, data.Position, data.Rotation, parent);
 
         if (componentCache.TryGetValue(cacheKey, out PrefabComponents components))
         {
@@ -114,6 +115,7 @@ public class CubeSpawner : MonoBehaviour
 
         GameObject cube = Instantiate(prefab, parent);
         cube.transform.localPosition = data.Position;
+        cube.transform.localRotation = data.Rotation;
 
         if (componentCache.TryGetValue(cacheKey, out PrefabComponents components))
         {
@@ -137,6 +139,7 @@ public class CubeSpawner : MonoBehaviour
         {
             return prefab;
         }
+
         return null;
     }
 

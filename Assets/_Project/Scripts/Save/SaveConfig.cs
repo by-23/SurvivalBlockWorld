@@ -8,7 +8,7 @@ public class SaveConfig : ScriptableObject
     [Header("World Bounds")] public Vector3Int worldBoundsMin = new Vector3Int(-500, -100, -500);
     public Vector3Int worldBoundsMax = new Vector3Int(500, 100, 500);
 
-    [Header("Save Mode")] public bool useFirebase = false;
+    [Header("Save Mode")] public bool useFirebase = true;
     public bool useLocalCache = true;
 
     [Header("Performance")] public bool enableCompression = false;
@@ -24,6 +24,9 @@ public class SaveConfig : ScriptableObject
     public int minBatchSize = 200;
 
     [Header("File Settings")] public string saveFileName = "world.dat";
+
+    [Header("Entity Settings")] [Tooltip("Scale factor for entities when loading from save data")]
+    public float entityScale = 0.35f;
 
     public string GetSavePath()
     {

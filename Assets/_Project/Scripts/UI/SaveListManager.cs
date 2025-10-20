@@ -13,6 +13,7 @@ public class SaveListManager : MonoBehaviour
     [SerializeField] private GameObject _mapItemPrefab;
     [SerializeField] private GameObject _loadingPanel;
     [SerializeField] private TextMeshProUGUI _loadingText;
+    [SerializeField] private SnappingScroll _snappingScroll;
 
     [Header("Configuration")] [SerializeField]
     private SaveSystem _saveSystem;
@@ -21,6 +22,7 @@ public class SaveListManager : MonoBehaviour
     private List<MapItemView> _mapItems = new List<MapItemView>();
 
     public System.Action<string> OnMapLoadRequested;
+    public System.Action<string> OnMapDeleteRequested;
 
     private void Awake()
     {
@@ -58,6 +60,9 @@ public class SaveListManager : MonoBehaviour
             }
 
             ShowLoading(false);
+
+            if (_snappingScroll)
+                _snappingScroll.UpdateChildren();
         }
         catch (Exception e)
         {
@@ -86,6 +91,7 @@ public class SaveListManager : MonoBehaviour
 
         mapItemView.SetMapData(mapName, screenshotPath);
         mapItemView.OnLoadMapRequested += OnMapLoadRequested;
+        mapItemView.OnDeleteMapRequested += OnMapDeleteRequested;
 
         _mapItems.Add(mapItemView);
     }
@@ -97,6 +103,7 @@ public class SaveListManager : MonoBehaviour
             if (mapItem != null)
             {
                 mapItem.OnLoadMapRequested -= OnMapLoadRequested;
+                mapItem.OnDeleteMapRequested -= OnMapDeleteRequested;
                 Destroy(mapItem.gameObject);
             }
         }
@@ -120,6 +127,40 @@ public class SaveListManager : MonoBehaviour
     public void RefreshSaveList()
     {
         LoadSaveList();
+    }
+
+    public async void DeleteMap(string mapName)
+    {
+        ShowLoading(true, "Удаление карты...");
+
+        try
+        {
+            if (_saveSystem == null)
+            {
+                Debug.LogError("SaveSystem not assigned to SaveListManager!");
+                ShowLoading(false);
+                return;
+            }
+
+            bool success = await _saveSystem.DeleteWorldAsync(mapName);
+
+            if (success)
+            {
+                Debug.Log($"Map '{mapName}' deleted successfully.");
+                // Обновляем список после успешного удаления
+                LoadSaveList();
+            }
+            else
+            {
+                Debug.LogError($"Failed to delete map '{mapName}'.");
+                ShowLoading(false);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to delete map '{mapName}': {e.Message}");
+            ShowLoading(false);
+        }
     }
 
     private void OnDestroy()

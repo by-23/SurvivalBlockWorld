@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -37,6 +36,7 @@ public class SaveSystem : MonoBehaviour
     private ChunkManager _chunkManager;
     private FileManager _fileManager;
     private FirebaseAdapter _firebaseAdapter;
+
 
     private void Awake()
     {
@@ -194,14 +194,84 @@ public class SaveSystem : MonoBehaviour
     }
 
     [ContextMenu("Clear Save Data")]
-    public void ClearSaveData()
+    public async void ClearSaveData()
     {
-        if (_config.useLocalCache)
+        try
         {
-            _fileManager.DeleteSaveFile();
-        }
+            bool success = true;
 
-        Debug.Log("Save data cleared");
+            // Очищаем локальный кэш
+            if (_config.useLocalCache)
+            {
+                _fileManager.DeleteSaveFile();
+                Debug.Log("Local save data cleared");
+            }
+
+            // Очищаем Firebase (удаляем все карты)
+            if (_config.useFirebase && _firebaseAdapter != null)
+            {
+                var worldsMetadata = await _firebaseAdapter.GetAllWorldsMetadata();
+                foreach (var world in worldsMetadata)
+                {
+                    bool deleteSuccess = await _firebaseAdapter.DeleteWorldFromFirestore(world.WorldName);
+                    if (!deleteSuccess)
+                    {
+                        success = false;
+                        Debug.LogError($"Failed to delete world '{world.WorldName}' from Firebase");
+                    }
+                }
+
+                Debug.Log($"Firebase data cleared - {worldsMetadata.Count} worlds deleted");
+            }
+
+            if (success)
+            {
+                Debug.Log("All save data cleared successfully");
+            }
+            else
+            {
+                Debug.LogWarning("Some save data could not be cleared");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error clearing save data: {e.Message}");
+        }
+    }
+
+    public async System.Threading.Tasks.Task<bool> DeleteWorldAsync(string worldName)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Delete failed: World name cannot be empty.");
+                return false;
+            }
+
+            bool success = true;
+
+            if (_config.useFirebase)
+            {
+                success = await _firebaseAdapter.DeleteWorldFromFirestore(worldName);
+            }
+
+            if (success)
+            {
+                Debug.Log($"World '{worldName}' deleted successfully.");
+            }
+            else
+            {
+                Debug.LogError($"Failed to delete world '{worldName}'.");
+            }
+
+            return success;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"DeleteWorld failed for world '{worldName}': {e.Message}");
+            return false;
+        }
     }
 
     private string TakeScreenshot(string worldName)
@@ -286,6 +356,7 @@ public class SaveSystem : MonoBehaviour
 
             GameObject entityObj = new GameObject("Entity");
             entityObj.transform.position = minPos;
+            entityObj.transform.localScale = Vector3.one * _config.entityScale;
 
             Entity entity = entityObj.AddComponent<Entity>();
             await entity.LoadFromDataAsync(kvp.Value.ToArray(), _cubeSpawner, deferredSetup: _config.useDeferredSetup);
@@ -312,7 +383,10 @@ public class SaveSystem : MonoBehaviour
 
             foreach (var entity in allEntities)
             {
-                entity.FinalizeLoad();
+                if (entity != null)
+                {
+                    entity.FinalizeLoad();
+                }
             }
 
             progressCallback?.Invoke(0.95f);
@@ -340,53 +414,28 @@ public class SaveSystem : MonoBehaviour
         if (allCubes.Count == 0)
             return new Dictionary<Vector3Int, List<CubeData>>();
 
-        Dictionary<Vector3, CubeData> cubePositions = new Dictionary<Vector3, CubeData>();
+        // Группируем кубы по их entityId
+        Dictionary<int, List<CubeData>> cubesByEntityId = new Dictionary<int, List<CubeData>>();
+
         foreach (var cube in allCubes)
         {
-            cubePositions[cube.Position] = cube;
+            if (!cubesByEntityId.ContainsKey(cube.entityId))
+            {
+                cubesByEntityId[cube.entityId] = new List<CubeData>();
+            }
+
+            cubesByEntityId[cube.entityId].Add(cube);
         }
 
-        HashSet<Vector3> processedCubes = new HashSet<Vector3>();
+
+        // Конвертируем в формат, ожидаемый SpawnWorldFromData
         Dictionary<Vector3Int, List<CubeData>> entityGroups = new Dictionary<Vector3Int, List<CubeData>>();
         int groupIndex = 0;
 
-        foreach (var cube in allCubes)
+        foreach (var kvp in cubesByEntityId)
         {
-            if (processedCubes.Contains(cube.Position))
-                continue;
-
-            List<CubeData> group = new List<CubeData>();
-            Queue<Vector3> toProcess = new Queue<Vector3>();
-            toProcess.Enqueue(cube.Position);
-            processedCubes.Add(cube.Position);
-
-            while (toProcess.Count > 0)
-            {
-                Vector3 currentPos = toProcess.Dequeue();
-                group.Add(cubePositions[currentPos]);
-
-                Vector3[] neighbors = new Vector3[]
-                {
-                    currentPos + Vector3.up,
-                    currentPos + Vector3.down,
-                    currentPos + Vector3.left,
-                    currentPos + Vector3.right,
-                    currentPos + Vector3.forward,
-                    currentPos + Vector3.back
-                };
-
-                foreach (var neighborPos in neighbors)
-                {
-                    if (cubePositions.ContainsKey(neighborPos) && !processedCubes.Contains(neighborPos))
-                    {
-                        processedCubes.Add(neighborPos);
-                        toProcess.Enqueue(neighborPos);
-                    }
-                }
-            }
-
             Vector3Int groupKey = new Vector3Int(groupIndex, 0, 0);
-            entityGroups[groupKey] = group;
+            entityGroups[groupKey] = kvp.Value;
             groupIndex++;
         }
 

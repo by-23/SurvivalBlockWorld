@@ -14,7 +14,6 @@ public class UIManager : MonoBehaviour
     [SerializeField] private VehicleForce _vehicleForce;
 
     [Header("Buttons")] [SerializeField] private Button _saveButton;
-    [SerializeField] private Button _loadButton;
     [SerializeField] private Button _mapsButton;
 
     [Header("Save UI")] [SerializeField] private GameObject _savePanel;
@@ -46,9 +45,9 @@ public class UIManager : MonoBehaviour
             _saveButton.onClick.AddListener(OnSaveButtonPressed);
         }
 
-        if (_loadButton != null)
+        if (_mapsButton != null)
         {
-            _loadButton.onClick.AddListener(OnLoadButtonPressed);
+            _mapsButton.onClick.AddListener(OnLoadButtonPressed);
         }
 
         if (_confirmSaveButton != null)
@@ -80,6 +79,7 @@ public class UIManager : MonoBehaviour
         if (_saveListManager != null)
         {
             _saveListManager.OnMapLoadRequested += OnMapLoadRequested;
+            _saveListManager.OnMapDeleteRequested += OnMapDeleteRequested;
         }
     }
 
@@ -153,6 +153,15 @@ public class UIManager : MonoBehaviour
         if (_loadPanel != null)
         {
             _loadPanel.SetActive(false);
+        }
+    }
+
+    private void OnMapDeleteRequested(string mapName)
+    {
+        Debug.Log($"Deleting map: {mapName}");
+        if (_saveListManager != null)
+        {
+            _saveListManager.DeleteMap(mapName);
         }
     }
 
@@ -232,6 +241,7 @@ public class UIManager : MonoBehaviour
         if (_saveListManager != null)
         {
             _saveListManager.OnMapLoadRequested -= OnMapLoadRequested;
+            _saveListManager.OnMapDeleteRequested -= OnMapDeleteRequested;
         }
     }
 }

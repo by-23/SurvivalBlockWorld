@@ -7,6 +7,10 @@ public class Entity : MonoBehaviour
 {
     public bool _StartCheck;
 
+    private static int _nextEntityId = 1;
+    public int EntityId { get; private set; }
+    private bool _isLoading = false;
+
     private Rigidbody _rb;
     private int[,,] _cubesInfo;
     private Vector3 _cubesInfoStartPosition;
@@ -20,6 +24,9 @@ public class Entity : MonoBehaviour
         _rb = GetComponent<Rigidbody>();
         _vehicleConnector = GetComponent<EntityVehicleConnector>();
         _hookManager = GetComponent<EntityHookManager>();
+
+        if (EntityId == 0)
+            EntityId = _nextEntityId++;
 
         if (_StartCheck)
             StartSetup();
@@ -62,12 +69,16 @@ public class Entity : MonoBehaviour
         _cubesInfoStartPosition = min;
         _cubes = GetComponentsInChildren<Cube>();
 
+
         for (int i = 0; i < childCount; i++)
         {
             Vector3Int grid = GridPosition(transform.GetChild(i).localPosition);
             _cubesInfo[grid.x, grid.y, grid.z] = i + 1;
-            _cubes[i].Id = i + 1;
-            _cubes[i].SetEntity(this);
+            if (_cubes[i] != null)
+            {
+                _cubes[i].Id = i + 1;
+                _cubes[i].SetEntity(this);
+            }
         }
 
         if (_hookManager)
@@ -76,6 +87,11 @@ public class Entity : MonoBehaviour
 
     private void RecalculateCubes()
     {
+        if (_isLoading)
+        {
+            return;
+        }
+
         HashSet<int> freeCubeIds = new HashSet<int>();
         for (int i = 0; i < _cubes.Length; i++)
         {
@@ -174,7 +190,6 @@ public class Entity : MonoBehaviour
     }
 
 
-
     private Vector3Int GridPosition(Vector3 localPosition)
     {
         return Vector3Int.RoundToInt(localPosition - _cubesInfoStartPosition);
@@ -186,7 +201,8 @@ public class Entity : MonoBehaviour
         if (gridPosition.x < 0 || gridPosition.y < 0 || gridPosition.z < 0)
             return 0;
 
-        if (gridPosition.x >= _cubesInfo.GetLength(0) || gridPosition.y >= _cubesInfo.GetLength(1) || gridPosition.z >= _cubesInfo.GetLength(2))
+        if (gridPosition.x >= _cubesInfo.GetLength(0) || gridPosition.y >= _cubesInfo.GetLength(1) ||
+            gridPosition.z >= _cubesInfo.GetLength(2))
             return 0;
 
         return _cubesInfo[gridPosition.x, gridPosition.y, gridPosition.z];
@@ -204,27 +220,39 @@ public class Entity : MonoBehaviour
         {
             if (cube != null)
             {
-                cubeDataList.Add(cube.GetSaveData(entityWorldPos));
+                cubeDataList.Add(cube.GetSaveData(entityWorldPos, EntityId));
             }
         }
 
         return cubeDataList.ToArray();
     }
 
-    public async System.Threading.Tasks.Task LoadFromDataAsync(CubeData[] cubes, CubeSpawner spawner, bool deferredSetup = true)
+    public async System.Threading.Tasks.Task LoadFromDataAsync(CubeData[] cubes, CubeSpawner spawner,
+        bool deferredSetup = true)
     {
         if (cubes == null || cubes.Length == 0)
             return;
 
+        _isLoading = true;
         Vector3 entityPos = transform.position;
+        float entityScale = transform.localScale.x; // Assuming uniform scaling
 
         foreach (var cubeData in cubes)
         {
             GameObject cubeObj = spawner.SpawnCube(cubeData, transform);
             if (cubeObj != null)
             {
-                Vector3 localPos = cubeData.Position - entityPos;
+                Vector3 localPos = (cubeData.Position - entityPos) / entityScale;
                 cubeObj.transform.localPosition = localPos;
+                // Поворот уже установлен в CubeSpawner, но нужно убедиться, что он локальный
+                cubeObj.transform.localRotation = cubeData.Rotation;
+
+                // Убеждаемся, что куб знает о своем entity
+                Cube cubeComponent = cubeObj.GetComponent<Cube>();
+                if (cubeComponent != null)
+                {
+                    cubeComponent.SetEntity(this);
+                }
             }
         }
 
@@ -236,11 +264,15 @@ public class Entity : MonoBehaviour
             if (_rb)
                 _rb.isKinematic = true;
         }
+
+        _isLoading = false;
     }
 
     public void FinalizeLoad()
     {
+        _isLoading = true;
         StartSetup();
+        _isLoading = false;
 
         if (_rb)
             _rb.isKinematic = true;

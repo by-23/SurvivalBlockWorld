@@ -196,6 +196,32 @@ public class FirebaseAdapter
         }
     }
 
+    public async Task<bool> DeleteWorldFromFirestore(string worldName)
+    {
+        try
+        {
+            DocumentReference worldRef = _db.Collection("worlds").Document(worldName);
+
+            // Сначала удаляем все чанки
+            QuerySnapshot chunksSnapshot = await worldRef.Collection("chunks").GetSnapshotAsync();
+            foreach (DocumentSnapshot chunkDoc in chunksSnapshot.Documents)
+            {
+                await chunkDoc.Reference.DeleteAsync();
+            }
+
+            // Затем удаляем сам документ мира
+            await worldRef.DeleteAsync();
+
+            Debug.Log($"World '{worldName}' deleted from Firestore.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error deleting world '{worldName}' from Firestore: {e.Message}");
+            return false;
+        }
+    }
+
     // Метод SyncDelta оставлен для будущей реализации, если потребуется синхронизация только изменений
     public async Task<bool> SyncDelta(CubeChange[] changes)
     {

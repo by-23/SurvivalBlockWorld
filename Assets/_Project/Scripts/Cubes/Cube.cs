@@ -53,10 +53,11 @@ public class Cube : MonoBehaviour
         Destroy(gameObject);
     }
 
-    public CubeData GetSaveData(Vector3 entityWorldPosition)
+    public CubeData GetSaveData(Vector3 entityWorldPosition, int entityId)
     {
         Vector3 worldPos = transform.position;
         Color32 color = _colorCube ? _colorCube.GetColor32() : new Color32(255, 255, 255, 255);
-        return new CubeData(worldPos, color, BlockTypeID);
+        Quaternion rotation = transform.rotation;
+        return new CubeData(worldPos, color, BlockTypeID, entityId, rotation);
     }
 }
