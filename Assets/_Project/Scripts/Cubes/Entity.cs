@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using DG.Tweening;
 using System.Linq;
 
 [RequireComponent(typeof(Rigidbody)), RequireComponent(typeof(EntityMeshCombiner))]
@@ -192,7 +191,7 @@ public class Entity : MonoBehaviour
         if (_hookManager)
             _hookManager.DetachHookFromCube(cube);
 
-        cube.transform.DOScale(0.0f, 2).OnComplete(() => Destroy(cube.gameObject));
+        StartCoroutine(ScaleDownAndDestroy(cube.transform, 2f));
 
         RecalculateCubes();
         RequestDelayedCombine();
@@ -214,6 +213,22 @@ public class Entity : MonoBehaviour
         _recombineCoroutine = null;
     }
 
+    private IEnumerator ScaleDownAndDestroy(Transform target, float duration)
+    {
+        Vector3 initialScale = target.localScale;
+        Vector3 targetScale = Vector3.zero;
+        float timer = 0f;
+
+        while (timer < duration)
+        {
+            target.localScale = Vector3.Lerp(initialScale, targetScale, timer / duration);
+            timer += Time.deltaTime;
+            yield return null;
+        }
+
+        target.localScale = targetScale;
+        Destroy(target.gameObject);
+    }
 
     private Vector3Int GridPosition(Vector3 localPosition)
     {

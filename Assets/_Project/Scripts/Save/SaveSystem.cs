@@ -40,6 +40,8 @@ public class SaveSystem : MonoBehaviour
 
     private void Awake()
     {
+        Application.targetFrameRate = -1;
+        QualitySettings.vSyncCount = 0;
         if (_instance != null && _instance != this)
         {
             Destroy(gameObject);
@@ -284,6 +286,7 @@ public class SaveSystem : MonoBehaviour
 
         try
         {
+            _screenshotCamera.gameObject.SetActive(true);
             RenderTexture rt = new RenderTexture(_screenshotWidth, _screenshotHeight, 24);
             _screenshotCamera.targetTexture = rt;
             Texture2D screenShot = new Texture2D(_screenshotWidth, _screenshotHeight, TextureFormat.RGB24, false);
@@ -296,6 +299,7 @@ public class SaveSystem : MonoBehaviour
             byte[] bytes = screenShot.EncodeToPNG();
             string filename = System.IO.Path.Combine(Application.persistentDataPath, worldName + ".png");
             System.IO.File.WriteAllBytes(filename, bytes);
+            _screenshotCamera.gameObject.SetActive(false);
             Debug.Log($"Screenshot saved to {filename}");
             return filename;
         }
