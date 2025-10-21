@@ -10,7 +10,7 @@ public class RaycastDetoucher : MonoBehaviour
     {
         if (InputManager.Instance._TOUCH) return;
 
-        if(Input.GetKeyDown(KeyCode.T))
+        if (Input.GetKeyDown(KeyCode.T))
         {
             Raycast();
         }
@@ -26,6 +26,7 @@ public class RaycastDetoucher : MonoBehaviour
             {
                 cube.Destroy();
             }
+
             Explosion(hit.point);
         }
     }
@@ -33,11 +34,11 @@ public class RaycastDetoucher : MonoBehaviour
     private void Explosion(Vector3 point)
     {
         var colliders = Physics.OverlapSphere(point, _explosionRadius);
-        foreach(Collider collider in colliders)
+        foreach (Collider collider in colliders)
         {
-            if(collider.TryGetComponent(out Cube cube))
+            if (collider.TryGetComponent(out Cube cube))
             {
-                if(!cube.Detouched)
+                if (!cube.Detouched)
                 {
                     cube.Detouch();
                     cube.GetComponent<Rigidbody>().AddExplosionForce(1000f, point, _explosionRadius);
