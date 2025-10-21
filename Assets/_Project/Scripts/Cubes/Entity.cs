@@ -97,80 +97,100 @@ public class Entity : MonoBehaviour
             return;
         }
 
-        HashSet<int> freeCubeIds = new HashSet<int>();
-        for (int i = 0; i < _cubes.Length; i++)
+        var allCubes = new Dictionary<int, Cube>();
+        foreach (var cube in _cubes)
         {
-            if (_cubes[i] != null)
-                freeCubeIds.Add(_cubes[i].Id);
+            if (cube != null)
+            {
+                allCubes.Add(cube.Id, cube);
+            }
         }
 
-        if (freeCubeIds.Count == 0)
+        if (allCubes.Count == 0)
         {
             Destroy(gameObject);
             return;
         }
 
-        List<CubeGroup> groups = new List<CubeGroup>();
-        int currentGroup = 0;
+        var groups = new List<List<int>>();
+        var visitedCubeIds = new HashSet<int>();
 
-        while (freeCubeIds.Count > 0)
+        foreach (var cubeId in allCubes.Keys)
         {
-            groups.Add(new CubeGroup());
-            int id = 0;
-            foreach (int cubeId in freeCubeIds)
+            if (visitedCubeIds.Contains(cubeId))
             {
-                id = cubeId;
-                break;
+                continue;
             }
 
-            groups[currentGroup].Cubes.Add(id);
-            freeCubeIds.Remove(id);
-            checkCube(id);
-            currentGroup++;
+            var newGroup = new List<int>();
+            var queue = new Queue<int>();
 
-            void checkCube(int id)
+            queue.Enqueue(cubeId);
+            visitedCubeIds.Add(cubeId);
+
+            while (queue.Count > 0)
             {
-                Vector3Int gridPosition = GridPosition(_cubes[id - 1].transform.localPosition);
+                int currentCubeId = queue.Dequeue();
+                newGroup.Add(currentCubeId);
 
-                checkNeighbor(Vector3Int.up);
-                checkNeighbor(Vector3Int.right);
-                checkNeighbor(Vector3Int.down);
-                checkNeighbor(Vector3Int.left);
-                checkNeighbor(Vector3Int.forward);
-                checkNeighbor(Vector3Int.back);
+                if (!allCubes.TryGetValue(currentCubeId, out var currentCube)) continue;
 
-                void checkNeighbor(Vector3Int direction)
+                Vector3Int gridPosition = GridPosition(currentCube.transform.localPosition);
+
+                CheckNeighbor(gridPosition, Vector3Int.up);
+                CheckNeighbor(gridPosition, Vector3Int.down);
+                CheckNeighbor(gridPosition, Vector3Int.left);
+                CheckNeighbor(gridPosition, Vector3Int.right);
+                CheckNeighbor(gridPosition, Vector3Int.forward);
+                CheckNeighbor(gridPosition, Vector3Int.back);
+            }
+
+            groups.Add(newGroup);
+
+            void CheckNeighbor(Vector3Int currentPos, Vector3Int direction)
+            {
+                int neighborId = GetNeighbor(currentPos, direction);
+                if (neighborId > 0 && allCubes.ContainsKey(neighborId) && !visitedCubeIds.Contains(neighborId))
                 {
-                    int id = GetNeighbor(gridPosition, direction);
-                    if (freeCubeIds.Remove(id))
-                    {
-                        groups[currentGroup].Cubes.Add(id);
-                        checkCube(id);
-                    }
+                    visitedCubeIds.Add(neighborId);
+                    queue.Enqueue(neighborId);
                 }
             }
         }
 
         if (groups.Count < 2)
+        {
             return;
+        }
+
+        groups = groups.OrderByDescending(g => g.Count).ToList();
 
         for (int i = 1; i < groups.Count; i++)
         {
-            GameObject entity = new GameObject("Entity");
-            var firstCube = _cubes[groups[i].Cubes[0] - 1].transform;
-            entity.transform.SetPositionAndRotation(firstCube.position, firstCube.rotation);
-            entity.transform.localScale = transform.localScale;
+            var group = groups[i];
+            if (group.Count == 0) continue;
 
-            foreach (int id in groups[i].Cubes)
+            GameObject newEntityObject = new GameObject("Entity");
+
+            Cube firstCubeInGroup = allCubes[group[0]];
+            newEntityObject.transform.SetPositionAndRotation(firstCubeInGroup.transform.position, firstCubeInGroup.transform.rotation);
+            newEntityObject.transform.localScale = transform.localScale;
+
+            foreach (int cubeId in group)
             {
-                _cubes[id - 1].transform.parent = entity.transform;
+                if (allCubes.TryGetValue(cubeId, out var cubeToMove))
+                {
+                    cubeToMove.transform.parent = newEntityObject.transform;
+                }
             }
 
-            Entity addEntity = entity.AddComponent<Entity>();
-            addEntity.StartSetup();
+            Entity newEntity = newEntityObject.AddComponent<Entity>();
+            newEntity.StartSetup();
 
             if (_vehicleConnector)
+            {
                 _vehicleConnector.OnEntityRecalculated();
+            }
         }
 
         CollectCubes();
@@ -349,9 +369,4 @@ public class Entity : MonoBehaviour
             }
         }
     }
-}
-
-public class CubeGroup
-{
-    public List<int> Cubes = new List<int>();
 }
