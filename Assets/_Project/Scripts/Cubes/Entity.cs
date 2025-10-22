@@ -71,7 +71,7 @@ public class Entity : MonoBehaviour
         RequestDelayedCombine();
     }
 
-    private void UpdateMassAndCubes()
+    public void UpdateMassAndCubes()
     {
         if (_rb)
             _rb.mass = transform.childCount / 10;
@@ -653,6 +653,360 @@ public class Entity : MonoBehaviour
 
         if (_rb)
             _rb.isKinematic = true;
+    }
+
+    /// <summary>
+    /// Подсчитывает количество групп кубов, которые соприкасаются между собой, но не контактируют с другими группами
+    /// </summary>
+    /// <returns>Количество изолированных групп кубов</returns>
+    public int CountConnectedGroups()
+    {
+        // Обновляем данные кубов перед подсчетом групп
+        CollectCubes();
+
+        if (_isLoading || _cubes == null)
+        {
+            return 0;
+        }
+
+        // Быстрый подсчет активных кубов
+        int activeCubeCount = 0;
+        for (int i = 0; i < _cubes.Length; i++)
+        {
+            if (_cubes[i] != null)
+                activeCubeCount++;
+        }
+
+        if (activeCubeCount == 0)
+        {
+            return 0;
+        }
+
+        // Переиспользуем массивы для избежания аллокаций
+        if (_tempActiveCubes == null || _tempActiveCubes.Length < activeCubeCount)
+        {
+            _tempActiveCubes = new Cube[activeCubeCount];
+            _tempCubeIds = new int[activeCubeCount];
+            _tempVisited = new bool[activeCubeCount];
+            _tempQueue = new int[activeCubeCount];
+            _tempCurrentGroup = new int[activeCubeCount];
+        }
+
+        // Заполняем массивы активными кубами
+        int index = 0;
+        for (int i = 0; i < _cubes.Length; i++)
+        {
+            if (_cubes[i] != null)
+            {
+                _tempCubeIds[index] = _cubes[i].Id;
+                _tempActiveCubes[index] = _cubes[i];
+                index++;
+            }
+        }
+
+        // Очищаем массив посещенных
+        for (int i = 0; i < activeCubeCount; i++)
+        {
+            _tempVisited[i] = false;
+        }
+
+        int groupCount = 0;
+
+        for (int i = 0; i < activeCubeCount; i++)
+        {
+            if (_tempVisited[i])
+                continue;
+
+            // Начинаем новую группу
+            int queueStart = 0;
+            int queueEnd = 0;
+
+            // Добавляем первый куб в очередь
+            _tempQueue[queueEnd++] = i;
+            _tempVisited[i] = true;
+
+            // BFS для поиска связанных кубов
+            while (queueStart < queueEnd)
+            {
+                int currentIndex = _tempQueue[queueStart++];
+
+                Cube currentCube = _tempActiveCubes[currentIndex];
+                if (currentCube == null) continue;
+
+                // Кэшируем позицию куба
+                Vector3Int gridPosition = GridPosition(currentCube.transform.localPosition);
+
+                // Проверяем всех соседей с оптимизированным поиском
+                CheckNeighborOptimized(gridPosition, 0, 1, 0); // up
+                CheckNeighborOptimized(gridPosition, 0, -1, 0); // down
+                CheckNeighborOptimized(gridPosition, -1, 0, 0); // left
+                CheckNeighborOptimized(gridPosition, 1, 0, 0); // right
+                CheckNeighborOptimized(gridPosition, 0, 0, 1); // forward
+                CheckNeighborOptimized(gridPosition, 0, 0, -1); // back
+            }
+
+            groupCount++;
+
+            void CheckNeighborOptimized(Vector3Int currentPos, int dx, int dy, int dz)
+            {
+                int x = currentPos.x + dx;
+                int y = currentPos.y + dy;
+                int z = currentPos.z + dz;
+
+                if (x < 0 || y < 0 || z < 0 ||
+                    x >= _cubesInfoSizeX || y >= _cubesInfoSizeY || z >= _cubesInfoSizeZ)
+                    return;
+
+                int neighborId = _cubesInfo[x, y, z];
+                if (neighborId <= 0) return;
+
+                // Используем кэш для быстрого поиска
+                if (_cubeIdToIndex.ContainsKey(neighborId))
+                {
+                    // Находим индекс в массиве активных кубов
+                    for (int j = 0; j < activeCubeCount; j++)
+                    {
+                        if (_tempCubeIds[j] == neighborId && !_tempVisited[j])
+                        {
+                            _tempVisited[j] = true;
+                            _tempQueue[queueEnd++] = j;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return groupCount;
+    }
+
+    /// <summary>
+    /// Автоматически разделяет кубы на отдельные Entity если обнаружено несколько групп
+    /// </summary>
+    /// <returns>Список созданных Entity (не включая текущий)</returns>
+    public List<Entity> SplitIntoSeparateEntities()
+    {
+        // Обновляем данные кубов перед подсчетом групп
+        CollectCubes();
+
+        if (_isLoading || _cubes == null)
+        {
+            return new List<Entity>();
+        }
+
+        // Быстрый подсчет активных кубов
+        int activeCubeCount = 0;
+        for (int i = 0; i < _cubes.Length; i++)
+        {
+            if (_cubes[i] != null)
+                activeCubeCount++;
+        }
+
+        if (activeCubeCount == 0)
+        {
+            return new List<Entity>();
+        }
+
+        // Переиспользуем массивы для избежания аллокаций
+        if (_tempActiveCubes == null || _tempActiveCubes.Length < activeCubeCount)
+        {
+            _tempActiveCubes = new Cube[activeCubeCount];
+            _tempCubeIds = new int[activeCubeCount];
+            _tempVisited = new bool[activeCubeCount];
+            _tempQueue = new int[activeCubeCount];
+            _tempCurrentGroup = new int[activeCubeCount];
+        }
+
+        // Заполняем массивы активными кубами
+        int index = 0;
+        for (int i = 0; i < _cubes.Length; i++)
+        {
+            if (_cubes[i] != null)
+            {
+                _tempCubeIds[index] = _cubes[i].Id;
+                _tempActiveCubes[index] = _cubes[i];
+                index++;
+            }
+        }
+
+        // Очищаем массив посещенных
+        for (int i = 0; i < activeCubeCount; i++)
+        {
+            _tempVisited[i] = false;
+        }
+
+        // Массив для хранения групп
+        if (_tempGroups == null || _tempGroups.Length < activeCubeCount)
+        {
+            _tempGroups = new int[activeCubeCount][];
+        }
+
+        int groupCount = 0;
+
+        for (int i = 0; i < activeCubeCount; i++)
+        {
+            if (_tempVisited[i])
+                continue;
+
+            // Начинаем новую группу
+            int currentGroupSize = 0;
+            int queueStart = 0;
+            int queueEnd = 0;
+
+            // Добавляем первый куб в очередь
+            _tempQueue[queueEnd++] = i;
+            _tempVisited[i] = true;
+
+            // BFS для поиска связанных кубов
+            while (queueStart < queueEnd)
+            {
+                int currentIndex = _tempQueue[queueStart++];
+                _tempCurrentGroup[currentGroupSize++] = _tempCubeIds[currentIndex];
+
+                Cube currentCube = _tempActiveCubes[currentIndex];
+                if (currentCube == null) continue;
+
+                // Кэшируем позицию куба
+                Vector3Int gridPosition = GridPosition(currentCube.transform.localPosition);
+
+                // Проверяем всех соседей с оптимизированным поиском
+                CheckNeighborOptimized(gridPosition, 0, 1, 0); // up
+                CheckNeighborOptimized(gridPosition, 0, -1, 0); // down
+                CheckNeighborOptimized(gridPosition, -1, 0, 0); // left
+                CheckNeighborOptimized(gridPosition, 1, 0, 0); // right
+                CheckNeighborOptimized(gridPosition, 0, 0, 1); // forward
+                CheckNeighborOptimized(gridPosition, 0, 0, -1); // back
+            }
+
+            // Сохраняем группу
+            if (currentGroupSize > 0)
+            {
+                _tempGroups[groupCount] = new int[currentGroupSize];
+                for (int j = 0; j < currentGroupSize; j++)
+                {
+                    _tempGroups[groupCount][j] = _tempCurrentGroup[j];
+                }
+
+                groupCount++;
+            }
+
+            void CheckNeighborOptimized(Vector3Int currentPos, int dx, int dy, int dz)
+            {
+                int x = currentPos.x + dx;
+                int y = currentPos.y + dy;
+                int z = currentPos.z + dz;
+
+                if (x < 0 || y < 0 || z < 0 ||
+                    x >= _cubesInfoSizeX || y >= _cubesInfoSizeY || z >= _cubesInfoSizeZ)
+                    return;
+
+                int neighborId = _cubesInfo[x, y, z];
+                if (neighborId <= 0) return;
+
+                // Используем кэш для быстрого поиска
+                if (_cubeIdToIndex.ContainsKey(neighborId))
+                {
+                    // Находим индекс в массиве активных кубов
+                    for (int j = 0; j < activeCubeCount; j++)
+                    {
+                        if (_tempCubeIds[j] == neighborId && !_tempVisited[j])
+                        {
+                            _tempVisited[j] = true;
+                            _tempQueue[queueEnd++] = j;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (groupCount <= 1)
+        {
+            return new List<Entity>();
+        }
+
+        List<Entity> newEntities = new List<Entity>();
+
+        // Быстрая сортировка групп по размеру
+        if (_tempGroupSizes == null || _tempGroupSizes.Length < groupCount)
+        {
+            _tempGroupSizes = new int[groupCount];
+            _tempGroupIndices = new int[groupCount];
+        }
+
+        for (int i = 0; i < groupCount; i++)
+        {
+            _tempGroupSizes[i] = _tempGroups[i].Length;
+            _tempGroupIndices[i] = i;
+        }
+
+        // Оптимизированная сортировка вставками
+        for (int i = 1; i < groupCount; i++)
+        {
+            int keySize = _tempGroupSizes[i];
+            int keyIndex = _tempGroupIndices[i];
+            int j = i - 1;
+
+            while (j >= 0 && _tempGroupSizes[j] < keySize)
+            {
+                _tempGroupSizes[j + 1] = _tempGroupSizes[j];
+                _tempGroupIndices[j + 1] = _tempGroupIndices[j];
+                j--;
+            }
+
+            _tempGroupSizes[j + 1] = keySize;
+            _tempGroupIndices[j + 1] = keyIndex;
+        }
+
+        // Создаем новые Entity для групп (кроме первой - самой большой)
+        for (int i = 1; i < groupCount; i++)
+        {
+            int groupIndex = _tempGroupIndices[i];
+            int[] group = _tempGroups[groupIndex];
+
+            if (group.Length == 0) continue;
+
+            GameObject newEntityObject = new GameObject("Entity");
+
+            // Используем кэш для быстрого поиска первого куба
+            if (_cubeIdToIndex.TryGetValue(group[0], out int firstCubeIndex))
+            {
+                Cube firstCubeInGroup = _cubes[firstCubeIndex];
+                if (firstCubeInGroup != null)
+                {
+                    newEntityObject.transform.SetPositionAndRotation(firstCubeInGroup.transform.position,
+                        firstCubeInGroup.transform.rotation);
+                    newEntityObject.transform.localScale = transform.localScale;
+
+                    // Перемещаем кубы в новое entity с использованием кэша
+                    for (int j = 0; j < group.Length; j++)
+                    {
+                        if (_cubeIdToIndex.TryGetValue(group[j], out int cubeIndex))
+                        {
+                            Cube cubeToMove = _cubes[cubeIndex];
+                            if (cubeToMove != null)
+                            {
+                                cubeToMove.transform.parent = newEntityObject.transform;
+                            }
+                        }
+                    }
+
+                    Entity newEntity = newEntityObject.AddComponent<Entity>();
+                    newEntity.StartSetup();
+                    newEntities.Add(newEntity);
+
+                    if (_vehicleConnector)
+                    {
+                        _vehicleConnector.OnEntityRecalculated();
+                    }
+                }
+            }
+        }
+
+        // Обновляем данные текущего Entity (остается только самая большая группа)
+        CollectCubes();
+
+        return newEntities;
     }
 
     private void OnDestroy()

@@ -154,6 +154,23 @@ public class EntityMeshCombiner : MonoBehaviour
         CacheCubeComponents();
         if (_cachedComponents == null || _cachedComponents.Length == 0) return;
 
+        // Проверяем и разделяем кубы на отдельные Entity если необходимо
+        Entity entity = GetComponent<Entity>();
+        if (entity != null)
+        {
+            // Принудительно обновляем данные кубов перед проверкой групп
+            entity.UpdateMassAndCubes();
+
+            // Автоматически разделяем кубы на отдельные Entity если обнаружено несколько групп
+            var newEntities = entity.SplitIntoSeparateEntities();
+
+            // Если были созданы новые Entity, прерываем сборку меша для текущего Entity
+            if (newEntities.Count > 0)
+            {
+                return;
+            }
+        }
+
         if (_rb != null)
         {
             _isKinematicOriginalState = _rb.isKinematic;
@@ -389,6 +406,23 @@ public class EntityMeshCombiner : MonoBehaviour
         // Кэшируем компоненты кубов один раз
         CacheCubeComponents();
         if (_cachedComponents == null || _cachedComponents.Length == 0) yield break;
+
+        // Проверяем и разделяем кубы на отдельные Entity если необходимо
+        Entity entity = GetComponent<Entity>();
+        if (entity != null)
+        {
+            // Принудительно обновляем данные кубов перед проверкой групп
+            entity.UpdateMassAndCubes();
+
+            // Автоматически разделяем кубы на отдельные Entity если обнаружено несколько групп
+            var newEntities = entity.SplitIntoSeparateEntities();
+
+            // Если были созданы новые Entity, прерываем сборку меша для текущего Entity
+            if (newEntities.Count > 0)
+            {
+                yield break;
+            }
+        }
 
         if (_rb != null)
         {
