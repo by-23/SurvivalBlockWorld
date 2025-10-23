@@ -87,6 +87,18 @@ public class Entity : MonoBehaviour
         _cubes = GetComponentsInChildren<Cube>();
         int childCount = _cubes.Length;
 
+        if (childCount == 0)
+        {
+            _cubesInfo = new int[0, 0, 0];
+            _cubesInfoSizeX = 0;
+            _cubesInfoSizeY = 0;
+            _cubesInfoSizeZ = 0;
+            _cubesInfoStartPosition = Vector3.zero;
+            _cubeIdToIndex = new Dictionary<int, int>();
+            _cacheValid = true;
+            return;
+        }
+
         for (int i = 0; i < childCount; i++)
         {
             Transform child = _cubes[i].transform;
@@ -802,6 +814,7 @@ public class Entity : MonoBehaviour
                 activeCubeCount++;
         }
 
+
         if (activeCubeCount == 0)
         {
             return new List<Entity>();
@@ -920,6 +933,7 @@ public class Entity : MonoBehaviour
             }
         }
 
+
         if (groupCount <= 1)
         {
             return new List<Entity>();
@@ -993,6 +1007,14 @@ public class Entity : MonoBehaviour
 
                     Entity newEntity = newEntityObject.AddComponent<Entity>();
                     newEntity.StartSetup();
+
+                    // Сбрасываем isKinematic для нового Entity
+                    var newRb = newEntity.GetComponent<Rigidbody>();
+                    if (newRb != null)
+                    {
+                        newRb.isKinematic = false;
+                    }
+
                     newEntities.Add(newEntity);
 
                     if (_vehicleConnector)
@@ -1005,6 +1027,12 @@ public class Entity : MonoBehaviour
 
         // Обновляем данные текущего Entity (остается только самая большая группа)
         CollectCubes();
+
+        // Сбрасываем isKinematic для текущего Entity
+        if (_rb != null)
+        {
+            _rb.isKinematic = false;
+        }
 
         return newEntities;
     }
