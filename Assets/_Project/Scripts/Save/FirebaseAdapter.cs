@@ -152,7 +152,6 @@ public class FirebaseAdapter
                 }
             }
 
-            Debug.Log($"World '{worldId}' with {worldData.Chunks.Count} chunks loaded from Firestore.");
             return worldData;
         }
         catch (Exception e)

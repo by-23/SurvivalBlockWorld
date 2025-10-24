@@ -7,7 +7,7 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] float _moveSpeed = 5;
     [SerializeField] float _runSpeed = 9;
 
-    [Header("Jump")][SerializeField] float _jumpHeight = 3;
+    [Header("Jump")] [SerializeField] float _jumpHeight = 3;
     [SerializeField] bool _Grounded;
     public float _GroundedOffset = -0.14f;
     public float _GroundedRadius = 0.28f;
@@ -21,6 +21,9 @@ public class PlayerMovement : MonoBehaviour
         _rigidbody = GetComponent<Rigidbody>();
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+
+        // Убеждаемся, что InputManager существует
+        InputManager.EnsureInputManagerExists();
     }
 
     private void Update()
@@ -49,11 +52,41 @@ public class PlayerMovement : MonoBehaviour
 
     private void Move()
     {
+        // Проверяем, что InputManager доступен
+        if (!InputManager.IsInputManagerReady())
+        {
+            InputManager.ForceActivateInputManager();
+
+            // Проверяем еще раз после попытки исправления
+            if (!InputManager.IsInputManagerReady())
+            {
+                return;
+            }
+        }
+
+        // Проверяем, что PlayerMovement включен
+        if (!enabled)
+        {
+            return;
+        }
+
+        // Проверяем режим игрока
+        if (Player.Instance != null && Player.Instance._playerMode != PlayerMode.PlayerControl)
+        {
+            return;
+        }
+
+        // Проверяем Rigidbody
+        if (_rigidbody == null || _rigidbody.isKinematic)
+        {
+            return;
+        }
+
         if (InputManager.Instance._Run) _speed = _runSpeed;
         else _speed = _moveSpeed;
 
-        Vector2 targetVelocity = new Vector2(InputManager.Instance._MoveInput.x * _speed,
-            InputManager.Instance._MoveInput.y * _speed);
+        Vector2 moveInput = InputManager.Instance._MoveInput;
+        Vector2 targetVelocity = new Vector2(moveInput.x * _speed, moveInput.y * _speed);
 
         var v3 = transform.rotation * new Vector3(targetVelocity.x, _rigidbody.velocity.y, targetVelocity.y);
         v3.y = _rigidbody.velocity.y;

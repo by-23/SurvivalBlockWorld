@@ -1,6 +1,8 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
+using System.Threading.Tasks;
 
 public class UIManager : MonoBehaviour
 {
@@ -24,6 +26,9 @@ public class UIManager : MonoBehaviour
     [Header("Load UI")] [SerializeField] private GameObject _loadPanel;
     [SerializeField] private SaveListManager _saveListManager;
     [SerializeField] private Button _closeLoadPanelButton;
+
+    [Header("Scene Settings")] [SerializeField]
+    private int _mapSceneIndex = 0; // Индекс MapScene в Build Settings
 
 
     private void Awake()
@@ -144,15 +149,44 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    private void OnMapLoadRequested(string mapName)
+    private async void OnMapLoadRequested(string mapName)
     {
         Debug.Log($"Loading map: {mapName}");
-        SaveSystem.Instance.LoadWorld(mapName);
 
         // Close the load panel after starting the load
         if (_loadPanel != null)
         {
             _loadPanel.SetActive(false);
+        }
+
+        // Сначала переходим к MapScene, а затем загружаем мир
+        await LoadMapSceneAsync();
+
+        // После загрузки сцены загружаем мир
+        if (SaveSystem.Instance != null)
+        {
+            bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, OnWorldLoadProgress);
+
+            if (loadSuccess)
+            {
+                Debug.Log($"Мир '{mapName}' успешно загружен в MapScene");
+
+                // Убеждаемся, что InputManager и Player готовы после загрузки мира
+                InputManager.ForceActivateInputManager();
+                if (Player.Instance != null)
+                {
+                    Player.Instance.ForcePlayerControlMode();
+                }
+            }
+            else
+            {
+                Debug.LogError($"Ошибка загрузки мира '{mapName}'");
+                // Return to load panel
+                if (_loadPanel != null)
+                {
+                    _loadPanel.SetActive(true);
+                }
+            }
         }
     }
 
@@ -200,48 +234,65 @@ public class UIManager : MonoBehaviour
     public void OnCarButtonPressed()
     {
         // This likely needs more logic to toggle entering/exiting
-        if (_vehicleForce != null)
+    }
+
+    /// <summary>
+    /// Обработчик прогресса загрузки мира
+    /// </summary>
+    /// <param name="progress">Прогресс от 0 до 1</param>
+    private void OnWorldLoadProgress(float progress)
+    {
+        Debug.Log($"Прогресс загрузки мира: {progress * 100:F1}%");
+        // Здесь можно обновить UI прогресса загрузки
+    }
+
+    /// <summary>
+    /// Асинхронно загружает MapScene и ждет полной загрузки
+    /// </summary>
+    private async Task LoadMapSceneAsync()
+    {
+        Debug.Log($"Начинаем загрузку сцены по индексу: {_mapSceneIndex}");
+
+        // Проверяем валидность индекса
+        if (_mapSceneIndex < 0 || _mapSceneIndex >= SceneManager.sceneCountInBuildSettings)
         {
-            // You'll need to decide how to manage the 'enter' state
-            // For now, I'll assume it's just to enter.
-            _vehicleForce.EnterCar(true);
+            Debug.LogError(
+                $"Неверный индекс сцены: {_mapSceneIndex}. Доступно сцен: {SceneManager.sceneCountInBuildSettings}");
+            return;
         }
-    }
 
-    // --- Placeholder methods for buttons without found scripts ---
+        // Загружаем сцену асинхронно по индексу
+        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(_mapSceneIndex);
 
-    public void OnCopyButtonPressed()
-    {
-        Debug.Log("Copy button pressed - functionality not implemented.");
-    }
-
-    public void OnPasteButtonPressed()
-    {
-        Debug.Log("Paste button pressed - functionality not implemented.");
-    }
-
-    public void OnSpawnButtonPressed()
-    {
-        Debug.Log("Spawn button pressed - functionality not implemented.");
-    }
-
-    public void OnBombButtonPressed()
-    {
-        Debug.Log("Bomb button pressed - functionality not implemented.");
-    }
-
-    public void OnRemoveButtonPressed()
-    {
-        Debug.Log("Remove button pressed - functionality not implemented.");
-    }
-
-    private void OnDestroy()
-    {
-        // Unsubscribe from events to prevent memory leaks
-        if (_saveListManager != null)
+        if (asyncLoad == null)
         {
-            _saveListManager.OnMapLoadRequested -= OnMapLoadRequested;
-            _saveListManager.OnMapDeleteRequested -= OnMapDeleteRequested;
+            Debug.LogError($"Не удалось начать загрузку сцены с индексом {_mapSceneIndex}");
+            return;
         }
+
+        // Ждем завершения загрузки
+        while (!asyncLoad.isDone)
+        {
+            float progress = asyncLoad.progress;
+            Debug.Log($"Прогресс загрузки сцены: {progress * 100:F1}%");
+
+            // Обновляем UI прогресса загрузки сцены
+            OnSceneLoadProgress(progress);
+
+            // Ждем один кадр
+            await Task.Yield();
+        }
+
+        Debug.Log($"Сцена с индексом {_mapSceneIndex} успешно загружена");
+    }
+
+    /// <summary>
+    /// Обработчик прогресса загрузки сцены
+    /// </summary>
+    /// <param name="progress">Прогресс от 0 до 1</param>
+    private void OnSceneLoadProgress(float progress)
+    {
+        Debug.Log($"Прогресс загрузки сцены: {progress * 100:F1}%");
+        // Здесь можно обновить UI прогресса загрузки сцены
     }
 }

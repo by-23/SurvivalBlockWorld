@@ -3,11 +3,12 @@ using UnityEngine;
 public class Player : MonoBehaviour
 {
     private static Player _instance;
+
     public static Player Instance
     {
         get { return _instance; }
     }
-    
+
     [Header("Scripts Reference")] public PlayerMovement _playerMovement;
 
     public PlayerCamera _playerCamera;
@@ -20,15 +21,28 @@ public class Player : MonoBehaviour
     CapsuleCollider _capsuleCollider;
     public VehicleForce _vehicleForce;
     [SerializeField] private Rigidbody _rb;
-    
-    [Space(5)]
-    public PlayerMode _playerMode;
+
+    [Space(5)] public PlayerMode _playerMode;
 
     private void Awake()
     {
         _instance = this;
-        
+
+        // Убеждаемся, что игрок в режиме управления игроком по умолчанию
+        _playerMode = PlayerMode.PlayerControl;
+
+        // Убеждаемся, что компоненты движения включены
+        if (_playerMovement != null)
+        {
+            _playerMovement.enabled = true;
+        }
+
+        if (_playerCamera != null)
+        {
+            _playerCamera.enabled = true;
+        }
     }
+
     public void EnterCar()
     {
         if (!_vehicleForce) return;
@@ -58,9 +72,51 @@ public class Player : MonoBehaviour
 
             _vehicleForce.EnterCar(true);
         }
+    }
 
+    /// <summary>
+    /// Принудительно включает режим управления игроком
+    /// </summary>
+    public void ForcePlayerControlMode()
+    {
+        _playerMode = PlayerMode.PlayerControl;
+
+        if (_playerMovement != null)
+        {
+            _playerMovement.enabled = true;
+
+            // Исправляем Rigidbody
+            Rigidbody rb = _playerMovement.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.isKinematic = false;
+                rb.useGravity = true;
+            }
+        }
+
+        if (_playerCamera != null)
+        {
+            _playerCamera.enabled = true;
+
+            // Восстанавливаем character transform если он null
+            if (_playerCamera.character == null)
+            {
+                _playerCamera.character = _playerMovement?.transform;
+            }
+        }
+
+        if (_capsuleCollider != null)
+        {
+            _capsuleCollider.enabled = true;
+        }
+
+        if (_rb != null)
+        {
+            _rb.isKinematic = false;
+        }
     }
 }
+
 public enum PlayerMode
 {
     PlayerControl,

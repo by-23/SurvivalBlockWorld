@@ -3,7 +3,11 @@ using UnityEngine;
 public class InputManager : MonoBehaviour
 {
     private static InputManager _instance;
-    public static InputManager Instance { get { return _instance; } }
+
+    public static InputManager Instance
+    {
+        get { return _instance; }
+    }
 
     public bool _TOUCH;
 
@@ -18,7 +22,17 @@ public class InputManager : MonoBehaviour
 
     private void Awake()
     {
+        // Если уже есть экземпляр, уничтожаем этот
+        if (_instance != null && _instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
         _instance = this;
+
+        // Делаем InputManager постоянным между сценами
+        DontDestroyOnLoad(gameObject);
     }
 
 
@@ -42,7 +56,6 @@ public class InputManager : MonoBehaviour
             //if (Input.GetKeyDown(KeyCode.E))
             //EnterExitCar();
         }
-
     }
 
     public void EnterExitCar()
@@ -63,6 +76,57 @@ public class InputManager : MonoBehaviour
     public void RotateProps(float _value)
     {
         // Player.Instance._BuildingTool.RotateProps(_value);
+    }
+
+    /// <summary>
+    /// Проверяет, существует ли InputManager, и создает его при необходимости
+    /// </summary>
+    public static void EnsureInputManagerExists()
+    {
+        if (_instance == null)
+        {
+            // Ищем InputManager в сцене
+            InputManager existingManager = FindFirstObjectByType<InputManager>();
+            if (existingManager != null)
+            {
+                _instance = existingManager;
+                DontDestroyOnLoad(existingManager.gameObject);
+            }
+            else
+            {
+                // Создаем новый InputManager программно
+                GameObject inputManagerObj = new GameObject("InputManager");
+                inputManagerObj.AddComponent<InputManager>();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Проверяет, активен ли InputManager
+    /// </summary>
+    /// <returns>True, если InputManager активен и готов к работе</returns>
+    public static bool IsInputManagerReady()
+    {
+        return _instance != null && _instance.gameObject != null &&
+               _instance.gameObject.activeInHierarchy && _instance.enabled;
+    }
+
+    /// <summary>
+    /// Принудительно активирует InputManager
+    /// </summary>
+    public static void ForceActivateInputManager()
+    {
+        EnsureInputManagerExists();
+
+        if (_instance != null)
+        {
+            if (_instance.gameObject != null)
+            {
+                _instance.gameObject.SetActive(true);
+            }
+
+            _instance.enabled = true;
+        }
     }
 }
 

@@ -23,6 +23,8 @@ public class SaveListManager : MonoBehaviour
 
     public System.Action<string> OnMapLoadRequested;
     public System.Action<string> OnMapDeleteRequested;
+    public System.Action OnLoadingStarted;
+    public System.Action OnLoadingCompleted;
 
     private void Awake()
     {
@@ -32,6 +34,7 @@ public class SaveListManager : MonoBehaviour
     public async void LoadSaveList()
     {
         ShowLoading(true, "Загрузка списка карт...");
+        OnLoadingStarted?.Invoke();
 
         try
         {
@@ -41,6 +44,7 @@ public class SaveListManager : MonoBehaviour
             {
                 Debug.LogError("SaveSystem not assigned to SaveListManager!");
                 ShowLoading(false);
+                OnLoadingCompleted?.Invoke();
                 return;
             }
 
@@ -50,6 +54,7 @@ public class SaveListManager : MonoBehaviour
             if (worldsMetadata.Count == 0)
             {
                 ShowLoading(false);
+                OnLoadingCompleted?.Invoke();
                 Debug.Log("No saved worlds found");
                 return;
             }
@@ -60,6 +65,7 @@ public class SaveListManager : MonoBehaviour
             }
 
             ShowLoading(false);
+            OnLoadingCompleted?.Invoke();
 
             if (_snappingScroll)
                 _snappingScroll.UpdateChildren();
@@ -68,6 +74,7 @@ public class SaveListManager : MonoBehaviour
         {
             Debug.LogError($"Failed to load save list: {e.Message}");
             ShowLoading(false);
+            OnLoadingCompleted?.Invoke();
         }
     }
 

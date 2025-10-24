@@ -65,6 +65,12 @@ public class SaveSystem : MonoBehaviour
         {
             _cubeSpawner = gameObject.AddComponent<CubeSpawner>();
         }
+
+        // Проверяем, что CubeSpawner имеет доступные префабы
+        if (!_cubeSpawner.HasAvailablePrefabs())
+        {
+            Debug.LogWarning("CubeSpawner не имеет доступных префабов! Попытка загрузки из Resources...");
+        }
     }
 
     [ContextMenu("Save Current World")]
@@ -404,7 +410,6 @@ public class SaveSystem : MonoBehaviour
 
         progressCallback?.Invoke(1f);
 
-        Debug.Log($"Spawned {spawnedCubes} cubes in {cubesByEntity.Count} entities");
     }
 
     private Dictionary<Vector3Int, List<CubeData>> GroupCubesByEntity(WorldSaveData worldData)
@@ -454,7 +459,6 @@ public class SaveSystem : MonoBehaviour
             Destroy(entity.gameObject);
         }
 
-        Debug.Log($"Cleared {entities.Length} entities from scene");
     }
 
     public void MarkCubeDirty(Vector3 position)

@@ -19,6 +19,9 @@ public class CubeSpawner : MonoBehaviour
 
     private void Awake()
     {
+        // Автоматически загружаем префабы, если они не назначены
+        LoadDefaultPrefabs();
+
         if (cubePrefabsByType != null)
         {
             for (byte i = 0; i < cubePrefabsByType.Length; i++)
@@ -34,6 +37,48 @@ public class CubeSpawner : MonoBehaviour
         if (defaultCubePrefab != null)
         {
             CachePrefabComponents(255, defaultCubePrefab);
+        }
+    }
+
+    /// <summary>
+    /// Автоматически загружает префабы кубов из Resources
+    /// </summary>
+    private void LoadDefaultPrefabs()
+    {
+        // Если defaultCubePrefab не назначен, пытаемся загрузить из Resources
+        if (defaultCubePrefab == null)
+        {
+            // Сначала пытаемся загрузить из Resources
+            GameObject cubePrefab = Resources.Load<GameObject>("Prefabs/Cubes/Cube");
+            if (cubePrefab != null)
+            {
+                defaultCubePrefab = cubePrefab;
+            }
+            else
+            {
+                // Если не найден в Resources, пытаемся загрузить по прямому пути
+                cubePrefab = Resources.Load<GameObject>("Prefabs/Cubes/Cube");
+                if (cubePrefab == null)
+                {
+                    Debug.LogWarning("Не удалось найти префаб куба в Resources/Prefabs/Cubes/Cube");
+                    Debug.LogWarning(
+                        "Убедитесь, что префаб Cube.prefab находится в папке Assets/_Project/Resources/Prefabs/Cubes/");
+                }
+            }
+        }
+
+        // Если массив префабов пустой, создаем базовый массив
+        if (cubePrefabsByType == null || cubePrefabsByType.Length == 0)
+        {
+            if (defaultCubePrefab != null)
+            {
+                cubePrefabsByType = new GameObject[1];
+                cubePrefabsByType[0] = defaultCubePrefab;
+            }
+            else
+            {
+                Debug.LogError("Не удалось создать массив префабов кубов - defaultCubePrefab не найден!");
+            }
         }
     }
 
@@ -146,6 +191,28 @@ public class CubeSpawner : MonoBehaviour
     public void RegisterPrefab(byte typeId, GameObject prefab)
     {
         prefabDictionary[typeId] = prefab;
+        CachePrefabComponents(typeId, prefab);
+        Debug.Log($"Зарегистрирован префаб для типа {typeId}: {prefab.name}");
+    }
+
+    /// <summary>
+    /// Устанавливает префаб по умолчанию для кубов
+    /// </summary>
+    /// <param name="prefab">Префаб куба по умолчанию</param>
+    public void SetDefaultPrefab(GameObject prefab)
+    {
+        defaultCubePrefab = prefab;
+        CachePrefabComponents(255, prefab);
+        Debug.Log($"Установлен префаб по умолчанию: {prefab.name}");
+    }
+
+    /// <summary>
+    /// Проверяет, есть ли доступные префабы для спавна
+    /// </summary>
+    /// <returns>True, если есть хотя бы один префаб</returns>
+    public bool HasAvailablePrefabs()
+    {
+        return defaultCubePrefab != null || prefabDictionary.Count > 0;
     }
 }
 
