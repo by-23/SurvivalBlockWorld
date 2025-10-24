@@ -651,7 +651,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   levelName: 
   useBuildIndex: 1
-  buildIndex: 0
+  buildIndex: 1
   button: {fileID: 1072527249886713108}
   showLoadingScreen: 1
   loadingScreenPrefab: {fileID: 3404371676279712106}

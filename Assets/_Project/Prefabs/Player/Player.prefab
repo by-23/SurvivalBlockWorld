@@ -204,8 +204,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_RenderShadows: 1
-  m_RequiresDepthTextureOption: 1
-  m_RequiresOpaqueTextureOption: 1
+  m_RequiresDepthTextureOption: 0
+  m_RequiresOpaqueTextureOption: 0
   m_CameraType: 0
   m_Cameras: []
   m_RendererIndex: -1
@@ -335,7 +335,7 @@ Rigidbody:
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
   m_UseGravity: 1
-  m_IsKinematic: 0
+  m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 112
   m_CollisionDetection: 1
@@ -355,7 +355,7 @@ MonoBehaviour:
   _playerCamera: {fileID: 8069351048090163}
   _camera: {fileID: 137428015986575511}
   _vehicleForce: {fileID: 0}
-  _rb: {fileID: 99280518204521643}
+  _characterController: {fileID: 0}
   _playerMode: 0
 --- !u!114 &19964064866038686
 MonoBehaviour:
@@ -371,8 +371,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _moveSpeed: 6.5
   _runSpeed: 10
-  _jumpHeight: 1
+  _gravity: 39.24
+  _jumpHeight: 3
+  _slopeLimit: 75
+  _stepOffset: 1
   _Grounded: 0
+  _laser: {fileID: 1703371339137405915}
   _GroundedOffset: -0.14
   _GroundedRadius: 0.15
   _GroundLayers:
@@ -394,7 +398,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &6936528218364182009
 Transform:
   m_ObjectHideFlags: 0

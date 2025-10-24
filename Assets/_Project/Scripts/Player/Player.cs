@@ -20,7 +20,7 @@ public class Player : MonoBehaviour
     UIManager _UIManager;
     CapsuleCollider _capsuleCollider;
     public VehicleForce _vehicleForce;
-    [SerializeField] private Rigidbody _rb;
+    [SerializeField] private CharacterController _characterController;
 
     [Space(5)] public PlayerMode _playerMode;
 
@@ -55,7 +55,8 @@ public class Player : MonoBehaviour
             _playerCamera.enabled = true;
 
             _capsuleCollider.enabled = true;
-            _rb.isKinematic = false;
+            if (_characterController != null)
+                _characterController.enabled = true;
 
             _vehicleForce.EnterCar(false);
             _vehicleForce = null;
@@ -68,7 +69,8 @@ public class Player : MonoBehaviour
             _playerCamera.enabled = false;
 
             _capsuleCollider.enabled = false;
-            _rb.isKinematic = true;
+            if (_characterController != null)
+                _characterController.enabled = false;
 
             _vehicleForce.EnterCar(true);
         }
@@ -85,12 +87,11 @@ public class Player : MonoBehaviour
         {
             _playerMovement.enabled = true;
 
-            // Исправляем Rigidbody
-            Rigidbody rb = _playerMovement.GetComponent<Rigidbody>();
-            if (rb != null)
+            // Убеждаемся, что CharacterController включен
+            CharacterController cc = _playerMovement.GetComponent<CharacterController>();
+            if (cc != null)
             {
-                rb.isKinematic = false;
-                rb.useGravity = true;
+                cc.enabled = true;
             }
         }
 
@@ -110,9 +111,9 @@ public class Player : MonoBehaviour
             _capsuleCollider.enabled = true;
         }
 
-        if (_rb != null)
+        if (_characterController != null)
         {
-            _rb.isKinematic = false;
+            _characterController.enabled = true;
         }
     }
 }

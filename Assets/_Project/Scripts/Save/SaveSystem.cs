@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class SaveSystem : MonoBehaviour
 {
@@ -71,6 +72,80 @@ public class SaveSystem : MonoBehaviour
         {
             Debug.LogWarning("CubeSpawner не имеет доступных префабов! Попытка загрузки из Resources...");
         }
+
+        // Подписываемся на событие смены сцены
+        SceneManager.sceneLoaded += OnSceneLoaded;
+
+        // Находим камеру в текущей сцене
+        FindScreenshotCamera();
+    }
+
+    private void OnDestroy()
+    {
+        // Отписываемся от события при уничтожении объекта
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        // При каждой смене сцены сбрасываем ссылку на камеру и ищем заново
+        _screenshotCamera = null;
+        FindScreenshotCamera();
+
+        // Проверяем доступность префабов CubeSpawner
+        ValidateCubeSpawnerPrefabs();
+    }
+
+    private void FindScreenshotCamera()
+    {
+        if (_screenshotCamera == null)
+        {
+            GameObject screenshotCameraObj = GameObject.FindWithTag("ScreenshotCamera");
+            if (screenshotCameraObj != null)
+            {
+                screenshotCameraObj.TryGetComponent(out _screenshotCamera);
+                if (_screenshotCamera != null)
+                {
+                    _screenshotCamera.gameObject.SetActive(false);
+                    Debug.Log("ScreenshotCamera found and set inactive");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("ScreenshotCamera object with tag 'ScreenshotCamera' not found in scene!");
+            }
+        }
+    }
+
+    private void ValidateCubeSpawnerPrefabs()
+    {
+        if (_cubeSpawner != null)
+        {
+            if (!_cubeSpawner.HasAvailablePrefabs())
+            {
+                Debug.LogWarning("CubeSpawner не имеет доступных префабов в текущей сцене!");
+            }
+        }
+    }
+
+    private bool IsValidGameScene()
+    {
+        // Проверяем, что мы не в меню или других неигровых сценах
+        int currentSceneBuildIndex = SceneManager.GetActiveScene().buildIndex;
+
+        // Список ID сцен, где нельзя сохранять/загружать
+        // Добавьте сюда ID ваших меню и других неигровых сцен
+        int[] invalidSceneIds = { 0 }; // Пример: 0 - меню, 1 - загрузка
+
+        foreach (int invalidSceneId in invalidSceneIds)
+        {
+            if (currentSceneBuildIndex == invalidSceneId)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     [ContextMenu("Save Current World")]
@@ -87,6 +162,13 @@ public class SaveSystem : MonoBehaviour
             if (string.IsNullOrEmpty(worldName))
             {
                 Debug.LogError("Save failed: World name cannot be empty.");
+                return false;
+            }
+
+            // Проверяем, что мы находимся в игровой сцене
+            if (!IsValidGameScene())
+            {
+                Debug.LogError("Save failed: Not in a valid game scene for saving.");
                 return false;
             }
 
@@ -157,6 +239,13 @@ public class SaveSystem : MonoBehaviour
             if (string.IsNullOrEmpty(worldName))
             {
                 Debug.LogError("Load failed: World name cannot be empty.");
+                return false;
+            }
+
+            // Проверяем, что мы находимся в игровой сцене
+            if (!IsValidGameScene())
+            {
+                Debug.LogError("Load failed: Not in a valid game scene for loading.");
                 return false;
             }
 
@@ -284,9 +373,15 @@ public class SaveSystem : MonoBehaviour
 
     private string TakeScreenshot(string worldName)
     {
+        // Если камера не найдена, пытаемся найти её заново
         if (_screenshotCamera == null)
         {
-            Debug.LogError("Screenshot camera is not assigned in SaveSystem.");
+            FindScreenshotCamera();
+        }
+
+        if (_screenshotCamera == null)
+        {
+            Debug.LogError("Screenshot camera is not assigned in SaveSystem and could not be found in scene.");
             return string.Empty;
         }
 
@@ -409,7 +504,6 @@ public class SaveSystem : MonoBehaviour
         }
 
         progressCallback?.Invoke(1f);
-
     }
 
     private Dictionary<Vector3Int, List<CubeData>> GroupCubesByEntity(WorldSaveData worldData)
@@ -458,7 +552,6 @@ public class SaveSystem : MonoBehaviour
         {
             Destroy(entity.gameObject);
         }
-
     }
 
     public void MarkCubeDirty(Vector3 position)

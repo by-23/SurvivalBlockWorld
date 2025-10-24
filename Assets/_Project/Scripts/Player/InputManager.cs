@@ -11,7 +11,7 @@ public class InputManager : MonoBehaviour
 
     public bool _TOUCH;
 
-    public bool _Run, _Press, _Fire, _Build, _Props;
+    public bool _Run, _Press, _Fire, _Build, _Props, _Laser;
     public float _MouseWheel;
     public Vector2 _MoveInput;
     public Vector2 _ViewInput;
@@ -51,7 +51,7 @@ public class InputManager : MonoBehaviour
 
             _Fire = Input.GetMouseButton(0);
             _Run = Input.GetKey(KeyCode.LeftShift);
-            _Build = Input.GetKeyDown(KeyCode.E);
+            _Laser = Input.GetKey(KeyCode.E);
 
             //if (Input.GetKeyDown(KeyCode.E))
             //EnterExitCar();
