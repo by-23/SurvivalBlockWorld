@@ -3,6 +3,9 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using System.Collections;
 
+/// <summary>
+/// Скрипт для примагничивания элементов в вертикальном ScrollRect
+/// </summary>
 [RequireComponent(typeof(ScrollRect))]
 public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler, IPointerDownHandler, IPointerUpHandler
 {
@@ -99,10 +102,8 @@ public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler,
         }
 
         // Определяем, был ли свайп длинным/сильным или коротким
-        float axisVelocity = _scrollRect.horizontal ? _scrollRect.velocity.x : _scrollRect.velocity.y;
-        float delta = _scrollRect.horizontal
-            ? (_content.position.x - _dragStartContentPosition.x)
-            : (_content.position.y - _dragStartContentPosition.y);
+        float axisVelocity = _scrollRect.velocity.y;
+        float delta = _content.position.y - _dragStartContentPosition.y;
 
         float spacing = GetItemSpacing();
         float traversedItems = spacing > 0.0001f ? Mathf.Abs(delta) / spacing : 0f;
@@ -128,13 +129,11 @@ public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler,
             if (Mathf.Abs(delta) < 0.001f)
             {
                 // Если почти не сдвинулись, ориентируемся по скорости
-                direction = axisVelocity > 0f ? -1 : +1; // положительная скорость = свайп влево = предыдущий
+                direction = axisVelocity > 0f ? +1 : -1; // положительная скорость = свайп вверх = следующий
             }
             else
             {
-                direction = delta > 0f
-                    ? -1
-                    : +1; // delta>0 — контент сместился вправо (свайп влево) => предыдущий слева
+                direction = delta > 0f ? +1 : -1; // delta>0 — контент сместился вверх (свайп вниз) => следующий внизу
             }
 
             int targetIndex = Mathf.Clamp(_dragStartClosestIndex + direction, 0, _children.Length - 1);
@@ -170,16 +169,7 @@ public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler,
         foreach (Transform child in _children)
         {
             Vector3 childCenter = GetRectCenter(child as RectTransform);
-
-            float distance;
-            if (_scrollRect.horizontal)
-            {
-                distance = Mathf.Abs(childCenter.x - viewportCenter.x);
-            }
-            else // Вертикальная прокрутка
-            {
-                distance = Mathf.Abs(childCenter.y - viewportCenter.y);
-            }
+            float distance = Mathf.Abs(childCenter.y - viewportCenter.y);
 
             if (distance < minDistance)
             {
@@ -194,14 +184,7 @@ public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler,
             Vector3 childOffset = viewportCenter - closestChildCenter;
             Vector3 targetPosition = _content.position + childOffset;
 
-            if (_scrollRect.horizontal && !_scrollRect.vertical)
-            {
-                targetPosition.y = _content.position.y;
-            }
-            else if (_scrollRect.vertical && !_scrollRect.horizontal)
-            {
-                targetPosition.x = _content.position.x;
-            }
+            targetPosition.x = _content.position.x;
 
             if (_snapCoroutine != null) StopCoroutine(_snapCoroutine);
             _snapCoroutine = StartCoroutine(SnapToTarget(targetPosition));
@@ -217,9 +200,7 @@ public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler,
         for (int i = 0; i < _children.Length; i++)
         {
             Vector3 childCenter = GetRectCenter(_children[i] as RectTransform);
-            float distance = _scrollRect.horizontal
-                ? Mathf.Abs(childCenter.x - viewportCenter.x)
-                : Mathf.Abs(childCenter.y - viewportCenter.y);
+            float distance = Mathf.Abs(childCenter.y - viewportCenter.y);
             if (distance < minDistance)
             {
                 minDistance = distance;
@@ -235,7 +216,7 @@ public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler,
         if (_children == null || _children.Length < 2) return 0f;
         Vector3 c0 = GetRectCenter(_children[0] as RectTransform);
         Vector3 c1 = GetRectCenter(_children[1] as RectTransform);
-        return _scrollRect.horizontal ? Mathf.Abs(c1.x - c0.x) : Mathf.Abs(c1.y - c0.y);
+        return Mathf.Abs(c1.y - c0.y);
     }
 
     private void SnapToIndex(int index)
@@ -246,14 +227,7 @@ public class SnappingScroll : MonoBehaviour, IBeginDragHandler, IEndDragHandler,
         Vector3 childCenter = GetRectCenter(targetChild as RectTransform);
         Vector3 offset = viewportCenter - childCenter;
         Vector3 targetPosition = _content.position + offset;
-        if (_scrollRect.horizontal && !_scrollRect.vertical)
-        {
-            targetPosition.y = _content.position.y;
-        }
-        else if (_scrollRect.vertical && !_scrollRect.horizontal)
-        {
-            targetPosition.x = _content.position.x;
-        }
+        targetPosition.x = _content.position.x;
 
         if (_snapCoroutine != null) StopCoroutine(_snapCoroutine);
         _snapCoroutine = StartCoroutine(SnapToTarget(targetPosition));

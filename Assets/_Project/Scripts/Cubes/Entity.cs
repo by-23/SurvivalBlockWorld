@@ -136,7 +136,14 @@ public class Entity : MonoBehaviour
 
     private void RecalculateCubes()
     {
+        // Дополнительная защита от вызова во время загрузки
         if (_isLoading || !_cacheValid)
+        {
+            return;
+        }
+
+        // Проверяем, что мы не в процессе загрузки сцены
+        if (Time.timeSinceLevelLoad < 1f)
         {
             return;
         }

@@ -57,6 +57,9 @@ public class SaveSystem : MonoBehaviour
     private FileManager _fileManager;
     private FirebaseAdapter _firebaseAdapter;
 
+    // Защита от повторных вызовов загрузки
+    private bool _isLoading = false;
+
 
     private void Awake()
     {
@@ -292,11 +295,20 @@ public class SaveSystem : MonoBehaviour
     {
         try
         {
+            // Защита от повторных вызовов загрузки
+            if (_isLoading)
+            {
+                Debug.LogWarning($"Загрузка уже выполняется, пропускаем повторный вызов для '{worldName}'");
+                return true; // Возвращаем true, так как загрузка уже идет
+            }
+
             if (string.IsNullOrEmpty(worldName))
             {
                 Debug.LogError("Load failed: World name cannot be empty.");
                 return false;
             }
+
+            _isLoading = true;
 
             // Если нужно загружать сцену, проверяем что мы в меню
             if (loadScene && !IsInMenuScene())
@@ -350,6 +362,10 @@ public class SaveSystem : MonoBehaviour
         {
             Debug.LogError($"LoadWorld failed for world '{worldName}': {e.Message}");
             return false;
+        }
+        finally
+        {
+            _isLoading = false;
         }
     }
 
@@ -500,7 +516,9 @@ public class SaveSystem : MonoBehaviour
         int totalCubes = worldData.Chunks.Values.Sum(c => c.cubes.Count);
         int spawnedCubes = 0;
 
+        // Кэшируем результат группировки, чтобы избежать повторных вызовов
         Dictionary<Vector3Int, List<CubeData>> cubesByEntity = GroupCubesByEntity(worldData);
+
         List<Entity> allEntities = _config.useDeferredSetup ? new List<Entity>(cubesByEntity.Count) : null;
 
         int batchSize = Mathf.Max(_config.maxCubesPerFrame, _config.minBatchSize);
