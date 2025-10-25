@@ -1058,12 +1058,27 @@ public class Entity : MonoBehaviour
         return newEntities;
     }
 
-    private void OnDestroy()
+    /// <summary>
+    /// Включает физику на Entity (отключает isKinematic)
+    /// Используется когда к Entity прикрепляется hook
+    /// </summary>
+    public void EnablePhysics()
     {
-        // Очищаем батч при уничтожении объекта
-        if (_pendingDetouchCubes != null)
+        if (_rb != null)
         {
-            _pendingDetouchCubes.Clear();
+            _rb.isKinematic = false;
+        }
+    }
+
+    /// <summary>
+    /// Отключает физику на Entity (включает isKinematic)
+    /// Используется для статичных объектов
+    /// </summary>
+    public void DisablePhysics()
+    {
+        if (_rb != null)
+        {
+            _rb.isKinematic = true;
         }
     }
 

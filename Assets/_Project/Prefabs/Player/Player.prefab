@@ -381,7 +381,7 @@ MonoBehaviour:
   _GroundedRadius: 0.15
   _GroundLayers:
     serializedVersion: 2
-    m_Bits: 1025
+    m_Bits: 1033
 --- !u!1 &5230519575060455322
 GameObject:
   m_ObjectHideFlags: 0

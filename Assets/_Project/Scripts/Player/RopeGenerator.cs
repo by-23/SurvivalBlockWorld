@@ -6,12 +6,18 @@ using Unity.VisualScripting;
 public class RopeGenerator : MonoBehaviour
 {
     private static RopeGenerator _instance;
-    public static RopeGenerator Instance { get { return _instance; } }
+
+    public static RopeGenerator Instance
+    {
+        get { return _instance; }
+    }
 
     [SerializeField] int _ropeCountLimit = 5;
     [SerializeField] Transform _handPivot;
     [SerializeField] Hook _hookPrefab;
+
     [SerializeField] Rope _ropePrefab;
+
     // public Ragdoll _ragdoll;
     [SerializeField] float _deflectPower = 50;
     [SerializeField] LayerMask _layerMask;
@@ -59,15 +65,32 @@ public class RopeGenerator : MonoBehaviour
             if (cube)
                 cube.gameObject.name = "Hook";*/
 
-            if (rb)
+            // Проверяем, является ли объект Entity
+            Entity entity = hit.collider.GetComponentInParent<Entity>();
+            if (entity != null)
             {
+                // Включаем физику на Entity
+                entity.EnablePhysics();
+                hook.joint.connectedBody = entity.GetComponent<Rigidbody>();
+            }
+            else if (rb)
+            {
+                // Включаем физику на существующем Rigidbody если он kinematic
+                if (rb.isKinematic)
+                {
+                    rb.isKinematic = false;
+                }
+
                 hook.joint.connectedBody = rb;
             }
             else
             {
-
+                // Создаем новый Rigidbody с включенной физикой
                 Rigidbody _addRB = hit.collider.AddComponent<Rigidbody>();
-                _addRB.isKinematic = true;
+                _addRB.isKinematic = false; // Включаем физику
+                _addRB.mass = 1f; // Устанавливаем разумную массу
+                _addRB.drag = 0.5f; // Добавляем сопротивление для стабильности
+                _addRB.angularDrag = 0.5f; // Добавляем угловое сопротивление
 
                 hook.joint.connectedBody = _addRB;
             }
@@ -86,7 +109,6 @@ public class RopeGenerator : MonoBehaviour
 
                 _rope.hooks[0] = hook.gameObject;
                 _rope.hooks[1] = _handPivot.gameObject;
-
             }
             else
             {
@@ -108,7 +130,6 @@ public class RopeGenerator : MonoBehaviour
                     {
                         if (_hook.enabled)
                         {
-
                             _hook.rope = _rope;
 
                             if (i == 0)
@@ -124,12 +145,11 @@ public class RopeGenerator : MonoBehaviour
                             //
                             // if (ragdoll)
                             //     ragdoll.ChangeKinematic(_rope);
-
                         }
                     }
                 }
-
             }
+
             _isCompleted = !_isCompleted;
         }
     }
@@ -149,7 +169,6 @@ public class RopeGenerator : MonoBehaviour
 
     public void Clear()
     {
-
         foreach (Rope rope in _ropes)
         {
             if (rope)
