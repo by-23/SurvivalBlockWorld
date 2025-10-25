@@ -6,7 +6,7 @@ using System.Linq;
 [RequireComponent(typeof(Rigidbody)), RequireComponent(typeof(EntityMeshCombiner))]
 public class Entity : MonoBehaviour
 {
-    public bool _StartCheck;
+    public bool _StartCheck = true;
 
     private static int _nextEntityId = 1;
     public int EntityId { get; private set; }
@@ -458,6 +458,12 @@ public class Entity : MonoBehaviour
         RecalculateCubes();
         RequestDelayedCombine();
 
+        // Отключаем isKinematic после удаления кубов игроком
+        if (_rb != null)
+        {
+            _rb.isKinematic = false;
+        }
+
         _detouchBatchPending = false;
     }
 
@@ -525,6 +531,12 @@ public class Entity : MonoBehaviour
         _cacheValid = false;
         RecalculateCubes();
         RequestDelayedCombine();
+
+        // Отключаем isKinematic после удаления кубов игроком
+        if (_rb != null)
+        {
+            _rb.isKinematic = false;
+        }
     }
 
     private void RequestDelayedCombine()
@@ -623,6 +635,7 @@ public class Entity : MonoBehaviour
             return;
 
         _isLoading = true;
+        _StartCheck = true; // Включаем StartCheck для загружаемых entity
         Vector3 entityPos = transform.position;
         float entityScale = transform.localScale.x; // Assuming uniform scaling
 
@@ -660,6 +673,7 @@ public class Entity : MonoBehaviour
     public void FinalizeLoad()
     {
         _isLoading = true;
+        _StartCheck = true; // Включаем StartCheck для загружаемых entity
         StartSetup();
         _isLoading = false;
 

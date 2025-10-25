@@ -144,8 +144,6 @@ namespace Assets._Project.Scripts.UI
 
         protected override void OnMapLoadRequested(string mapName)
         {
-            Debug.Log($"Loading map: {mapName}");
-
             // Close the load panel after starting the load
             if (_loadPanel != null)
             {

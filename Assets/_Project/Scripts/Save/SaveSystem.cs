@@ -134,7 +134,6 @@ public class SaveSystem : MonoBehaviour
                 if (_screenshotCamera != null)
                 {
                     _screenshotCamera.gameObject.SetActive(false);
-                    Debug.Log("ScreenshotCamera found and set inactive");
                 }
             }
             else
@@ -564,7 +563,7 @@ public class SaveSystem : MonoBehaviour
 
         if (_config.disablePhysicsDuringLoad)
         {
-            Physics.simulationMode = wasAutoSimulation ? SimulationMode.Update : SimulationMode.Script;
+            Physics.simulationMode = SimulationMode.Update;
         }
 
         progressCallback?.Invoke(1f);
