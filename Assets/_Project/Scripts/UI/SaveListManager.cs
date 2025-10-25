@@ -39,7 +39,8 @@ public class SaveListManager : MonoBehaviour
         try
         {
             ClearMapList();
-
+            if (_saveSystem == null)
+             _saveSystem = SaveSystem.Instance;
             if (_saveSystem == null)
             {
                 Debug.LogError("SaveSystem not assigned to SaveListManager!");

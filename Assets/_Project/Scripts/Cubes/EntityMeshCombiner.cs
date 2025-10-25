@@ -181,7 +181,8 @@ public class EntityMeshCombiner : MonoBehaviour
         }
 
         // Очищаем кэш и переиспользуем структуры
-        _cubesByColorCache.Clear();
+        if (_cubesByColorCache != null)
+            _cubesByColorCache.Clear();
         _sourceMaterial = null;
 
         // Проходим по кэшированным компонентам
@@ -202,7 +203,7 @@ public class EntityMeshCombiner : MonoBehaviour
             }
 
             // Переиспользуем существующие списки или создаем новые
-            if (!_cubesByColorCache.ContainsKey(cached.Color))
+            if (_cubesByColorCache != null && !_cubesByColorCache.ContainsKey(cached.Color))
             {
                 _cubesByColorCache[cached.Color] = new List<CombineInstance>();
             }
@@ -212,7 +213,8 @@ public class EntityMeshCombiner : MonoBehaviour
                 mesh = cached.MeshFilter.sharedMesh,
                 transform = transform.worldToLocalMatrix * cached.MeshFilter.transform.localToWorldMatrix
             };
-            _cubesByColorCache[cached.Color].Add(ci);
+            if (_cubesByColorCache != null)
+                _cubesByColorCache[cached.Color].Add(ci);
         }
 
         if (_sourceMaterial == null)

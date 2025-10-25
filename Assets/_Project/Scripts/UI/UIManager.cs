@@ -1,176 +1,168 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using UnityEngine.SceneManagement;
-using System.Threading.Tasks;
 
-public class UIManager : MonoBehaviour
+namespace Assets._Project.Scripts.UI
 {
-    public static UIManager Instance { get; private set; }
-
-    [Header("Gameplay UI")] [SerializeField]
-    private Laser _laser;
-
-    [SerializeField] private PlayerMovement _playerMovement;
-    [SerializeField] private RopeGenerator _ropeGenerator;
-    [SerializeField] private VehicleForce _vehicleForce;
-
-    [Header("Buttons")] [SerializeField] private Button _saveButton;
-    [SerializeField] private Button _mapsButton;
-
-    [Header("Save UI")] [SerializeField] private GameObject _savePanel;
-    [SerializeField] private TMP_InputField _saveNameInput;
-    [SerializeField] private Button _confirmSaveButton;
-    [SerializeField] private Button _cancelSaveButton;
-
-    [Header("Load UI")] [SerializeField] private GameObject _loadPanel;
-    [SerializeField] private SaveListManager _saveListManager;
-    [SerializeField] private Button _closeLoadPanelButton;
-
-    [Header("Scene Settings")] [SerializeField]
-    private int _mapSceneIndex = 0; // Индекс MapScene в Build Settings
-
-
-    private void Awake()
+    public class UIManager : BaseSaveUIController
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-        }
-        else
-        {
-            Instance = this;
-        }
-    }
+        public static UIManager Instance { get; private set; }
 
-    private void Start()
-    {
-        if (_saveButton != null)
-        {
-            _saveButton.onClick.AddListener(OnSaveButtonPressed);
-        }
+        [Header("Gameplay UI")] [SerializeField]
+        private Laser _laser;
 
-        if (_mapsButton != null)
-        {
-            _mapsButton.onClick.AddListener(OnLoadButtonPressed);
-        }
+        [SerializeField] private PlayerMovement _playerMovement;
+        [SerializeField] private RopeGenerator _ropeGenerator;
+        [SerializeField] private VehicleForce _vehicleForce;
 
-        if (_confirmSaveButton != null)
-        {
-            _confirmSaveButton.onClick.AddListener(OnConfirmSaveButtonPressed);
-        }
+        [Header("Buttons")] [SerializeField] private Button _saveButton;
+        [SerializeField] private Button _mapsButton;
 
-        if (_cancelSaveButton != null)
-        {
-            _cancelSaveButton.onClick.AddListener(OnCancelSaveButtonPressed);
-        }
+        [Header("Save UI")] [SerializeField] private GameObject _savePanel;
+        [SerializeField] private TMP_InputField _saveNameInput;
+        [SerializeField] private Button _confirmSaveButton;
+        [SerializeField] private Button _cancelSaveButton;
 
-        if (_closeLoadPanelButton != null)
-        {
-            _closeLoadPanelButton.onClick.AddListener(OnCloseLoadPanelButtonPressed);
-        }
+        [Header("Load UI")] [SerializeField] private GameObject _loadPanel;
+        [SerializeField] private Button _closeLoadPanelButton;
+        [SerializeField] private MapListUIController _mapListUIController;
 
-        if (_savePanel != null)
-        {
-            _savePanel.SetActive(false);
-        }
 
-        if (_loadPanel != null)
+        private void Awake()
         {
-            _loadPanel.SetActive(false);
-        }
-
-        // Subscribe to save list manager events
-        if (_saveListManager != null)
-        {
-            _saveListManager.OnMapLoadRequested += OnMapLoadRequested;
-            _saveListManager.OnMapDeleteRequested += OnMapDeleteRequested;
-        }
-    }
-
-    // Button functions
-    public void OnSaveButtonPressed()
-    {
-        if (_savePanel != null)
-        {
-            _savePanel.SetActive(true);
-            // Optionally clear previous input
-            if (_saveNameInput != null)
+            if (Instance != null && Instance != this)
             {
-                _saveNameInput.text = "";
+                Destroy(gameObject);
+            }
+            else
+            {
+                Instance = this;
             }
         }
-    }
 
-    public void OnLoadButtonPressed()
-    {
-        if (_loadPanel != null)
+        protected override void Start()
         {
-            _loadPanel.SetActive(true);
-            if (_saveListManager != null)
+            base.Start();
+            SetupButtons();
+            SetupPanels();
+        }
+
+        private void SetupButtons()
+        {
+            if (_saveButton != null)
             {
-                _saveListManager.LoadSaveList();
+                _saveButton.onClick.AddListener(OnSaveButtonPressed);
+            }
+
+            if (_mapsButton != null)
+            {
+                _mapsButton.onClick.AddListener(OnMapsButtonPressed);
+            }
+
+            if (_confirmSaveButton != null)
+            {
+                _confirmSaveButton.onClick.AddListener(OnConfirmSaveButtonPressed);
+            }
+
+            if (_cancelSaveButton != null)
+            {
+                _cancelSaveButton.onClick.AddListener(OnCancelSaveButtonPressed);
+            }
+
+            if (_closeLoadPanelButton != null)
+            {
+                _closeLoadPanelButton.onClick.AddListener(OnCloseLoadPanelButtonPressed);
             }
         }
-    }
 
-    private void OnConfirmSaveButtonPressed()
-    {
-        if (_saveNameInput != null && !string.IsNullOrEmpty(_saveNameInput.text))
+        private void SetupPanels()
         {
-            string worldName = _saveNameInput.text;
-            SaveSystem.Instance.SaveWorld(worldName);
-        }
-        else
-        {
-            Debug.LogError("Save name cannot be empty.");
-            // Here you might want to show a message to the user
-        }
+            if (_savePanel != null)
+            {
+                _savePanel.SetActive(false);
+            }
 
-        if (_savePanel != null)
-        {
-            _savePanel.SetActive(false);
-        }
-    }
-
-    private void OnCancelSaveButtonPressed()
-    {
-        if (_savePanel != null)
-        {
-            _savePanel.SetActive(false);
-        }
-    }
-
-    private void OnCloseLoadPanelButtonPressed()
-    {
-        if (_loadPanel != null)
-        {
-            _loadPanel.SetActive(false);
-        }
-    }
-
-    private async void OnMapLoadRequested(string mapName)
-    {
-        Debug.Log($"Loading map: {mapName}");
-
-        // Close the load panel after starting the load
-        if (_loadPanel != null)
-        {
-            _loadPanel.SetActive(false);
+            if (_loadPanel != null)
+            {
+                _loadPanel.SetActive(false);
+            }
         }
 
-        // Сначала переходим к MapScene, а затем загружаем мир
-        await LoadMapSceneAsync();
-
-        // После загрузки сцены загружаем мир
-        if (SaveSystem.Instance != null)
+        // Button functions
+        public void OnSaveButtonPressed()
         {
-            bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, OnWorldLoadProgress);
+            if (_savePanel != null)
+            {
+                _savePanel.SetActive(true);
+                // Optionally clear previous input
+                if (_saveNameInput != null)
+                {
+                    _saveNameInput.text = "";
+                }
+            }
+        }
+
+        public void OnMapsButtonPressed()
+        {
+            _mapListUIController.OnMapsListOpened();
+        }
+
+        private void OnConfirmSaveButtonPressed()
+        {
+            if (_saveNameInput != null && !string.IsNullOrEmpty(_saveNameInput.text))
+            {
+                string worldName = _saveNameInput.text;
+                SaveSystem.Instance.SaveWorld(worldName);
+            }
+            else
+            {
+                Debug.LogError("Save name cannot be empty.");
+                // Here you might want to show a message to the user
+            }
+
+            if (_savePanel != null)
+            {
+                _savePanel.SetActive(false);
+            }
+        }
+
+        private void OnCancelSaveButtonPressed()
+        {
+            if (_savePanel != null)
+            {
+                _savePanel.SetActive(false);
+            }
+        }
+
+        private void OnCloseLoadPanelButtonPressed()
+        {
+            if (_loadPanel != null)
+            {
+                _loadPanel.SetActive(false);
+            }
+        }
+
+        protected override void OnMapLoadRequested(string mapName)
+        {
+            Debug.Log($"Loading map: {mapName}");
+
+            // Close the load panel after starting the load
+            if (_loadPanel != null)
+            {
+                _loadPanel.SetActive(false);
+            }
+
+            // Load only world (no scene change)
+            LoadWorldOnly(mapName);
+        }
+
+        private async void LoadWorldOnly(string mapName)
+        {
+            // Загружаем только мир без смены сцены (мы уже в игровой сцене)
+            bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, false);
 
             if (loadSuccess)
             {
-                Debug.Log($"Мир '{mapName}' успешно загружен в MapScene");
-
                 // Убеждаемся, что InputManager и Player готовы после загрузки мира
                 InputManager.ForceActivateInputManager();
                 if (Player.Instance != null)
@@ -180,119 +172,49 @@ public class UIManager : MonoBehaviour
             }
             else
             {
-                Debug.LogError($"Ошибка загрузки мира '{mapName}'");
-                // Return to load panel
+                // Return to load panel on error
                 if (_loadPanel != null)
                 {
                     _loadPanel.SetActive(true);
                 }
             }
         }
-    }
 
-    private void OnMapDeleteRequested(string mapName)
-    {
-        Debug.Log($"Deleting map: {mapName}");
-        if (_saveListManager != null)
+        public void OnLaserRemoveButtonPressed(bool isPressed)
         {
-            _saveListManager.DeleteMap(mapName);
-        }
-    }
-
-    public void OnLaserRemoveButtonPressed(bool isPressed)
-    {
-        if (_laser != null)
-        {
-            _laser.Press(isPressed);
-        }
-    }
-
-    public void OnJumpButtonPressed()
-    {
-        if (_playerMovement != null)
-        {
-            _playerMovement.Jump();
-        }
-    }
-
-    public void OnVehicleBrakeButtonPressed()
-    {
-        if (_vehicleForce != null && _vehicleForce._Active)
-        {
-            _vehicleForce.Break();
-        }
-    }
-
-    public void OnHookButtonPressed()
-    {
-        if (_ropeGenerator != null)
-        {
-            _ropeGenerator.Hook();
-        }
-    }
-
-    public void OnCarButtonPressed()
-    {
-        // This likely needs more logic to toggle entering/exiting
-    }
-
-    /// <summary>
-    /// Обработчик прогресса загрузки мира
-    /// </summary>
-    /// <param name="progress">Прогресс от 0 до 1</param>
-    private void OnWorldLoadProgress(float progress)
-    {
-        Debug.Log($"Прогресс загрузки мира: {progress * 100:F1}%");
-        // Здесь можно обновить UI прогресса загрузки
-    }
-
-    /// <summary>
-    /// Асинхронно загружает MapScene и ждет полной загрузки
-    /// </summary>
-    private async Task LoadMapSceneAsync()
-    {
-        Debug.Log($"Начинаем загрузку сцены по индексу: {_mapSceneIndex}");
-
-        // Проверяем валидность индекса
-        if (_mapSceneIndex < 0 || _mapSceneIndex >= SceneManager.sceneCountInBuildSettings)
-        {
-            Debug.LogError(
-                $"Неверный индекс сцены: {_mapSceneIndex}. Доступно сцен: {SceneManager.sceneCountInBuildSettings}");
-            return;
+            if (_laser != null)
+            {
+                _laser.Press(isPressed);
+            }
         }
 
-        // Загружаем сцену асинхронно по индексу
-        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(_mapSceneIndex);
-
-        if (asyncLoad == null)
+        public void OnJumpButtonPressed()
         {
-            Debug.LogError($"Не удалось начать загрузку сцены с индексом {_mapSceneIndex}");
-            return;
+            if (_playerMovement != null)
+            {
+                _playerMovement.Jump();
+            }
         }
 
-        // Ждем завершения загрузки
-        while (!asyncLoad.isDone)
+        public void OnVehicleBrakeButtonPressed()
         {
-            float progress = asyncLoad.progress;
-            Debug.Log($"Прогресс загрузки сцены: {progress * 100:F1}%");
-
-            // Обновляем UI прогресса загрузки сцены
-            OnSceneLoadProgress(progress);
-
-            // Ждем один кадр
-            await Task.Yield();
+            if (_vehicleForce != null && _vehicleForce._Active)
+            {
+                _vehicleForce.Break();
+            }
         }
 
-        Debug.Log($"Сцена с индексом {_mapSceneIndex} успешно загружена");
-    }
+        public void OnHookButtonPressed()
+        {
+            if (_ropeGenerator != null)
+            {
+                _ropeGenerator.Hook();
+            }
+        }
 
-    /// <summary>
-    /// Обработчик прогресса загрузки сцены
-    /// </summary>
-    /// <param name="progress">Прогресс от 0 до 1</param>
-    private void OnSceneLoadProgress(float progress)
-    {
-        Debug.Log($"Прогресс загрузки сцены: {progress * 100:F1}%");
-        // Здесь можно обновить UI прогресса загрузки сцены
+        public void OnCarButtonPressed()
+        {
+            // This likely needs more logic to toggle entering/exiting
+        }
     }
 }

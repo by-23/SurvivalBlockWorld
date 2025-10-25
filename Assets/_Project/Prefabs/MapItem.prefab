@@ -310,7 +310,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 1}
   m_AnchorMax: {x: 0.5, y: 1}
-  m_AnchoredPosition: {x: -350, y: 53.20703}
+  m_AnchoredPosition: {x: 350, y: 53.20703}
   m_SizeDelta: {x: 160, y: 70}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!222 &2228888754337503768
@@ -590,7 +590,6 @@ GameObject:
   m_Component:
   - component: {fileID: 1480563723784004845}
   - component: {fileID: 6982198240771190285}
-  - component: {fileID: 8352842759480113087}
   m_Layer: 5
   m_Name: MapItem
   m_TagString: Untagged
@@ -637,24 +636,6 @@ MonoBehaviour:
   _screenshotImage: {fileID: 3176510059953720647}
   _loadButton: {fileID: 1072527249886713108}
   _deleteButton: {fileID: 9207445945989269556}
---- !u!114 &8352842759480113087
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5030668487433353665}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 79cdbe792303641b488862ed41243c05, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  levelName: 
-  useBuildIndex: 1
-  buildIndex: 1
-  button: {fileID: 1072527249886713108}
-  showLoadingScreen: 1
-  loadingScreenPrefab: {fileID: 3404371676279712106}
 --- !u!1 &6236777346314138729
 GameObject:
   m_ObjectHideFlags: 0

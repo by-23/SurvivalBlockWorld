@@ -14,9 +14,28 @@ public class SaveSystem : MonoBehaviour
         {
             if (_instance == null)
             {
-                GameObject go = new GameObject("SaveSystem");
-                _instance = go.AddComponent<SaveSystem>();
-                DontDestroyOnLoad(go);
+                // Try to find existing SaveSystem in scene first
+                _instance = FindAnyObjectByType<SaveSystem>();
+
+                if (_instance == null)
+                {
+                    // Try to load SaveSystem prefab
+                    GameObject prefab = Resources.Load<GameObject>("SaveSistem");
+                    if (prefab != null)
+                    {
+                        GameObject go = Instantiate(prefab);
+                        go.name = "SaveSystem";
+                        _instance = go.GetComponent<SaveSystem>();
+                        DontDestroyOnLoad(go);
+                    }
+                    else
+                    {
+                        // Fallback: create new instance
+                        GameObject go = new GameObject("SaveSystem");
+                        _instance = go.AddComponent<SaveSystem>();
+                        DontDestroyOnLoad(go);
+                    }
+                }
             }
 
             return _instance;
@@ -54,8 +73,16 @@ public class SaveSystem : MonoBehaviour
 
         if (_config == null)
         {
-            Debug.LogError("SaveConfig not assigned to SaveSystem!");
-            return;
+            Debug.LogWarning("SaveConfig not assigned to SaveSystem! Attempting to load from Resources...");
+            _config = Resources.Load<SaveConfig>("SaveConfig");
+
+            if (_config == null)
+            {
+                Debug.LogError("SaveConfig not found in Resources! SaveSystem initialization failed.");
+                return;
+            }
+
+            Debug.Log("SaveConfig loaded from Resources successfully.");
         }
 
         _chunkManager = new ChunkManager(_config);
@@ -148,6 +175,28 @@ public class SaveSystem : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// Проверяет, находимся ли мы в сцене меню
+    /// </summary>
+    /// <returns>True если в меню, false если в игровой сцене</returns>
+    private bool IsInMenuScene()
+    {
+        int currentSceneBuildIndex = SceneManager.GetActiveScene().buildIndex;
+
+        // Список ID сцен меню
+        int[] menuSceneIds = { 0 }; // Пример: 0 - главное меню
+
+        foreach (int menuSceneId in menuSceneIds)
+        {
+            if (currentSceneBuildIndex == menuSceneId)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     [ContextMenu("Save Current World")]
     public void SaveWorld(string worldName)
     {
@@ -234,6 +283,14 @@ public class SaveSystem : MonoBehaviour
     public async System.Threading.Tasks.Task<bool> LoadWorldAsync(string worldName,
         Action<float> progressCallback = null)
     {
+        // Определяем, нужно ли загружать сцену на основе текущего контекста
+        bool shouldLoadScene = IsInMenuScene();
+        return await LoadWorldAsync(worldName, shouldLoadScene, progressCallback);
+    }
+
+    public async System.Threading.Tasks.Task<bool> LoadWorldAsync(string worldName, bool loadScene,
+        Action<float> progressCallback = null)
+    {
         try
         {
             if (string.IsNullOrEmpty(worldName))
@@ -242,8 +299,15 @@ public class SaveSystem : MonoBehaviour
                 return false;
             }
 
-            // Проверяем, что мы находимся в игровой сцене
-            if (!IsValidGameScene())
+            // Если нужно загружать сцену, проверяем что мы в меню
+            if (loadScene && !IsInMenuScene())
+            {
+                Debug.LogError("Load failed: Scene loading requested but not in menu scene.");
+                return false;
+            }
+
+            // Если не загружаем сцену, проверяем что мы в игровой сцене
+            if (!loadScene && !IsValidGameScene())
             {
                 Debug.LogError("Load failed: Not in a valid game scene for loading.");
                 return false;
@@ -565,10 +629,32 @@ public class SaveSystem : MonoBehaviour
 
     public async System.Threading.Tasks.Task<List<WorldMetadata>> GetAllWorldsMetadata()
     {
+        // Ensure FirebaseAdapter is initialized
         if (_firebaseAdapter == null)
         {
-            Debug.LogError("FirebaseAdapter not initialized!");
-            return new List<WorldMetadata>();
+            Debug.LogWarning("FirebaseAdapter not initialized, attempting to initialize...");
+
+            if (_config == null)
+            {
+                Debug.LogWarning("SaveConfig not assigned to SaveSystem! Attempting to load from Resources...");
+                _config = Resources.Load<SaveConfig>("SaveConfig");
+
+                if (_config == null)
+                {
+                    Debug.LogError("SaveConfig not found in Resources! Cannot initialize FirebaseAdapter.");
+                    return new List<WorldMetadata>();
+                }
+
+                Debug.Log("SaveConfig loaded from Resources successfully.");
+            }
+
+            if (_chunkManager == null)
+            {
+                _chunkManager = new ChunkManager(_config);
+            }
+
+            _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            Debug.Log("FirebaseAdapter initialized successfully.");
         }
 
         return await _firebaseAdapter.GetAllWorldsMetadata();

@@ -1,3 +1,4 @@
+using Assets._Project.Scripts.UI;
 using UnityEngine;
 
 public class Player : MonoBehaviour
