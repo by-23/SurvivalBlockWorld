@@ -161,9 +161,6 @@ public class EntityMeshCombiner : MonoBehaviour
             // Принудительно обновляем данные кубов перед проверкой групп
             entity.UpdateMassAndCubes();
 
-            // Небольшая задержка для обновления физики
-            System.Threading.Thread.Sleep(1);
-
             // Автоматически разделяем кубы на отдельные Entity если обнаружено несколько групп
             var newEntities = entity.SplitIntoSeparateEntities();
 

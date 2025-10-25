@@ -798,13 +798,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c0a9fc0fc4f114d7183e8440b203a825, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  SaveListManager: {fileID: 0}
-  _mainMenuPanel: {fileID: 0}
-  _mapSelectionPanel: {fileID: 3140843208332614771}
+  _mapsList: {fileID: 0}
+  _mapsMenu: {fileID: 3140843208332614771}
   _newGame: {fileID: 9124603985827973132}
-  _backButton: {fileID: 0}
   _loadingPanel: {fileID: 6244536552334407527}
-  _loadScene: 1
+  _saveListManager: {fileID: 0}
   _mapSceneIndex: 0
 --- !u!1 &6062030261308913059
 GameObject:
