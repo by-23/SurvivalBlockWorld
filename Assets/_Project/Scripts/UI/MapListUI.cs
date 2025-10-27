@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Threading.Tasks;
@@ -9,54 +11,63 @@ namespace Assets._Project.Scripts.UI
     /// </summary>
     public class MapListUI : MonoBehaviour
     {
-        [Header("Save List Manager")] [SerializeField]
-        protected MapList mapList;
+        [Header("UI References")] [SerializeField]
+        private Transform _mapListContainer;
 
-        [Header("Map Selection UI")] 
-        [SerializeField] private GameObject _mapsMenu;
+        [SerializeField] private GameObject _mapItemPrefab;
+        [SerializeField] private SnappingScroll _snappingScroll;
+
+        [Header("Configuration")] [SerializeField]
+        private SaveSystem _saveSystem;
+
+        [Header("Map Selection UI")] [SerializeField]
+        private GameObject _mapsMenu;
+
         [SerializeField] private GameObject _newGame;
         [SerializeField] private GameObject _loadingPanel;
 
         [Header("Scene Settings")] [SerializeField]
         private int _mapSceneIndex = 0; // Индекс MapScene в Build Settings
 
+        private List<MapItemView> _mapItems = new List<MapItemView>();
+        private bool _isLoading;
+
+        public event Action<string> OnMapLoadRequested;
+        public event Action<string> OnMapDeleteRequested;
+        public event Action OnLoadingStarted;
+        public event Action OnLoadingCompleted;
+
         private void Start()
         {
             SubscribeToSaveListEvents();
-            
         }
 
         private void OnDestroy()
         {
             UnsubscribeFromSaveListEvents();
+            ClearMapList();
         }
 
         /// <summary>
-        /// Подписывается на события MapList
+        /// Подписывается на собственные события
         /// </summary>
         private void SubscribeToSaveListEvents()
         {
-            if (mapList != null)
-            {
-                mapList.OnMapLoadRequested += OnMapLoadRequested;
-                mapList.OnMapDeleteRequested += OnMapDeleteRequested;
-                mapList.OnLoadingStarted += OnLoadingStarted;
-                mapList.OnLoadingCompleted += OnLoadingCompleted;
-            }
+            OnMapLoadRequested += OnMapLoadRequestedHandler;
+            OnMapDeleteRequested += OnMapDeleteRequestedHandler;
+            OnLoadingStarted += OnLoadingStartedHandler;
+            OnLoadingCompleted += OnLoadingCompletedHandler;
         }
 
         /// <summary>
-        /// Отписывается от событий MapList
+        /// Отписывается от собственных событий
         /// </summary>
         private void UnsubscribeFromSaveListEvents()
         {
-            if (mapList != null)
-            {
-                mapList.OnMapLoadRequested -= OnMapLoadRequested;
-                mapList.OnMapDeleteRequested -= OnMapDeleteRequested;
-                mapList.OnLoadingStarted -= OnLoadingStarted;
-                mapList.OnLoadingCompleted -= OnLoadingCompleted;
-            }
+            OnMapLoadRequested -= OnMapLoadRequestedHandler;
+            OnMapDeleteRequested -= OnMapDeleteRequestedHandler;
+            OnLoadingStarted -= OnLoadingStartedHandler;
+            OnLoadingCompleted -= OnLoadingCompletedHandler;
         }
 
         private void OnSettingsButtonPressed()
@@ -73,20 +84,149 @@ namespace Assets._Project.Scripts.UI
             }
 
             gameObject.SetActive(true);
-            
+
 
             if (_newGame != null)
             {
                 _newGame.SetActive(true);
             }
 
-            if (mapList != null)
+            LoadSaveList();
+        }
+
+        public async void LoadSaveList()
+        {
+            if (_isLoading)
             {
-                mapList.LoadSaveList();
+                return;
             }
-            else
+
+            _isLoading = true;
+            OnLoadingStarted?.Invoke();
+
+            try
             {
-                Debug.LogError("MapListUIController: SaveListManager is NULL!");
+                ClearMapList();
+                if (_saveSystem == null)
+                    _saveSystem = SaveSystem.Instance;
+                if (_saveSystem == null)
+                {
+                    Debug.LogError("SaveSystem not assigned to MapListUI!");
+                    _isLoading = false;
+                    OnLoadingCompleted?.Invoke();
+                    return;
+                }
+
+                // Get worlds metadata from Firebase through SaveSystem
+                var worldsMetadata = await _saveSystem.GetAllWorldsMetadata();
+
+                if (worldsMetadata.Count == 0)
+                {
+                    _isLoading = false;
+                    OnLoadingCompleted?.Invoke();
+                    return;
+                }
+
+                foreach (var metadata in worldsMetadata)
+                {
+                    CreateMapItem(metadata.WorldName, metadata.ScreenshotPath);
+                }
+
+                OnLoadingCompleted?.Invoke();
+
+                if (_snappingScroll)
+                    _snappingScroll.UpdateChildren();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Failed to load save list: {e.Message}");
+            }
+            finally
+            {
+                _isLoading = false;
+            }
+        }
+
+        private void CreateMapItem(string mapName, string screenshotPath)
+        {
+            if (_mapItemPrefab == null || _mapListContainer == null)
+            {
+                Debug.LogError("Map item prefab or container not assigned!");
+                return;
+            }
+
+            GameObject mapItemObj = Instantiate(_mapItemPrefab, _mapListContainer);
+            MapItemView mapItemView = mapItemObj.GetComponent<MapItemView>();
+
+            if (mapItemView == null)
+            {
+                Debug.LogError("MapItemView component not found on prefab!");
+                Destroy(mapItemObj);
+                return;
+            }
+
+            mapItemView.SetMapData(mapName, screenshotPath);
+
+            // Подписываемся на события MapItemView и обрабатываем их локально
+            string capturedMapName = mapName;
+            mapItemView.OnLoadMapRequested += (_) => { OnMapLoadRequested?.Invoke(capturedMapName); };
+            mapItemView.OnDeleteMapRequested += (_) => { OnMapDeleteRequested?.Invoke(capturedMapName); };
+
+            _mapItems.Add(mapItemView);
+        }
+
+        private void ClearMapList()
+        {
+            foreach (var mapItem in _mapItems)
+            {
+                if (mapItem != null)
+                {
+                    // Отписываемся от всех обработчиков
+                    mapItem.OnLoadMapRequested = null;
+                    mapItem.OnDeleteMapRequested = null;
+                    Destroy(mapItem.gameObject);
+                }
+            }
+
+            _mapItems.Clear();
+        }
+
+        public void RefreshSaveList()
+        {
+            LoadSaveList();
+        }
+
+        public async void DeleteMap(string mapName)
+        {
+            OnLoadingStarted?.Invoke();
+
+            try
+            {
+                if (_saveSystem == null)
+                {
+                    Debug.LogError("SaveSystem not assigned to MapListUI!");
+                    OnLoadingCompleted?.Invoke();
+                    return;
+                }
+
+                bool success = await _saveSystem.DeleteWorldAsync(mapName);
+
+                if (success)
+                {
+                    Debug.Log($"Map '{mapName}' deleted successfully.");
+                    // Обновляем список после успешного удаления
+                    LoadSaveList();
+                }
+                else
+                {
+                    Debug.LogError($"Failed to delete map '{mapName}'.");
+                    OnLoadingCompleted?.Invoke();
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Failed to delete map '{mapName}': {e.Message}");
+                OnLoadingCompleted?.Invoke();
             }
         }
 
@@ -94,16 +234,15 @@ namespace Assets._Project.Scripts.UI
         /// Обработчик запроса загрузки карты
         /// </summary>
         /// <param name="mapName">Имя карты</param>
-        private void OnMapLoadRequested(string mapName)
+        private void OnMapLoadRequestedHandler(string mapName)
         {
             OnMapLoadRequestedAsync(mapName);
         }
 
         private async void OnMapLoadRequestedAsync(string mapName)
         {
-           
             gameObject.SetActive(false);
-            
+
 
             if (_newGame != null)
             {
@@ -142,9 +281,9 @@ namespace Assets._Project.Scripts.UI
                     {
                         Debug.LogError($"Ошибка загрузки мира '{mapName}'");
                         HideLoadingPanel();
-                       
+
                         gameObject.SetActive(true);
-                        
+
 
                         if (_newGame != null)
                         {
@@ -176,7 +315,7 @@ namespace Assets._Project.Scripts.UI
                     {
                         Debug.LogError($"Ошибка загрузки мира '{mapName}'");
                         HideLoadingPanel();
-                        
+
                         gameObject.SetActive(true);
 
                         if (_newGame != null)
@@ -192,19 +331,16 @@ namespace Assets._Project.Scripts.UI
         /// Обработчик запроса удаления карты
         /// </summary>
         /// <param name="mapName">Имя карты</param>
-        private void OnMapDeleteRequested(string mapName)
+        private void OnMapDeleteRequestedHandler(string mapName)
         {
             Debug.Log($"Удаление карты: {mapName}");
-            if (mapList != null)
-            {
-                mapList.DeleteMap(mapName);
-            }
+            DeleteMap(mapName);
         }
 
         /// <summary>
         /// Обработчик начала загрузки
         /// </summary>
-        private void OnLoadingStarted()
+        private void OnLoadingStartedHandler()
         {
             ShowLoadingPanel();
         }
@@ -212,7 +348,7 @@ namespace Assets._Project.Scripts.UI
         /// <summary>
         /// Обработчик завершения загрузки
         /// </summary>
-        private void OnLoadingCompleted()
+        private void OnLoadingCompletedHandler()
         {
             HideLoadingPanel();
         }
