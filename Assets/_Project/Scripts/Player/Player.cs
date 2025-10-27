@@ -18,7 +18,6 @@ public class Player : MonoBehaviour
     Camera _camera;
 
     InputManager _InputManager;
-    UIManager _UIManager;
     CapsuleCollider _capsuleCollider;
     public VehicleForce _vehicleForce;
     [SerializeField] private CharacterController _characterController;
