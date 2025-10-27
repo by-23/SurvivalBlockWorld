@@ -37,6 +37,8 @@ namespace Assets._Project.Scripts.UI
         private void Start()
         {
             SubscribeToSaveListEvents();
+            if (SceneManager.GetActiveScene().buildIndex == 0)
+                LoadSaveList();
         }
 
         private void OnDestroy()
@@ -253,17 +255,25 @@ namespace Assets._Project.Scripts.UI
                         }
 
                         HideLoadingPanel();
-                        CloseMapList();
+
+                        if (this != null)
+                        {
+                            CloseMapList();
+                        }
                     }
                     else
                     {
                         Debug.LogError($"Ошибка загрузки мира '{mapName}'");
                         HideLoadingPanel();
-                        gameObject.SetActive(true);
 
-                        if (_newGame != null)
+                        if (this != null && gameObject != null)
                         {
-                            _newGame.SetActive(true);
+                            gameObject.SetActive(true);
+
+                            if (_newGame != null)
+                            {
+                                _newGame.SetActive(true);
+                            }
                         }
                     }
                 }
@@ -283,17 +293,25 @@ namespace Assets._Project.Scripts.UI
                         }
 
                         HideLoadingPanel();
-                        CloseMapList();
+
+                        if (this != null)
+                        {
+                            CloseMapList();
+                        }
                     }
                     else
                     {
                         Debug.LogError($"Ошибка загрузки мира '{mapName}'");
                         HideLoadingPanel();
-                        gameObject.SetActive(true);
 
-                        if (_newGame != null)
+                        if (this != null && gameObject != null)
                         {
-                            _newGame.SetActive(true);
+                            gameObject.SetActive(true);
+
+                            if (_newGame != null)
+                            {
+                                _newGame.SetActive(true);
+                            }
                         }
                     }
                 }
@@ -339,7 +357,11 @@ namespace Assets._Project.Scripts.UI
 
             while (!asyncLoad.isDone)
             {
-                CloseMapList();
+                if (this != null)
+                {
+                    CloseMapList();
+                }
+
                 await Task.Yield();
             }
         }
@@ -347,6 +369,11 @@ namespace Assets._Project.Scripts.UI
 
         public void CloseMapList()
         {
+            if (this == null || gameObject == null)
+            {
+                return;
+            }
+
             gameObject.SetActive(false);
 
             if (_newGame != null)
