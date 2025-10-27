@@ -6,9 +6,6 @@ using System.Threading.Tasks;
 
 namespace Assets._Project.Scripts.UI
 {
-    /// <summary>
-    /// UI контроллер для работы со списком карт
-    /// </summary>
     public class MapListUI : MonoBehaviour
     {
         [Header("UI References")] [SerializeField]
@@ -27,7 +24,7 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private GameObject _loadingPanel;
 
         [Header("Scene Settings")] [SerializeField]
-        private int _mapSceneIndex = 0; // Индекс MapScene в Build Settings
+        private int _mapSceneIndex = 0;
 
         private List<MapItemView> _mapItems = new List<MapItemView>();
         private bool _isLoading;
@@ -48,9 +45,6 @@ namespace Assets._Project.Scripts.UI
             ClearMapList();
         }
 
-        /// <summary>
-        /// Подписывается на собственные события
-        /// </summary>
         private void SubscribeToSaveListEvents()
         {
             OnMapLoadRequested += OnMapLoadRequestedHandler;
@@ -59,9 +53,6 @@ namespace Assets._Project.Scripts.UI
             OnLoadingCompleted += OnLoadingCompletedHandler;
         }
 
-        /// <summary>
-        /// Отписывается от собственных событий
-        /// </summary>
         private void UnsubscribeFromSaveListEvents()
         {
             OnMapLoadRequested -= OnMapLoadRequestedHandler;
@@ -117,7 +108,6 @@ namespace Assets._Project.Scripts.UI
                     return;
                 }
 
-                // Get worlds metadata from Firebase through SaveSystem
                 var worldsMetadata = await _saveSystem.GetAllWorldsMetadata();
 
                 if (worldsMetadata.Count == 0)
@@ -167,7 +157,7 @@ namespace Assets._Project.Scripts.UI
 
             mapItemView.SetMapData(mapName, screenshotPath);
 
-            // Подписываемся на события MapItemView и обрабатываем их локально
+            // Замыкание нужно для сохранения актуального имени карты в событии
             string capturedMapName = mapName;
             mapItemView.OnLoadMapRequested += (_) => { OnMapLoadRequested?.Invoke(capturedMapName); };
             mapItemView.OnDeleteMapRequested += (_) => { OnMapDeleteRequested?.Invoke(capturedMapName); };
@@ -181,7 +171,6 @@ namespace Assets._Project.Scripts.UI
             {
                 if (mapItem != null)
                 {
-                    // Отписываемся от всех обработчиков
                     mapItem.OnLoadMapRequested = null;
                     mapItem.OnDeleteMapRequested = null;
                     Destroy(mapItem.gameObject);
@@ -214,7 +203,6 @@ namespace Assets._Project.Scripts.UI
                 if (success)
                 {
                     Debug.Log($"Map '{mapName}' deleted successfully.");
-                    // Обновляем список после успешного удаления
                     LoadSaveList();
                 }
                 else
@@ -230,10 +218,6 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        /// <summary>
-        /// Обработчик запроса загрузки карты
-        /// </summary>
-        /// <param name="mapName">Имя карты</param>
         private void OnMapLoadRequestedHandler(string mapName)
         {
             OnMapLoadRequestedAsync(mapName);
@@ -243,31 +227,25 @@ namespace Assets._Project.Scripts.UI
         {
             gameObject.SetActive(false);
 
-
             if (_newGame != null)
             {
                 _newGame.SetActive(false);
             }
 
-            // Show loading panel
             ShowLoadingPanel();
 
-            // Проверяем, находимся ли мы в меню (сцена с индексом 0)
             bool isInMenu = SceneManager.GetActiveScene().buildIndex == 0;
 
             if (isInMenu)
             {
-                // Если в меню - сначала загружаем сцену, затем мир
                 await LoadMapSceneAsync();
 
-                // После загрузки сцены загружаем мир
                 if (SaveSystem.Instance != null)
                 {
                     bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, OnWorldLoadProgress);
 
                     if (loadSuccess)
                     {
-                        // Убеждаемся, что InputManager и Player готовы после загрузки мира
                         InputManager.ForceActivateInputManager();
                         if (Player.Instance != null)
                         {
@@ -281,9 +259,7 @@ namespace Assets._Project.Scripts.UI
                     {
                         Debug.LogError($"Ошибка загрузки мира '{mapName}'");
                         HideLoadingPanel();
-
                         gameObject.SetActive(true);
-
 
                         if (_newGame != null)
                         {
@@ -294,14 +270,12 @@ namespace Assets._Project.Scripts.UI
             }
             else
             {
-                // Если не в меню - загружаем только мир без смены сцены
                 if (SaveSystem.Instance != null)
                 {
                     bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
 
                     if (loadSuccess)
                     {
-                        // Убеждаемся, что InputManager и Player готовы после загрузки мира
                         InputManager.ForceActivateInputManager();
                         if (Player.Instance != null)
                         {
@@ -315,7 +289,6 @@ namespace Assets._Project.Scripts.UI
                     {
                         Debug.LogError($"Ошибка загрузки мира '{mapName}'");
                         HideLoadingPanel();
-
                         gameObject.SetActive(true);
 
                         if (_newGame != null)
@@ -327,47 +300,28 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        /// <summary>
-        /// Обработчик запроса удаления карты
-        /// </summary>
-        /// <param name="mapName">Имя карты</param>
         private void OnMapDeleteRequestedHandler(string mapName)
         {
             Debug.Log($"Удаление карты: {mapName}");
             DeleteMap(mapName);
         }
 
-        /// <summary>
-        /// Обработчик начала загрузки
-        /// </summary>
         private void OnLoadingStartedHandler()
         {
             ShowLoadingPanel();
         }
 
-        /// <summary>
-        /// Обработчик завершения загрузки
-        /// </summary>
         private void OnLoadingCompletedHandler()
         {
             HideLoadingPanel();
         }
 
-        /// <summary>
-        /// Обработчик прогресса загрузки мира
-        /// </summary>
-        /// <param name="progress">Прогресс от 0 до 1</param>
         private void OnWorldLoadProgress(float progress)
         {
-            // Здесь можно обновить UI прогресса загрузки
         }
 
-        /// <summary>
-        /// Асинхронно загружает MapScene и ждет полной загрузки
-        /// </summary>
         private async Task LoadMapSceneAsync()
         {
-            // Проверяем валидность индекса
             if (_mapSceneIndex < 0 || _mapSceneIndex >= SceneManager.sceneCountInBuildSettings)
             {
                 Debug.LogError(
@@ -375,7 +329,6 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
-            // Загружаем сцену асинхронно по индексу
             AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(_mapSceneIndex);
 
             if (asyncLoad == null)
@@ -384,18 +337,14 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
-            // Ждем завершения загрузки
             while (!asyncLoad.isDone)
             {
-                float progress = asyncLoad.progress;
                 CloseMapList();
-                // Ждем один кадр
                 await Task.Yield();
             }
         }
 
 
-        // Public method to close map selection panel and return to main menu
         public void CloseMapList()
         {
             gameObject.SetActive(false);
@@ -405,14 +354,12 @@ namespace Assets._Project.Scripts.UI
                 _newGame.SetActive(false);
             }
 
-            // Hide loading panel
             if (_loadingPanel != null)
             {
                 _loadingPanel.SetActive(false);
             }
         }
 
-        // Public methods to control loading panel
         public void ShowLoadingPanel()
         {
             if (_loadingPanel != null)

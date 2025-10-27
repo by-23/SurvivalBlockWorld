@@ -52,7 +52,6 @@ namespace Assets._Project.Scripts.UI
                 UpdateGhostCubePosition();
             }
 
-            // Проверяем нажатие клавиши F для создания куба
             if (Input.GetKeyDown(KeyCode.F))
             {
                 OnCreateButtonClicked();
@@ -89,7 +88,6 @@ namespace Assets._Project.Scripts.UI
             Image buttonImage = clickedButton.GetComponent<Image>();
             if (buttonImage != null)
             {
-                // Берем normalColor из Button, а не текущий цвет Image
                 ColorBlock colorBlock = clickedButton.colors;
                 _selectedColor = colorBlock.normalColor;
             }
@@ -100,7 +98,6 @@ namespace Assets._Project.Scripts.UI
         private void OnCreateButtonClicked()
         {
             CreateCube();
-            // Убираем HideGhostCube() - призрак должен оставаться
         }
 
         private void CreateGhostCube()
@@ -135,7 +132,7 @@ namespace Assets._Project.Scripts.UI
                 {
                     Material mat = new Material(Shader.Find("Standard"));
                     mat.color = new Color(_selectedColor.r, _selectedColor.g, _selectedColor.b, _ghostTransparency);
-                    mat.SetFloat("_Mode", 3); // Transparent mode
+                    mat.SetFloat("_Mode", 3);
                     mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
                     mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
                     mat.SetInt("_ZWrite", 0);
@@ -184,12 +181,10 @@ namespace Assets._Project.Scripts.UI
                 Color ghostColor;
                 if (isOccupied)
                 {
-                    // Красный цвет когда позиция занята
                     ghostColor = new Color(1f, 0f, 0f, _ghostTransparency);
                 }
                 else
                 {
-                    // Обычный цвет выбранной кнопки
                     ghostColor = new Color(_selectedColor.r, _selectedColor.g, _selectedColor.b, _ghostTransparency);
                 }
 
@@ -203,10 +198,8 @@ namespace Assets._Project.Scripts.UI
 
             Vector3 targetPosition = GetGhostCubePosition();
 
-            // Применяем магнитное прилипание к существующим кубам
             Vector3 magnetizedPosition = ApplyMagneticSnapping(targetPosition);
 
-            // Если позиция занята, ищем альтернативную позицию
             if (IsPositionOccupied(magnetizedPosition))
             {
                 magnetizedPosition = FindAlternativePositionNearPlayer(magnetizedPosition);
@@ -214,7 +207,6 @@ namespace Assets._Project.Scripts.UI
 
             _ghostCube.transform.position = magnetizedPosition;
 
-            // Проверяем, занята ли финальная позиция и меняем цвет призрака
             bool isOccupied = IsPositionOccupied(magnetizedPosition);
             UpdateGhostCubeMaterial(isOccupied);
         }
@@ -232,22 +224,16 @@ namespace Assets._Project.Scripts.UI
                 return position;
             }
 
-            // Создаем луч из позиции камеры в направлении взгляда
             Vector3 lookDirection = playerCamera.transform.forward;
             Ray ray = new Ray(playerCamera.transform.position, lookDirection);
 
-            // Используем raycast для поиска куба, на который попадает луч взгляда
             RaycastHit[] hits = Physics.RaycastAll(ray, _magneticDistance * 2f);
-
-            // Сортируем результаты по расстоянию (ближайшие первыми)
             System.Array.Sort(hits, (hit1, hit2) => hit1.distance.CompareTo(hit2.distance));
 
             Vector3 snappedPosition = position;
 
-            // Ищем первый подходящий куб с учетом направления взгляда
             foreach (RaycastHit hit in hits)
             {
-                // Исключаем сам призрак
                 if (hit.collider.gameObject == _ghostCube)
                     continue;
 
@@ -255,17 +241,13 @@ namespace Assets._Project.Scripts.UI
                 if (cube != null)
                 {
                     Vector3 cubePosition = hit.collider.transform.position;
-
-                    // Проверяем, что куб находится в направлении взгляда
                     Vector3 directionToCube = (cubePosition - playerCamera.transform.position).normalized;
                     float dotProduct = Vector3.Dot(lookDirection.normalized, directionToCube);
 
-                    // Если куб находится в направлении взгляда (dot product > 0.5)
                     if (dotProduct > 0.5f)
                     {
-                        // Нашли подходящий куб - используем его
                         snappedPosition = SnapToNearestSide(position, cubePosition);
-                        break; // Используем только первый найденный куб
+                        break;
                     }
                 }
             }
@@ -306,7 +288,6 @@ namespace Assets._Project.Scripts.UI
                 return cubePosition;
             }
 
-            // Используем направление взгляда игрока для определения стороны куба
             Vector3 cameraForward = playerCamera.transform.forward;
             Vector3 snappedPosition = SnapToFacingSide(cameraForward, cubePosition);
 
@@ -326,27 +307,17 @@ namespace Assets._Project.Scripts.UI
                 return cubePosition;
             }
 
-            // Создаем луч из позиции камеры в направлении взгляда
             Ray ray = new Ray(playerCamera.transform.position, lookDirection);
-
-            // Вычисляем пересечение луча с кубом
             Bounds cubeBounds = new Bounds(cubePosition, Vector3.one * _cubeSize);
 
             if (cubeBounds.IntersectRay(ray, out float distance))
             {
-                // Получаем точку пересечения луча с кубом
                 Vector3 intersectionPoint = ray.origin + ray.direction * distance;
-
-                // Определяем, какая грань куба пересекается первой
                 Vector3 faceNormal = GetIntersectedFaceNormal(intersectionPoint, cubePosition);
-
-                // Позиционируем призрак на той же стороне, на которую смотрит игрок
                 Vector3 snappedPosition = cubePosition + faceNormal * _cubeSize;
 
-                // Проверяем, что куб не пересекается с землей (только для боковых сторон)
-                // И только если куб находится близко к земле
                 if (Mathf.Abs(faceNormal.y) < 0.9f &&
-                    snappedPosition.y < _cubeSize * 2f) // Не верхняя/нижняя грань и не высоко
+                    snappedPosition.y < _cubeSize * 2f)
                 {
                     snappedPosition = EnsureAboveGround(snappedPosition);
                 }
@@ -354,62 +325,47 @@ namespace Assets._Project.Scripts.UI
                 return snappedPosition;
             }
 
-            // Если луч не пересекает куб, используем направление взгляда как fallback
             Vector3 normalizedLookDirection = lookDirection.normalized;
-
-            // Определяем доминирующую ось в направлении взгляда
             float absX = Mathf.Abs(normalizedLookDirection.x);
             float absY = Mathf.Abs(normalizedLookDirection.y);
             float absZ = Mathf.Abs(normalizedLookDirection.z);
 
             Vector3 fallbackPosition = cubePosition;
 
-            // Прилипаем к стороне, на которую смотрит игрок
             if (absX >= absY && absX >= absZ)
             {
-                // Игрок смотрит по X оси - левая или правая сторона
                 if (normalizedLookDirection.x > 0)
                 {
-                    // Игрок смотрит вправо -> призрак справа от куба
                     fallbackPosition = cubePosition + Vector3.right * _cubeSize;
                 }
                 else
                 {
-                    // Игрок смотрит влево -> призрак слева от куба
                     fallbackPosition = cubePosition + Vector3.left * _cubeSize;
                 }
             }
             else if (_allowVerticalSnapping && absY >= absX && absY >= absZ)
             {
-                // Игрок смотрит по Y оси - верхняя или нижняя сторона
                 if (normalizedLookDirection.y > 0)
                 {
-                    // Игрок смотрит вверх -> призрак выше куба
                     fallbackPosition = cubePosition + Vector3.up * _cubeSize;
                 }
                 else
                 {
-                    // Игрок смотрит вниз -> призрак ниже куба
                     fallbackPosition = cubePosition + Vector3.down * _cubeSize;
                 }
             }
             else
             {
-                // Игрок смотрит по Z оси - передняя или задняя сторона
                 if (normalizedLookDirection.z > 0)
                 {
-                    // Игрок смотрит вперед -> призрак впереди куба
                     fallbackPosition = cubePosition + Vector3.forward * _cubeSize;
                 }
                 else
                 {
-                    // Игрок смотрит назад -> призрак сзади куба
                     fallbackPosition = cubePosition + Vector3.back * _cubeSize;
                 }
             }
 
-            // Проверяем, что куб не пересекается с землей (только для боковых сторон)
-            // И только если куб находится близко к земле
             if ((absX >= absY && absX >= absZ || absZ >= absX && absZ >= absY) && fallbackPosition.y < _cubeSize * 2f)
             {
                 fallbackPosition = EnsureAboveGround(fallbackPosition);
@@ -420,24 +376,19 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 GetIntersectedFaceNormal(Vector3 intersectionPoint, Vector3 cubePosition)
         {
-            // Вычисляем относительную позицию точки пересечения от центра куба
             Vector3 relativePoint = intersectionPoint - cubePosition;
-
-            // Определяем, на какой грани находится точка пересечения
             float halfSize = _cubeSize * 0.5f;
 
-            // Вычисляем расстояния до каждой грани
             float[] distances =
             {
-                Mathf.Abs(relativePoint.x - halfSize), // Правая грань
-                Mathf.Abs(relativePoint.x + halfSize), // Левая грань
-                Mathf.Abs(relativePoint.y - halfSize), // Верхняя грань
-                Mathf.Abs(relativePoint.y + halfSize), // Нижняя грань
-                Mathf.Abs(relativePoint.z - halfSize), // Передняя грань
-                Mathf.Abs(relativePoint.z + halfSize) // Задняя грань
+                Mathf.Abs(relativePoint.x - halfSize),
+                Mathf.Abs(relativePoint.x + halfSize),
+                Mathf.Abs(relativePoint.y - halfSize),
+                Mathf.Abs(relativePoint.y + halfSize),
+                Mathf.Abs(relativePoint.z - halfSize),
+                Mathf.Abs(relativePoint.z + halfSize)
             };
 
-            // Находим ближайшую грань (ту, которую пересекает луч)
             int closestFace = 0;
             float minDistance = distances[0];
 
@@ -450,15 +401,14 @@ namespace Assets._Project.Scripts.UI
                 }
             }
 
-            // Возвращаем нормаль ближайшей грани
             Vector3[] faceNormals =
             {
-                Vector3.right, // Правая грань
-                Vector3.left, // Левая грань
-                Vector3.up, // Верхняя грань
-                Vector3.down, // Нижняя грань
-                Vector3.forward, // Передняя грань
-                Vector3.back // Задняя грань
+                Vector3.right,
+                Vector3.left,
+                Vector3.up,
+                Vector3.down,
+                Vector3.forward,
+                Vector3.back
             };
 
             return faceNormals[closestFace];
@@ -466,20 +416,17 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 EnsureAboveGround(Vector3 position)
         {
-            // Проверяем, что куб находится над поверхностью земли
+            // Поднимаем куб чтобы он не утонул в земле, но не трогаем если он уже высоко (для построек на высоте)
             Vector3 groundCheckPos = position;
-            groundCheckPos.y -= (_cubeSize * 0.5f); // Проверяем нижнюю часть куба
+            groundCheckPos.y -= (_cubeSize * 0.5f);
 
             if (Physics.Raycast(groundCheckPos, Vector3.down, out RaycastHit hit, _cubeSize, _groundLayerMask))
             {
-                // Если нижняя часть куба пересекается с землей, поднимаем куб
-                // Но только если куб не находится значительно выше земли (для многоуровневых структур)
                 float groundLevel = hit.point.y + (_cubeSize * 0.5f);
 
-                // Если текущая позиция значительно выше земли, не опускаем куб
                 if (position.y > groundLevel + _cubeSize)
                 {
-                    return position; // Оставляем куб на текущей высоте
+                    return position;
                 }
 
                 position.y = groundLevel;
@@ -501,35 +448,28 @@ namespace Assets._Project.Scripts.UI
                 Vector3 cameraPosition = playerCamera.transform.position;
                 Vector3 cameraForward = playerCamera.transform.forward;
 
-                // Создаем луч от камеры вперед
                 Ray ray = new Ray(cameraPosition, cameraForward);
 
-                // Сначала проверяем пересечение с существующими кубами
                 if (Physics.Raycast(ray, out RaycastHit cubeHit, 50f))
                 {
                     GameObject hitObject = cubeHit.collider.gameObject;
                     Cube hitCube = hitObject.GetComponent<Cube>();
 
-                    // Если попали в куб, прилипаем к ближайшей к игроку стороне
                     if (hitCube != null)
                     {
                         return SnapToNearestSideFromPlayer(cameraPosition, hitObject.transform.position);
                     }
                 }
 
-                // Если не попали в куб, проверяем пересечение с любыми объектами
                 if (Physics.Raycast(ray, out RaycastHit hit, 50f))
                 {
-                    // Всегда используем сферный рейкаст для поиска ближайших кубов
                     Vector3 spherecastResult = FindNearestCubeWithSpherecast(hit.point, cameraPosition);
 
-                    // Если сферный рейкаст не нашел кубы, проверяем что мы попали в землю
                     if (spherecastResult == Vector3.zero &&
                         ((1 << hit.collider.gameObject.layer) & _groundLayerMask) != 0)
                     {
-                        // Размещаем куб на поверхности земли
                         Vector3 surfacePosition = hit.point;
-                        surfacePosition.y = hit.point.y + (_cubeSize * 0.5f); // Половина куба над поверхностью
+                        surfacePosition.y = hit.point.y + (_cubeSize * 0.5f);
                         return surfacePosition;
                     }
 
@@ -537,7 +477,6 @@ namespace Assets._Project.Scripts.UI
                 }
                 else
                 {
-                    // Если не попали ни во что, не создаем куб
                     return Vector3.zero;
                 }
             }
@@ -547,19 +486,14 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 FindNearestCubeWithSpherecast(Vector3 hitPoint, Vector3 cameraPosition)
         {
-            // Направление от точки попадания к камере (центр рейкаста)
             Vector3 directionToCamera = (cameraPosition - hitPoint).normalized;
-
-            // Выполняем сферный рейкаст от точки попадания в направлении камеры
             RaycastHit[] sphereHits =
                 Physics.SphereCastAll(hitPoint, _spherecastRadius, directionToCamera, _spherecastDistance);
 
-            // Фильтруем только кубы и сортируем по расстоянию до центра рейкаста
             List<RaycastHit> cubeHits = new List<RaycastHit>();
 
             foreach (RaycastHit hit in sphereHits)
             {
-                // Исключаем сам призрак
                 if (hit.collider.gameObject == _ghostCube)
                     continue;
 
@@ -572,11 +506,9 @@ namespace Assets._Project.Scripts.UI
 
             if (cubeHits.Count == 0)
             {
-                // Если не нашли кубы, возвращаем нулевую позицию
                 return Vector3.zero;
             }
 
-            // Находим ближайший к центру рейкаста куб
             RaycastHit closestHit = cubeHits[0];
             float closestDistance = Vector3.Distance(hitPoint, closestHit.collider.transform.position);
 
@@ -590,17 +522,11 @@ namespace Assets._Project.Scripts.UI
                 }
             }
 
-            // Определяем сторону куба, направленную к центру рейкаста
             Vector3 cubePosition = closestHit.collider.transform.position;
             Vector3 directionToHitPoint = (hitPoint - cubePosition).normalized;
-
-            // Находим ближайшую сторону куба к точке попадания
             Vector3 targetSide = GetClosestSideToDirection(directionToHitPoint);
-
-            // Позиционируем призрачный куб на найденной стороне
             Vector3 ghostPosition = cubePosition + targetSide * _cubeSize;
 
-            // Проверяем, что куб не пересекается с землей
             if (Mathf.Abs(targetSide.y) < 0.9f && ghostPosition.y < _cubeSize * 2f)
             {
                 ghostPosition = EnsureAboveGround(ghostPosition);
@@ -611,57 +537,45 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 GetClosestSideToDirection(Vector3 direction)
         {
-            // Определяем доминирующую ось в направлении
             float absX = Mathf.Abs(direction.x);
             float absY = Mathf.Abs(direction.y);
             float absZ = Mathf.Abs(direction.z);
 
-            // Возвращаем нормаль ближайшей стороны
             if (absX >= absY && absX >= absZ)
             {
-                // Доминирует X ось
                 return direction.x > 0 ? Vector3.right : Vector3.left;
             }
             else if (_allowVerticalSnapping && absY >= absX && absY >= absZ)
             {
-                // Доминирует Y ось
                 return direction.y > 0 ? Vector3.up : Vector3.down;
             }
             else
             {
-                // Доминирует Z ось
                 return direction.z > 0 ? Vector3.forward : Vector3.back;
             }
         }
 
         private Vector3 GetSnappedPosition(RaycastHit hit)
         {
-            // Получаем нормаль поверхности куба
             Vector3 normal = hit.normal;
-
-            // Вычисляем позицию прилипания
             Vector3 hitPoint = hit.point;
             Vector3 snappedPosition = hitPoint + normal * (_cubeSize * 0.5f);
 
-            // Округляем до целых чисел для точного позиционирования
             snappedPosition.x = Mathf.Round(snappedPosition.x);
             snappedPosition.y = Mathf.Round(snappedPosition.y);
             snappedPosition.z = Mathf.Round(snappedPosition.z);
 
-            // Проверяем, что новая позиция не пересекается с существующими кубами
             if (!IsPositionOccupied(snappedPosition))
             {
                 return snappedPosition;
             }
 
-            // Если позиция занята, пытаемся найти ближайшую свободную позицию
             Vector3 alternativePosition = FindNearestFreePosition(snappedPosition, hitPoint, normal);
             return alternativePosition;
         }
 
         private Vector3 FindNearestFreePosition(Vector3 targetPosition, Vector3 hitPoint, Vector3 _)
         {
-            // Пробуем позиции в разных направлениях от целевой позиции
             Vector3[] directions =
             {
                 Vector3.up, Vector3.down, Vector3.left, Vector3.right, Vector3.forward, Vector3.back,
@@ -684,18 +598,15 @@ namespace Assets._Project.Scripts.UI
                 }
             }
 
-            // Если не нашли свободную позицию, возвращаем исходную точку пересечения
             return hitPoint;
         }
 
         private bool IsPositionOccupied(Vector3 position)
         {
-            // Проверяем, есть ли куб в данной позиции с более точной проверкой
             Collider[] colliders = Physics.OverlapBox(position, Vector3.one * (_cubeSize * 0.49f));
 
             foreach (Collider cubeCollider in colliders)
             {
-                // Исключаем сам призрак из проверки
                 if (cubeCollider.gameObject == _ghostCube)
                     continue;
 
@@ -724,7 +635,6 @@ namespace Assets._Project.Scripts.UI
             Vector3 playerPosition = playerCamera.transform.position;
             Vector3 cameraForward = playerCamera.transform.forward;
 
-            // Находим все кубы в радиусе магнитного прилипания
             Collider[] nearbyColliders = Physics.OverlapSphere(occupiedPosition, _magneticDistance * 2f);
 
             Vector3 bestPosition = occupiedPosition;
@@ -732,7 +642,6 @@ namespace Assets._Project.Scripts.UI
 
             foreach (Collider nearbyCollider in nearbyColliders)
             {
-                // Исключаем сам призрак
                 if (nearbyCollider.gameObject == _ghostCube)
                     continue;
 
@@ -740,8 +649,6 @@ namespace Assets._Project.Scripts.UI
                 if (cube != null)
                 {
                     Vector3 cubePosition = nearbyCollider.transform.position;
-
-                    // Сначала пробуем сторону, на которую смотрит игрок
                     Vector3 facingSidePosition = SnapToFacingSide(cameraForward, cubePosition);
 
                     if (!IsPositionOccupied(facingSidePosition))
@@ -755,15 +662,14 @@ namespace Assets._Project.Scripts.UI
                     }
                     else
                     {
-                        // Если приоритетная сторона занята, пробуем остальные стороны
                         Vector3[] sideOffsets =
                         {
-                            Vector3.right * _cubeSize, // Правая сторона
-                            Vector3.left * _cubeSize, // Левая сторона
-                            Vector3.up * _cubeSize, // Верхняя сторона
-                            Vector3.down * _cubeSize, // Нижняя сторона
-                            Vector3.forward * _cubeSize, // Передняя сторона
-                            Vector3.back * _cubeSize // Задняя сторона
+                            Vector3.right * _cubeSize,
+                            Vector3.left * _cubeSize,
+                            Vector3.up * _cubeSize,
+                            Vector3.down * _cubeSize,
+                            Vector3.forward * _cubeSize,
+                            Vector3.back * _cubeSize
                         };
 
                         foreach (Vector3 offset in sideOffsets)
@@ -771,13 +677,10 @@ namespace Assets._Project.Scripts.UI
                             Vector3 testPosition = cubePosition + offset;
                             testPosition = EnsureAboveGround(testPosition);
 
-                            // Проверяем, что позиция свободна
                             if (!IsPositionOccupied(testPosition))
                             {
-                                // Вычисляем расстояние от игрока до этой позиции
                                 float distanceToPlayer = Vector3.Distance(playerPosition, testPosition);
 
-                                // Выбираем позицию ближайшую к игроку
                                 if (distanceToPlayer < closestDistance)
                                 {
                                     closestDistance = distanceToPlayer;
@@ -797,19 +700,16 @@ namespace Assets._Project.Scripts.UI
             Vector3 basePosition = GetGhostCubePosition();
             Vector3 spawnPosition = ApplyMagneticSnapping(basePosition);
 
-            // Проверяем, что позиция не равна нулю (не попали в землю)
             if (spawnPosition == Vector3.zero)
             {
                 Debug.Log("Cannot create cube: no valid surface found!");
                 return;
             }
 
-            // Если позиция занята, пытаемся найти альтернативную позицию
             if (IsPositionOccupied(spawnPosition))
             {
                 spawnPosition = FindAlternativePositionNearPlayer(spawnPosition);
 
-                // Если альтернативная позиция тоже занята, не создаем куб
                 if (IsPositionOccupied(spawnPosition))
                 {
                     Debug.Log("Cannot create cube: all nearby positions are occupied!");

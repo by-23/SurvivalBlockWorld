@@ -14,12 +14,10 @@ public class SaveSystem : MonoBehaviour
         {
             if (_instance == null)
             {
-                // Try to find existing SaveSystem in scene first
                 _instance = FindAnyObjectByType<SaveSystem>();
 
                 if (_instance == null)
                 {
-                    // Try to load SaveSystem prefab
                     GameObject prefab = Resources.Load<GameObject>("SaveSistem");
                     if (prefab != null)
                     {
@@ -30,7 +28,6 @@ public class SaveSystem : MonoBehaviour
                     }
                     else
                     {
-                        // Fallback: create new instance
                         GameObject go = new GameObject("SaveSystem");
                         _instance = go.AddComponent<SaveSystem>();
                         DontDestroyOnLoad(go);
@@ -57,7 +54,6 @@ public class SaveSystem : MonoBehaviour
     private FileManager _fileManager;
     private FirebaseAdapter _firebaseAdapter;
 
-    // Защита от повторных вызовов загрузки
     private bool _isLoading = false;
 
 
@@ -97,32 +93,24 @@ public class SaveSystem : MonoBehaviour
             _cubeSpawner = gameObject.AddComponent<CubeSpawner>();
         }
 
-        // Проверяем, что CubeSpawner имеет доступные префабы
         if (!_cubeSpawner.HasAvailablePrefabs())
         {
             Debug.LogWarning("CubeSpawner не имеет доступных префабов! Попытка загрузки из Resources...");
         }
 
-        // Подписываемся на событие смены сцены
         SceneManager.sceneLoaded += OnSceneLoaded;
-
-        // Находим камеру в текущей сцене
         FindScreenshotCamera();
     }
 
     private void OnDestroy()
     {
-        // Отписываемся от события при уничтожении объекта
         SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        // При каждой смене сцены сбрасываем ссылку на камеру и ищем заново
         _screenshotCamera = null;
         FindScreenshotCamera();
-
-        // Проверяем доступность префабов CubeSpawner
         ValidateCubeSpawnerPrefabs();
     }
 
@@ -159,12 +147,8 @@ public class SaveSystem : MonoBehaviour
 
     private bool IsValidGameScene()
     {
-        // Проверяем, что мы не в меню или других неигровых сценах
         int currentSceneBuildIndex = SceneManager.GetActiveScene().buildIndex;
-
-        // Список ID сцен, где нельзя сохранять/загружать
-        // Добавьте сюда ID ваших меню и других неигровых сцен
-        int[] invalidSceneIds = { 0 }; // Пример: 0 - меню, 1 - загрузка
+        int[] invalidSceneIds = { 0 };
 
         foreach (int invalidSceneId in invalidSceneIds)
         {
@@ -177,16 +161,10 @@ public class SaveSystem : MonoBehaviour
         return true;
     }
 
-    /// <summary>
-    /// Проверяет, находимся ли мы в сцене меню
-    /// </summary>
-    /// <returns>True если в меню, false если в игровой сцене</returns>
     private bool IsInMenuScene()
     {
         int currentSceneBuildIndex = SceneManager.GetActiveScene().buildIndex;
-
-        // Список ID сцен меню
-        int[] menuSceneIds = { 0 }; // Пример: 0 - главное меню
+        int[] menuSceneIds = { 0 };
 
         foreach (int menuSceneId in menuSceneIds)
         {
@@ -216,7 +194,6 @@ public class SaveSystem : MonoBehaviour
                 return false;
             }
 
-            // Проверяем, что мы находимся в игровой сцене
             if (!IsValidGameScene())
             {
                 Debug.LogError("Save failed: Not in a valid game scene for saving.");
@@ -285,7 +262,6 @@ public class SaveSystem : MonoBehaviour
     public async System.Threading.Tasks.Task<bool> LoadWorldAsync(string worldName,
         Action<float> progressCallback = null)
     {
-        // Определяем, нужно ли загружать сцену на основе текущего контекста
         bool shouldLoadScene = IsInMenuScene();
         return await LoadWorldAsync(worldName, shouldLoadScene, progressCallback);
     }
@@ -295,7 +271,6 @@ public class SaveSystem : MonoBehaviour
     {
         try
         {
-            // Защита от повторных вызовов загрузки
             if (_isLoading)
             {
                 Debug.LogWarning($"Загрузка уже выполняется, пропускаем повторный вызов для '{worldName}'");
@@ -310,14 +285,12 @@ public class SaveSystem : MonoBehaviour
 
             _isLoading = true;
 
-            // Если нужно загружать сцену, проверяем что мы в меню
             if (loadScene && !IsInMenuScene())
             {
                 Debug.LogError("Load failed: Scene loading requested but not in menu scene.");
                 return false;
             }
 
-            // Если не загружаем сцену, проверяем что мы в игровой сцене
             if (!loadScene && !IsValidGameScene())
             {
                 Debug.LogError("Load failed: Not in a valid game scene for loading.");
@@ -328,7 +301,6 @@ public class SaveSystem : MonoBehaviour
 
             WorldSaveData worldData = null;
 
-            // TODO: Add logic to prefer local cache if available and newer
             if (_config.useFirebase)
             {
                 worldData = await _firebaseAdapter.LoadWorldFromFirestore(worldName);
@@ -376,14 +348,12 @@ public class SaveSystem : MonoBehaviour
         {
             bool success = true;
 
-            // Очищаем локальный кэш
             if (_config.useLocalCache)
             {
                 _fileManager.DeleteSaveFile();
                 Debug.Log("Local save data cleared");
             }
 
-            // Очищаем Firebase (удаляем все карты)
             if (_config.useFirebase && _firebaseAdapter != null)
             {
                 var worldsMetadata = await _firebaseAdapter.GetAllWorldsMetadata();
@@ -452,7 +422,6 @@ public class SaveSystem : MonoBehaviour
 
     private string TakeScreenshot(string worldName)
     {
-        // Если камера не найдена, пытаемся найти её заново
         if (_screenshotCamera == null)
         {
             FindScreenshotCamera();
@@ -516,7 +485,6 @@ public class SaveSystem : MonoBehaviour
         int totalCubes = worldData.Chunks.Values.Sum(c => c.cubes.Count);
         int spawnedCubes = 0;
 
-        // Кэшируем результат группировки, чтобы избежать повторных вызовов
         Dictionary<Vector3Int, List<CubeData>> cubesByEntity = GroupCubesByEntity(worldData);
 
         List<Entity> allEntities = _config.useDeferredSetup ? new List<Entity>(cubesByEntity.Count) : null;
@@ -598,7 +566,6 @@ public class SaveSystem : MonoBehaviour
         if (allCubes.Count == 0)
             return new Dictionary<Vector3Int, List<CubeData>>();
 
-        // Группируем кубы по их entityId
         Dictionary<int, List<CubeData>> cubesByEntityId = new Dictionary<int, List<CubeData>>();
 
         foreach (var cube in allCubes)
@@ -611,8 +578,6 @@ public class SaveSystem : MonoBehaviour
             cubesByEntityId[cube.entityId].Add(cube);
         }
 
-
-        // Конвертируем в формат, ожидаемый SpawnWorldFromData
         Dictionary<Vector3Int, List<CubeData>> entityGroups = new Dictionary<Vector3Int, List<CubeData>>();
         int groupIndex = 0;
 
@@ -646,7 +611,6 @@ public class SaveSystem : MonoBehaviour
 
     public async System.Threading.Tasks.Task<List<WorldMetadata>> GetAllWorldsMetadata()
     {
-        // Ensure FirebaseAdapter is initialized
         if (_firebaseAdapter == null)
         {
             Debug.LogWarning("FirebaseAdapter not initialized, attempting to initialize...");
