@@ -10,12 +10,19 @@ namespace Assets._Project.Scripts.UI
     /// </summary>
     public class EntityVisualizer : MonoBehaviour
     {
-        [Header("References")]
-        [SerializeField] private Camera _playerCamera;
+        [Header("References")] [SerializeField]
+        private Camera _playerCamera;
+
         [SerializeField] private float _raycastDistance = 200f;
 
-        [Header("Tool Configuration")]
-        [SerializeField] private string _activeToolName = "SaveSpawn";
+        [Header("Tool Configuration")] [SerializeField]
+        private string _activeToolName = "SaveSpawn";
+
+        [Header("Outline Settings")] [SerializeField]
+        private Color _outlineColor = Color.blue;
+
+        [SerializeField] private float _outlineWidth = 5f;
+        [SerializeField] private Outline.Mode _outlineMode = Outline.Mode.OutlineAll;
 
         private Entity _currentlyHighlightedEntity;
         private bool _isVisualizerActive = false;
@@ -53,6 +60,7 @@ namespace Assets._Project.Scripts.UI
                     {
                         OnEntityHit(hitEntity);
                     }
+
                     return;
                 }
             }
@@ -90,13 +98,13 @@ namespace Assets._Project.Scripts.UI
             if (entity == null) return;
 
             EntityOutlineHighlight outline = entity.GetComponent<EntityOutlineHighlight>();
-            
+
             if (outline == null)
             {
                 outline = entity.gameObject.AddComponent<EntityOutlineHighlight>();
             }
 
-            outline.ShowOutline();
+            outline.ShowOutline(_outlineColor, _outlineWidth, _outlineMode);
         }
 
         private void RemoveHighlight(Entity entity)

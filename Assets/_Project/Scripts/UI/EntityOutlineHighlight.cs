@@ -10,104 +10,82 @@ namespace Assets._Project.Scripts.UI
     [RequireComponent(typeof(Entity))]
     public class EntityOutlineHighlight : MonoBehaviour
     {
-        [Header("Outline Settings")] [SerializeField]
-        private Color _outlineColor = Color.yellow;
+        [Header("Default Outline Settings")] [SerializeField]
+        private Color _defaultOutlineColor = Color.yellow;
 
-        [SerializeField] private float _outlineWidth = 0.02f;
+        [SerializeField] private float _defaultOutlineWidth = 5f;
 
         private bool _isOutlineActive;
 
-        // Store created outline objects
-        private List<GameObject> _outlineObjects = new List<GameObject>();
+        // Holder for unified combined mesh with outline
+        private GameObject _unifiedOutlineObject;
 
         /// <summary>
         /// Shows the outline effect on the entity
         /// </summary>
-        public void ShowOutline()
+        public void ShowOutline(Color? color = null, float? width = null, Outline.Mode mode = Outline.Mode.OutlineAll)
         {
             if (_isOutlineActive)
                 return;
 
             _isOutlineActive = true;
 
-            // Find all mesh renderers in the entity
-            MeshRenderer[] renderers = GetComponentsInChildren<MeshRenderer>();
-
-            foreach (MeshRenderer meshRenderer in renderers)
+            // Collect all child mesh filters and combine into one mesh (originals untouched)
+            MeshFilter[] meshFilters = GetComponentsInChildren<MeshFilter>();
+            if (meshFilters == null || meshFilters.Length == 0)
             {
-                if (meshRenderer == null) continue;
-
-                MeshFilter meshFilter = meshRenderer.GetComponent<MeshFilter>();
-                if (meshFilter == null || meshFilter.sharedMesh == null) continue;
-
-                // Create outline object
-                GameObject outlineObject = new GameObject("Outline");
-                outlineObject.transform.SetParent(meshRenderer.transform);
-                outlineObject.transform.localPosition = Vector3.zero;
-                outlineObject.transform.localRotation = Quaternion.identity;
-
-                // Scale up slightly for outline effect
-                outlineObject.transform.localScale = Vector3.one * (1f + _outlineWidth);
-
-                // Add mesh filter with same mesh
-                MeshFilter outlineMeshFilter = outlineObject.AddComponent<MeshFilter>();
-                outlineMeshFilter.sharedMesh = meshFilter.sharedMesh;
-
-                // Add mesh renderer with transparent material
-                MeshRenderer outlineRenderer = outlineObject.AddComponent<MeshRenderer>();
-
-                // Create outline material with Cull Front
-                Material outlineMat = CreateOutlineMaterial();
-                if (outlineMat != null)
-                {
-                    outlineMat.color = _outlineColor;
-                    outlineRenderer.material = outlineMat;
-                }
-                else
-                {
-                    Debug.LogWarning("Failed to create outline material");
-                    continue;
-                }
-
-                // Configure renderer
-                outlineRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                outlineRenderer.receiveShadows = false;
-                outlineRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-                outlineRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-
-                _outlineObjects.Add(outlineObject);
+                _isOutlineActive = false;
+                return;
             }
+
+            var combine = new List<CombineInstance>();
+            foreach (var mf in meshFilters)
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+
+                var mr = mf.GetComponent<MeshRenderer>();
+                if (mr == null || !mr.enabled) continue;
+
+                var ci = new CombineInstance
+                {
+                    mesh = mf.sharedMesh,
+                    transform = transform.worldToLocalMatrix * mf.transform.localToWorldMatrix
+                };
+                combine.Add(ci);
+            }
+
+            if (combine.Count == 0)
+            {
+                _isOutlineActive = false;
+                return;
+            }
+
+            var combinedMesh = new Mesh { name = "UnifiedOutlineMesh" };
+            combinedMesh.CombineMeshes(combine.ToArray(), true, true);
+
+            _unifiedOutlineObject = new GameObject("UnifiedOutline");
+            _unifiedOutlineObject.transform.SetParent(transform, false);
+            _unifiedOutlineObject.transform.localPosition = Vector3.zero;
+            _unifiedOutlineObject.transform.localRotation = Quaternion.identity;
+            _unifiedOutlineObject.transform.localScale = Vector3.one;
+
+            var outlineMf = _unifiedOutlineObject.AddComponent<MeshFilter>();
+            outlineMf.sharedMesh = combinedMesh;
+
+            var outlineMr = _unifiedOutlineObject.AddComponent<MeshRenderer>();
+            outlineMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            outlineMr.receiveShadows = false;
+            outlineMr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            outlineMr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+            // Add QuickOutline Outline component with parameters
+            var outline = _unifiedOutlineObject.AddComponent<Outline>();
+            outline.OutlineMode = mode;
+            outline.OutlineColor = color.HasValue ? color.Value : _defaultOutlineColor;
+            outline.OutlineWidth = width.HasValue ? width.Value : _defaultOutlineWidth;
         }
 
-        /// <summary>
-        /// Creates an outline material with Cull Front for outline effect
-        /// </summary>
-        private Material CreateOutlineMaterial()
-        {
-            // Use URP Unlit shader for better outline effect
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null)
-            {
-                shader = Shader.Find("Unlit/Color");
-            }
-
-            if (shader == null)
-            {
-                Debug.LogError("Could not find Unlit shader for outline material!");
-                return null;
-            }
-
-            Material mat = new Material(shader);
-
-            // Cull front faces to show only the outline (the part not visible normally)
-            mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Front);
-
-            // ZTest greater to render only when behind original geometry
-            // This creates the outline effect
-            mat.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
-
-            return mat;
-        }
+        // No custom material needed; QuickOutline handles mask/fill passes internally
 
         /// <summary>
         /// Hides the outline effect
@@ -119,16 +97,11 @@ namespace Assets._Project.Scripts.UI
 
             _isOutlineActive = false;
 
-            // Destroy all outline objects
-            foreach (GameObject outlineObj in _outlineObjects)
+            if (_unifiedOutlineObject != null)
             {
-                if (outlineObj != null)
-                {
-                    Destroy(outlineObj);
-                }
+                Destroy(_unifiedOutlineObject);
+                _unifiedOutlineObject = null;
             }
-
-            _outlineObjects.Clear();
         }
 
         private void OnDestroy()
