@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using System.Threading.Tasks;
 
 namespace Assets._Project.Scripts.UI
@@ -28,6 +29,8 @@ namespace Assets._Project.Scripts.UI
 
         private List<MapItemView> _mapItems = new List<MapItemView>();
         private bool _isLoading;
+        private Image _loadingBackgroundImage;
+        private float _originalTimeScale = 1f;
 
         public event Action<string> OnMapLoadRequested;
         public event Action<string> OnMapDeleteRequested;
@@ -236,6 +239,10 @@ namespace Assets._Project.Scripts.UI
 
             ShowLoadingPanel();
 
+            // Pause the game
+            _originalTimeScale = Time.timeScale;
+            Time.timeScale = 0f;
+
             bool isInMenu = SceneManager.GetActiveScene().buildIndex == 0;
 
             if (isInMenu)
@@ -260,6 +267,9 @@ namespace Assets._Project.Scripts.UI
                         {
                             CloseMapList();
                         }
+
+                        // Resume the game
+                        Time.timeScale = _originalTimeScale;
                     }
                     else
                     {
@@ -275,6 +285,9 @@ namespace Assets._Project.Scripts.UI
                                 _newGame.SetActive(true);
                             }
                         }
+
+                        // Resume the game even on error
+                        Time.timeScale = _originalTimeScale;
                     }
                 }
             }
@@ -298,6 +311,9 @@ namespace Assets._Project.Scripts.UI
                         {
                             CloseMapList();
                         }
+
+                        // Resume the game
+                        Time.timeScale = _originalTimeScale;
                     }
                     else
                     {
@@ -313,6 +329,9 @@ namespace Assets._Project.Scripts.UI
                                 _newGame.SetActive(true);
                             }
                         }
+
+                        // Resume the game even on error
+                        Time.timeScale = _originalTimeScale;
                     }
                 }
             }
@@ -392,6 +411,9 @@ namespace Assets._Project.Scripts.UI
             if (_loadingPanel != null)
             {
                 _loadingPanel.SetActive(true);
+
+                // Setup dark background
+                SetupLoadingBackground();
             }
         }
 
@@ -400,6 +422,55 @@ namespace Assets._Project.Scripts.UI
             if (_loadingPanel != null)
             {
                 _loadingPanel.SetActive(false);
+            }
+        }
+
+        private void SetupLoadingBackground()
+        {
+            if (_loadingPanel == null) return;
+
+            try
+            {
+                // Find or create the background image component for darkening
+                if (_loadingBackgroundImage == null)
+                {
+                    // Get the LoadingScreen GameObject
+                    GameObject loadingScreenObj = _loadingPanel;
+
+                    // Check if there's already a background image
+                    Image existingImage = loadingScreenObj.GetComponent<Image>();
+                    if (existingImage == null)
+                    {
+                        // Add Image component to LoadingScreen for dark background
+                        _loadingBackgroundImage = loadingScreenObj.AddComponent<Image>();
+
+                        // Set it to fill the entire screen
+                        RectTransform rectTransform = loadingScreenObj.GetComponent<RectTransform>();
+                        if (rectTransform != null)
+                        {
+                            rectTransform.anchorMin = new Vector2(0, 0);
+                            rectTransform.anchorMax = new Vector2(1, 1);
+                            rectTransform.offsetMin = Vector2.zero;
+                            rectTransform.offsetMax = Vector2.zero;
+                        }
+
+                        // Set dark color (black with some transparency for darker effect)
+                        _loadingBackgroundImage.color = new Color(0f, 0f, 0f, 0.8f);
+                    }
+                    else
+                    {
+                        _loadingBackgroundImage = existingImage;
+                        _loadingBackgroundImage.color = new Color(0f, 0f, 0f, 0.8f);
+                    }
+                }
+                else
+                {
+                    _loadingBackgroundImage.color = new Color(0f, 0f, 0f, 0.8f);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Failed to setup loading background: {e.Message}");
             }
         }
     }
