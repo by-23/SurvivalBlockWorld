@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace Assets._Project.Scripts.UI
 {
-    public class CubeCreator : MonoBehaviour
+    public class CubeCreator : GhostPlacementBase
     {
         [Header("UI References")] [SerializeField]
         private Button createButton;
@@ -12,10 +12,8 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Transform colorButtonsParent;
 
         [Header("Spawn Settings")] [SerializeField]
-        private LayerMask _groundLayerMask = 1;
+        private float _cubeSize = 1f;
 
-        [SerializeField] private float _ghostTransparency = 0.5f;
-        [SerializeField] private float _cubeSize = 1f;
         [SerializeField] private float _magneticDistance = 0.3f;
         [SerializeField] private bool _allowVerticalSnapping = true;
         [SerializeField] private float _spherecastRadius = 0.6f;
@@ -27,12 +25,8 @@ namespace Assets._Project.Scripts.UI
         [Header("Ghost Cube")] [SerializeField]
         private GameObject _ghostCubePrefab;
 
-        [SerializeField] private Material _ghostMaterial;
-
         private Color _selectedColor = Color.white;
         private Button _selectedColorButton;
-        private GameObject _ghostCube;
-        private bool _isGhostActive = false;
 
         private void Start()
         {
@@ -47,7 +41,7 @@ namespace Assets._Project.Scripts.UI
 
         private void Update()
         {
-            if (_isGhostActive && _ghostCube != null)
+            if (_isGhostActive && _ghostRoot != null)
             {
                 UpdateGhostCubePosition();
             }
@@ -104,78 +98,49 @@ namespace Assets._Project.Scripts.UI
         {
             if (_ghostCubePrefab != null)
             {
-                _ghostCube = Instantiate(_ghostCubePrefab);
+                _ghostRoot = Instantiate(_ghostCubePrefab);
             }
             else
             {
-                _ghostCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                _ghostRoot = GameObject.CreatePrimitive(PrimitiveType.Cube);
             }
 
-            _ghostCube.name = "GhostCube";
-            _ghostCube.SetActive(false);
+            _ghostRoot.name = "GhostCube";
+            _ghostRoot.SetActive(false);
 
             SetupGhostCubeMaterial();
         }
 
         private void SetupGhostCubeMaterial()
         {
-            if (_ghostCube == null) return;
+            if (_ghostRoot == null) return;
 
-            MeshRenderer cubeRenderer = _ghostCube.GetComponent<MeshRenderer>();
+            MeshRenderer cubeRenderer = _ghostRoot.GetComponent<MeshRenderer>();
             if (cubeRenderer != null)
             {
-                if (_ghostMaterial != null)
-                {
-                    cubeRenderer.material = _ghostMaterial;
-                }
-                else
-                {
-                    Material mat = new Material(Shader.Find("Standard"));
-                    mat.color = new Color(_selectedColor.r, _selectedColor.g, _selectedColor.b, _ghostTransparency);
-                    mat.SetFloat("_Mode", 3);
-                    mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-                    mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                    mat.SetInt("_ZWrite", 0);
-                    mat.DisableKeyword("_ALPHATEST_ON");
-                    mat.EnableKeyword("_ALPHABLEND_ON");
-                    mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-                    mat.renderQueue = 3000;
-                    cubeRenderer.material = mat;
-                }
+                Material mat = CreateGhostMaterial(_selectedColor);
+                cubeRenderer.material = mat;
             }
 
-            Collider cubeCollider = _ghostCube.GetComponent<Collider>();
-            if (cubeCollider != null)
-            {
-                cubeCollider.isTrigger = true;
-            }
+            SetupGhostCollider(_ghostRoot);
         }
 
 
         public void HideGhostCube()
         {
-            if (_ghostCube != null)
-            {
-                _isGhostActive = false;
-                _ghostCube.SetActive(false);
-            }
+            HideGhost();
         }
 
         public void ShowGhostCube()
         {
-            if (_ghostCube != null)
-            {
-                _isGhostActive = true;
-                _ghostCube.SetActive(true);
-                UpdateGhostCubeMaterial();
-            }
+            ShowGhost();
         }
 
-        private void UpdateGhostCubeMaterial(bool isOccupied = false)
+        protected override void UpdateGhostMaterial(bool isOccupied)
         {
-            if (_ghostCube == null) return;
+            if (_ghostRoot == null) return;
 
-            MeshRenderer cubeRenderer = _ghostCube.GetComponent<MeshRenderer>();
+            MeshRenderer cubeRenderer = _ghostRoot.GetComponent<MeshRenderer>();
             if (cubeRenderer != null && cubeRenderer.material != null)
             {
                 Color ghostColor;
@@ -194,30 +159,26 @@ namespace Assets._Project.Scripts.UI
 
         private void UpdateGhostCubePosition()
         {
-            if (_ghostCube == null) return;
+            if (_ghostRoot == null) return;
 
-            Vector3 targetPosition = GetGhostCubePosition();
+            Vector3 targetPosition = GetGhostPosition();
 
             Vector3 magnetizedPosition = ApplyMagneticSnapping(targetPosition);
 
             if (IsPositionOccupied(magnetizedPosition))
             {
-                magnetizedPosition = FindAlternativePositionNearPlayer(magnetizedPosition);
+                magnetizedPosition = FindAlternativePosition(magnetizedPosition);
             }
 
-            _ghostCube.transform.position = magnetizedPosition;
+            _ghostRoot.transform.position = magnetizedPosition;
 
             bool isOccupied = IsPositionOccupied(magnetizedPosition);
-            UpdateGhostCubeMaterial(isOccupied);
+            UpdateGhostMaterial(isOccupied);
         }
 
         private Vector3 ApplyMagneticSnapping(Vector3 position)
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera == null)
             {
@@ -234,7 +195,7 @@ namespace Assets._Project.Scripts.UI
 
             foreach (RaycastHit hit in hits)
             {
-                if (hit.collider.gameObject == _ghostCube)
+                if (_ghostRoot != null && hit.collider.gameObject == _ghostRoot)
                     continue;
 
                 Cube cube = hit.collider.GetComponent<Cube>();
@@ -257,11 +218,7 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 SnapToNearestSide(Vector3 ghostPosition, Vector3 cubePosition)
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera == null)
             {
@@ -277,11 +234,7 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 SnapToNearestSideFromPlayer(Vector3 playerPosition, Vector3 cubePosition)
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera == null)
             {
@@ -296,11 +249,7 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 SnapToFacingSide(Vector3 lookDirection, Vector3 cubePosition)
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera == null)
             {
@@ -414,15 +363,16 @@ namespace Assets._Project.Scripts.UI
             return faceNormals[closestFace];
         }
 
-        private Vector3 EnsureAboveGround(Vector3 position)
+        protected override Vector3 EnsureAboveGround(Vector3 position, float offset = 0.5f)
         {
             // Поднимаем куб чтобы он не утонул в земле, но не трогаем если он уже высоко (для построек на высоте)
+            float cubeHalfSize = _cubeSize * 0.5f;
             Vector3 groundCheckPos = position;
-            groundCheckPos.y -= (_cubeSize * 0.5f);
+            groundCheckPos.y -= cubeHalfSize;
 
             if (Physics.Raycast(groundCheckPos, Vector3.down, out RaycastHit hit, _cubeSize, _groundLayerMask))
             {
-                float groundLevel = hit.point.y + (_cubeSize * 0.5f);
+                float groundLevel = hit.point.y + cubeHalfSize;
 
                 if (position.y > groundLevel + _cubeSize)
                 {
@@ -435,13 +385,9 @@ namespace Assets._Project.Scripts.UI
             return position;
         }
 
-        private Vector3 GetGhostCubePosition()
+        protected override Vector3 GetGhostPosition()
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera != null)
             {
@@ -494,7 +440,7 @@ namespace Assets._Project.Scripts.UI
 
             foreach (RaycastHit hit in sphereHits)
             {
-                if (hit.collider.gameObject == _ghostCube)
+                if (_ghostRoot != null && hit.collider.gameObject == _ghostRoot)
                     continue;
 
                 Cube cube = hit.collider.GetComponent<Cube>();
@@ -601,13 +547,13 @@ namespace Assets._Project.Scripts.UI
             return hitPoint;
         }
 
-        private bool IsPositionOccupied(Vector3 position)
+        protected override bool IsPositionOccupied(Vector3 position)
         {
             Collider[] colliders = Physics.OverlapBox(position, Vector3.one * (_cubeSize * 0.49f));
 
             foreach (Collider cubeCollider in colliders)
             {
-                if (cubeCollider.gameObject == _ghostCube)
+                if (_ghostRoot != null && cubeCollider.gameObject == _ghostRoot)
                     continue;
 
                 if (cubeCollider.GetComponent<Cube>() != null)
@@ -619,13 +565,9 @@ namespace Assets._Project.Scripts.UI
             return false;
         }
 
-        private Vector3 FindAlternativePositionNearPlayer(Vector3 occupiedPosition)
+        protected override Vector3 FindAlternativePosition(Vector3 occupiedPosition)
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera == null)
             {
@@ -642,7 +584,7 @@ namespace Assets._Project.Scripts.UI
 
             foreach (Collider nearbyCollider in nearbyColliders)
             {
-                if (nearbyCollider.gameObject == _ghostCube)
+                if (_ghostRoot != null && nearbyCollider.gameObject == _ghostRoot)
                     continue;
 
                 Cube cube = nearbyCollider.GetComponent<Cube>();
@@ -697,7 +639,7 @@ namespace Assets._Project.Scripts.UI
 
         private void CreateCube()
         {
-            Vector3 basePosition = GetGhostCubePosition();
+            Vector3 basePosition = GetGhostPosition();
             Vector3 spawnPosition = ApplyMagneticSnapping(basePosition);
 
             if (spawnPosition == Vector3.zero)
@@ -708,7 +650,7 @@ namespace Assets._Project.Scripts.UI
 
             if (IsPositionOccupied(spawnPosition))
             {
-                spawnPosition = FindAlternativePositionNearPlayer(spawnPosition);
+                spawnPosition = FindAlternativePosition(spawnPosition);
 
                 if (IsPositionOccupied(spawnPosition))
                 {

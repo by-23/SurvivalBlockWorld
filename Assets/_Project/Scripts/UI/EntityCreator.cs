@@ -6,14 +6,8 @@ namespace Assets._Project.Scripts.UI
     /// Спавнит сохраненные сущности с помощью ghost-превью и логики привязки (как в CubeCreator).
     /// UI кнопки вызывают SpawnSavedIndex через EntityManager.
     /// </summary>
-    public class EntityCreator : MonoBehaviour
+    public class EntityCreator : GhostPlacementBase
     {
-        [Header("Spawn Settings"), SerializeField]
-        private LayerMask _groundLayerMask = 1;
-
-        [SerializeField] private float _ghostTransparency = 0.5f;
-
-
         [Header("Snapping Targets"), SerializeField]
         private LayerMask _snapLayerMask = ~0;
 
@@ -25,12 +19,8 @@ namespace Assets._Project.Scripts.UI
         [Header("Ghost Placement"), SerializeField]
         private float _maxGhostDistance = 8f;
 
-        [SerializeField] private Material _ghostMaterial;
-
         [Header("References"), SerializeField] private EntityManager _entitySaveManager;
 
-        private GameObject _ghostRoot;
-        private bool _isGhostActive;
         private int _lastSelectedIndex = -1;
         private float _ghostManualRotation = 0f; // Дополнительный поворот ghost в градусах (по оси Y)
 
@@ -83,7 +73,7 @@ namespace Assets._Project.Scripts.UI
             // Обновляем позицию и поворот ghost перед чтением
             UpdateGhostCubePosition();
 
-            Vector3 spawnPosition = _ghostRoot != null ? _ghostRoot.transform.position : GetGhostCubePosition();
+            Vector3 spawnPosition = _ghostRoot != null ? _ghostRoot.transform.position : GetGhostPosition();
 
             if (spawnPosition == Vector3.zero)
             {
@@ -93,7 +83,7 @@ namespace Assets._Project.Scripts.UI
 
             if (IsPositionOccupied(spawnPosition))
             {
-                spawnPosition = FindAlternativePositionNearPlayer(spawnPosition);
+                spawnPosition = FindAlternativePosition(spawnPosition);
 
                 if (IsPositionOccupied(spawnPosition))
                 {
@@ -142,31 +132,8 @@ namespace Assets._Project.Scripts.UI
             _includeGroundInSnap = includeGround;
         }
 
-        public void HideGhost()
-        {
-            if (_ghostRoot != null)
-            {
-                _isGhostActive = false;
-                _ghostRoot.SetActive(false);
-            }
-        }
 
-        public void ShowGhost()
-        {
-            if (_ghostRoot != null)
-            {
-                _isGhostActive = true;
-                _ghostRoot.SetActive(true);
-                UpdateGhostCubeMaterial(false);
-            }
-        }
-
-        private void SetupGhostCubeMaterial()
-        {
-            // Применяется к каждому дочернему объекту при создании
-        }
-
-        private void UpdateGhostCubeMaterial(bool isOccupied)
+        protected override void UpdateGhostMaterial(bool isOccupied)
         {
             if (_ghostRoot == null) return;
             Color ghostColor = isOccupied
@@ -187,21 +154,17 @@ namespace Assets._Project.Scripts.UI
         {
             if (_ghostRoot == null) return;
 
-            Vector3 targetPosition = GetGhostCubePosition();
+            Vector3 targetPosition = GetGhostPosition();
 
             if (IsPositionOccupied(targetPosition))
             {
-                targetPosition = FindAlternativePositionNearPlayer(targetPosition);
+                targetPosition = FindAlternativePosition(targetPosition);
             }
 
             _ghostRoot.transform.position = targetPosition;
 
             // Поворачиваем ghost к камере (только по оси Y)
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             Quaternion baseRotation = Quaternion.identity;
             if (playerCamera != null)
@@ -218,39 +181,18 @@ namespace Assets._Project.Scripts.UI
             _ghostRoot.transform.rotation = baseRotation * Quaternion.Euler(0f, _ghostManualRotation, 0f);
 
             bool isOccupied = IsPositionOccupied(targetPosition);
-            UpdateGhostCubeMaterial(isOccupied);
+            UpdateGhostMaterial(isOccupied);
         }
 
 
-        // Вспомогательные методы для привязки кубов удалены
-
-        private Vector3 EnsureAboveGround(Vector3 position)
+        protected override Vector3 EnsureAboveGround(Vector3 position, float offset = 0.5f)
         {
-            Vector3 groundCheckPos = position;
-            groundCheckPos.y -= _surfaceOffset;
-
-            if (Physics.Raycast(groundCheckPos, Vector3.down, out RaycastHit hit, _surfaceOffset * 2f,
-                    _groundLayerMask))
-            {
-                float groundLevel = hit.point.y + _surfaceOffset;
-                if (position.y > groundLevel + _surfaceOffset)
-                {
-                    return position;
-                }
-
-                position.y = groundLevel;
-            }
-
-            return position;
+            return base.EnsureAboveGround(position, _surfaceOffset);
         }
 
-        private Vector3 GetGhostCubePosition()
+        protected override Vector3 GetGhostPosition()
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera != null)
             {
@@ -282,9 +224,7 @@ namespace Assets._Project.Scripts.UI
             return Vector3.zero;
         }
 
-        // Вспомогательный метод spherecast для кубов удален
-
-        private bool IsPositionOccupied(Vector3 candidatePosition)
+        protected override bool IsPositionOccupied(Vector3 candidatePosition)
         {
             if (_ghostRoot == null) return false;
 
@@ -313,13 +253,9 @@ namespace Assets._Project.Scripts.UI
             return false;
         }
 
-        private Vector3 FindAlternativePositionNearPlayer(Vector3 occupiedPosition)
+        protected override Vector3 FindAlternativePosition(Vector3 occupiedPosition)
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
-            {
-                playerCamera = FindAnyObjectByType<Camera>();
-            }
+            Camera playerCamera = GetPlayerCamera();
 
             if (playerCamera == null)
             {
@@ -406,29 +342,14 @@ namespace Assets._Project.Scripts.UI
                     child.transform.localPosition = localPos;
                     child.transform.localRotation = cd.Rotation;
 
+                    SetupGhostCollider(child);
+
                     var mr = child.GetComponent<MeshRenderer>();
                     if (mr != null)
                     {
-                        Material mat = _ghostMaterial != null
-                            ? new Material(_ghostMaterial)
-                            : new Material(Shader.Find("Standard"));
-                        if (_ghostMaterial == null)
-                        {
-                            mat.SetFloat("_Mode", 3);
-                            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-                            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                            mat.SetInt("_ZWrite", 0);
-                            mat.DisableKeyword("_ALPHATEST_ON");
-                            mat.EnableKeyword("_ALPHABLEND_ON");
-                            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-                            mat.renderQueue = 3000;
-                        }
-
+                        Material mat = CreateGhostMaterial(Color.green);
                         mr.material = mat;
                     }
-
-                    var col = child.GetComponent<Collider>();
-                    if (col != null) col.isTrigger = true;
                 }
             }
             else
@@ -436,32 +357,17 @@ namespace Assets._Project.Scripts.UI
                 // Запасной вариант: один куб
                 var child = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 child.transform.SetParent(_ghostRoot.transform, false);
-                var col = child.GetComponent<Collider>();
-                if (col != null) col.isTrigger = true;
+                SetupGhostCollider(child);
                 var mr = child.GetComponent<MeshRenderer>();
                 if (mr != null)
                 {
-                    Material mat = _ghostMaterial != null
-                        ? new Material(_ghostMaterial)
-                        : new Material(Shader.Find("Standard"));
-                    if (_ghostMaterial == null)
-                    {
-                        mat.SetFloat("_Mode", 3);
-                        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-                        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                        mat.SetInt("_ZWrite", 0);
-                        mat.DisableKeyword("_ALPHATEST_ON");
-                        mat.EnableKeyword("_ALPHABLEND_ON");
-                        mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-                        mat.renderQueue = 3000;
-                    }
-
+                    Material mat = CreateGhostMaterial(Color.green);
                     mr.material = mat;
                 }
             }
 
             // Применяем зеленый цвет по умолчанию
-            UpdateGhostCubeMaterial(false);
+            UpdateGhostMaterial(false);
         }
     }
 }
