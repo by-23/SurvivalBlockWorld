@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Assets._Project.Scripts.UI
 {
@@ -25,8 +27,14 @@ namespace Assets._Project.Scripts.UI
         [Header("Ghost Cube")] [SerializeField]
         private GameObject _ghostCubePrefab;
 
+        [Header("Auto Grouping")] [SerializeField]
+        private float _groupingTimerDuration = 2f;
+
         private Color _selectedColor = Color.white;
         private Button _selectedColorButton;
+
+        private List<Cube> _placedCubes = new List<Cube>();
+        private Coroutine _groupingCoroutine;
 
         private void Start()
         {
@@ -687,7 +695,387 @@ namespace Assets._Project.Scripts.UI
             if (cubeComponent != null)
             {
                 cubeComponent.BlockTypeID = 0;
+
+                // Добавляем куб в список для группировки
+                _placedCubes.Add(cubeComponent);
+
+                // Перезапускаем таймер группировки
+                RestartGroupingTimer();
             }
+        }
+
+        /// <summary>
+        /// Перезапускает таймер группировки кубов
+        /// </summary>
+        private void RestartGroupingTimer()
+        {
+            if (_groupingCoroutine != null)
+            {
+                StopCoroutine(_groupingCoroutine);
+            }
+
+            _groupingCoroutine = StartCoroutine(GroupingTimerCoroutine());
+        }
+
+        /// <summary>
+        /// Корутина таймера, которая группирует кубы после истечения времени
+        /// </summary>
+        private IEnumerator GroupingTimerCoroutine()
+        {
+            yield return new WaitForSeconds(_groupingTimerDuration);
+
+            // Группируем кубы, если они есть
+            if (_placedCubes.Count > 0)
+            {
+                GroupPlacedCubesIntoEntities();
+            }
+
+            _groupingCoroutine = null;
+        }
+
+        /// <summary>
+        /// Группирует размещенные кубы в сущности по принципу соприкосновения
+        /// </summary>
+        private void GroupPlacedCubesIntoEntities()
+        {
+            // Фильтруем кубы, которые еще не принадлежат Entity
+            List<Cube> ungroupedCubes = _placedCubes
+                .Where(cube => cube != null && cube.transform.parent == null)
+                .ToList();
+
+            if (ungroupedCubes.Count == 0)
+            {
+                _placedCubes.Clear();
+                return;
+            }
+
+            // Получаем все существующие Entity и их кубы
+            Dictionary<Vector3Int, (Cube cube, Entity entity)> existingEntityCubes = GetExistingEntityCubesGrid();
+
+            // Сначала находим группы среди новых кубов
+            List<List<Cube>> groups = FindConnectedCubeGroups(ungroupedCubes);
+
+            // Разделяем группы на те, что соприкасаются с существующими Entity, и изолированные
+            Dictionary<Entity, List<Cube>> cubesToAddToExisting = new Dictionary<Entity, List<Cube>>();
+            List<List<Cube>> isolatedGroups = new List<List<Cube>>();
+
+            foreach (var group in groups)
+            {
+                if (group.Count == 0) continue;
+
+                // Проверяем, соприкасается ли группа с существующим Entity
+                Entity foundEntity = FindTouchingEntity(group, existingEntityCubes);
+
+                if (foundEntity != null)
+                {
+                    // Добавляем всю группу к существующему Entity
+                    if (!cubesToAddToExisting.ContainsKey(foundEntity))
+                    {
+                        cubesToAddToExisting[foundEntity] = new List<Cube>();
+                    }
+
+                    cubesToAddToExisting[foundEntity].AddRange(group);
+                }
+                else
+                {
+                    // Группа изолирована - создадим для неё новое Entity
+                    isolatedGroups.Add(group);
+                }
+            }
+
+            // Добавляем кубы к существующим Entity
+            foreach (var kvp in cubesToAddToExisting)
+            {
+                AddCubesToExistingEntity(kvp.Key, kvp.Value);
+            }
+
+            // Создаем новые Entity для изолированных групп
+            foreach (var group in isolatedGroups)
+            {
+                if (group.Count == 0) continue;
+                CreateEntityFromCubes(group);
+            }
+
+            // Очищаем список размещенных кубов
+            _placedCubes.Clear();
+        }
+
+        /// <summary>
+        /// Получает сетку всех кубов из существующих Entity для быстрого поиска
+        /// </summary>
+        private Dictionary<Vector3Int, (Cube cube, Entity entity)> GetExistingEntityCubesGrid()
+        {
+            Dictionary<Vector3Int, (Cube, Entity)> grid = new Dictionary<Vector3Int, (Cube, Entity)>();
+
+            // Находим все Entity в сцене
+            Entity[] existingEntities = FindObjectsByType<Entity>(FindObjectsSortMode.None);
+
+            foreach (var entity in existingEntities)
+            {
+                if (entity == null) continue;
+
+                // Получаем все кубы из этого Entity
+                Cube[] entityCubes = entity.GetComponentsInChildren<Cube>();
+                foreach (var cube in entityCubes)
+                {
+                    if (cube == null) continue;
+                    Vector3Int gridPos = WorldToGridPosition(cube.transform.position);
+                    grid[gridPos] = (cube, entity);
+                }
+            }
+
+            return grid;
+        }
+
+        /// <summary>
+        /// Находит Entity, с которым соприкасается группа кубов
+        /// </summary>
+        private Entity FindTouchingEntity(List<Cube> cubeGroup,
+            Dictionary<Vector3Int, (Cube cube, Entity entity)> existingEntityCubes)
+        {
+            if (cubeGroup == null || cubeGroup.Count == 0 || existingEntityCubes.Count == 0)
+                return null;
+
+            HashSet<Entity> touchingEntities = new HashSet<Entity>();
+
+            // Проверяем каждый куб в группе
+            foreach (var cube in cubeGroup)
+            {
+                if (cube == null) continue;
+
+                Vector3Int cubePos = WorldToGridPosition(cube.transform.position);
+
+                // Проверяем все 6 направлений на наличие кубов из существующих Entity
+                Vector3Int[] neighborOffsets = new Vector3Int[]
+                {
+                    new Vector3Int(1, 0, 0), // right
+                    new Vector3Int(-1, 0, 0), // left
+                    new Vector3Int(0, 1, 0), // up
+                    new Vector3Int(0, -1, 0), // down
+                    new Vector3Int(0, 0, 1), // forward
+                    new Vector3Int(0, 0, -1) // back
+                };
+
+                foreach (var offset in neighborOffsets)
+                {
+                    Vector3Int neighborPos = cubePos + offset;
+                    if (existingEntityCubes.TryGetValue(neighborPos, out var neighborData))
+                    {
+                        // Проверяем, действительно ли кубы соприкасаются
+                        if (AreCubesAdjacent(cube.transform.position, neighborData.cube.transform.position))
+                        {
+                            touchingEntities.Add(neighborData.entity);
+                        }
+                    }
+                }
+            }
+
+            // Если группа соприкасается с несколькими Entity, возвращаем первый найденный
+            // (в будущем можно улучшить логику - выбрать Entity с большим количеством точек соприкосновения)
+            if (touchingEntities.Count > 0)
+            {
+                return touchingEntities.First();
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Находит группы соприкасающихся кубов используя BFS
+        /// </summary>
+        private List<List<Cube>> FindConnectedCubeGroups(List<Cube> cubes)
+        {
+            List<List<Cube>> groups = new List<List<Cube>>();
+            HashSet<Cube> visited = new HashSet<Cube>();
+
+            // Создаем словарь для быстрого поиска кубов по позиции
+            Dictionary<Vector3Int, Cube> cubeGrid = new Dictionary<Vector3Int, Cube>();
+            foreach (var cube in cubes)
+            {
+                Vector3Int gridPos = WorldToGridPosition(cube.transform.position);
+                cubeGrid[gridPos] = cube;
+            }
+
+            foreach (var cube in cubes)
+            {
+                if (visited.Contains(cube))
+                    continue;
+
+                // Находим все кубы в текущей группе используя BFS
+                List<Cube> currentGroup = new List<Cube>();
+                Queue<Cube> queue = new Queue<Cube>();
+                queue.Enqueue(cube);
+                visited.Add(cube);
+
+                while (queue.Count > 0)
+                {
+                    Cube currentCube = queue.Dequeue();
+                    currentGroup.Add(currentCube);
+
+                    // Проверяем всех соседей (6 направлений)
+                    Vector3Int currentPos = WorldToGridPosition(currentCube.transform.position);
+                    Vector3Int[] neighborOffsets = new Vector3Int[]
+                    {
+                        new Vector3Int(1, 0, 0), // right
+                        new Vector3Int(-1, 0, 0), // left
+                        new Vector3Int(0, 1, 0), // up
+                        new Vector3Int(0, -1, 0), // down
+                        new Vector3Int(0, 0, 1), // forward
+                        new Vector3Int(0, 0, -1) // back
+                    };
+
+                    foreach (var offset in neighborOffsets)
+                    {
+                        Vector3Int neighborPos = currentPos + offset;
+                        if (cubeGrid.TryGetValue(neighborPos, out Cube neighbor) && !visited.Contains(neighbor))
+                        {
+                            // Дополнительная проверка: убеждаемся, что кубы действительно соприкасаются
+                            if (AreCubesAdjacent(currentCube.transform.position, neighbor.transform.position))
+                            {
+                                visited.Add(neighbor);
+                                queue.Enqueue(neighbor);
+                            }
+                        }
+                    }
+                }
+
+                if (currentGroup.Count > 0)
+                {
+                    groups.Add(currentGroup);
+                }
+            }
+
+            return groups;
+        }
+
+        /// <summary>
+        /// Конвертирует мировую позицию в сетку с учетом размера куба
+        /// </summary>
+        private Vector3Int WorldToGridPosition(Vector3 worldPos)
+        {
+            // Используем точное деление и округление для совместимости с системой размещения кубов
+            return new Vector3Int(
+                Mathf.RoundToInt(worldPos.x / _cubeSize),
+                Mathf.RoundToInt(worldPos.y / _cubeSize),
+                Mathf.RoundToInt(worldPos.z / _cubeSize)
+            );
+        }
+
+        /// <summary>
+        /// Проверяет, являются ли два куба соседями (соприкасаются)
+        /// </summary>
+        private bool AreCubesAdjacent(Vector3 pos1, Vector3 pos2)
+        {
+            Vector3 diff = pos1 - pos2;
+            float distance = diff.magnitude;
+            // Кубы соприкасаются, если расстояние примерно равно размеру куба (с небольшой погрешностью)
+            float tolerance = _cubeSize * 0.1f;
+            return Mathf.Abs(distance - _cubeSize) < tolerance;
+        }
+
+        /// <summary>
+        /// Добавляет кубы к существующему Entity
+        /// </summary>
+        private void AddCubesToExistingEntity(Entity entity, List<Cube> cubes)
+        {
+            if (entity == null || cubes == null || cubes.Count == 0)
+                return;
+
+            // Удаляем null кубы
+            cubes.RemoveAll(c => c == null);
+            if (cubes.Count == 0)
+                return;
+
+            Transform entityTransform = entity.transform;
+            Vector3 entityWorldPos = entityTransform.position;
+            float entityScale = entityTransform.localScale.x;
+
+            // Добавляем кубы к Entity
+            foreach (var cube in cubes)
+            {
+                if (cube == null || cube.transform.parent != null)
+                    continue;
+
+                // Сохраняем мировую позицию и поворот
+                Vector3 worldPos = cube.transform.position;
+                Quaternion worldRot = cube.transform.rotation;
+
+                // Устанавливаем родителя
+                cube.transform.SetParent(entityTransform);
+
+                // Конвертируем мировую позицию в локальную относительно Entity
+                cube.transform.localPosition = (worldPos - entityWorldPos) / entityScale;
+                cube.transform.localRotation = worldRot;
+
+                // Устанавливаем связь с Entity
+                cube.SetEntity(entity);
+            }
+
+            // Обновляем Entity (масса, меши и т.д.)
+            entity.UpdateMassAndCubes();
+            entity.StartSetup();
+        }
+
+        /// <summary>
+        /// Создает Entity из группы кубов
+        /// </summary>
+        private void CreateEntityFromCubes(List<Cube> cubes)
+        {
+            if (cubes == null || cubes.Count == 0)
+                return;
+
+            // Удаляем null кубы
+            cubes.RemoveAll(c => c == null);
+            if (cubes.Count == 0)
+                return;
+
+            // Находим центр группы для позиции Entity
+            Vector3 center = Vector3.zero;
+            foreach (var cube in cubes)
+            {
+                center += cube.transform.position;
+            }
+
+            center /= cubes.Count;
+
+            // Создаем GameObject для Entity
+            GameObject entityObject = new GameObject($"Entity_{System.DateTime.Now.Ticks}");
+            entityObject.transform.position = center;
+            entityObject.transform.localScale = Vector3.one;
+
+            // Добавляем необходимые компоненты
+            Rigidbody rb = entityObject.AddComponent<Rigidbody>();
+            rb.mass = cubes.Count / 10f;
+            rb.drag = 0f;
+            rb.angularDrag = 0.05f;
+            rb.useGravity = true;
+            rb.isKinematic = true;
+
+            Entity entity = entityObject.AddComponent<Entity>();
+            entityObject.AddComponent<EntityMeshCombiner>();
+            entityObject.AddComponent<EntityHookManager>();
+            entityObject.AddComponent<EntityVehicleConnector>();
+
+            // Перемещаем кубы в Entity и устанавливаем локальные позиции
+            foreach (var cube in cubes)
+            {
+                // Сохраняем мировую позицию до изменения родителя
+                Vector3 worldPos = cube.transform.position;
+                Quaternion worldRot = cube.transform.rotation;
+
+                // Устанавливаем родителя
+                cube.transform.SetParent(entityObject.transform);
+
+                // Конвертируем мировую позицию в локальную относительно Entity
+                cube.transform.localPosition = worldPos - center;
+                cube.transform.localRotation = worldRot;
+
+                // Устанавливаем связь с Entity
+                cube.SetEntity(entity);
+            }
+
+            // Инициализируем Entity
+            entity.StartSetup();
         }
     }
 }

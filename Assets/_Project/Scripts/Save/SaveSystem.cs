@@ -4,40 +4,8 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-public class SaveSystem : MonoBehaviour
+public class SaveSystem : Singleton<SaveSystem>
 {
-    private static SaveSystem _instance;
-
-    public static SaveSystem Instance
-    {
-        get
-        {
-            if (_instance == null)
-            {
-                _instance = FindAnyObjectByType<SaveSystem>();
-
-                if (_instance == null)
-                {
-                    GameObject prefab = Resources.Load<GameObject>("SaveSistem");
-                    if (prefab != null)
-                    {
-                        GameObject go = Instantiate(prefab);
-                        go.name = "SaveSystem";
-                        _instance = go.GetComponent<SaveSystem>();
-                        DontDestroyOnLoad(go);
-                    }
-                    else
-                    {
-                        GameObject go = new GameObject("SaveSystem");
-                        _instance = go.AddComponent<SaveSystem>();
-                        DontDestroyOnLoad(go);
-                    }
-                }
-            }
-
-            return _instance;
-        }
-    }
 
     [Header("Configuration")] [SerializeField]
     private SaveConfig _config;
@@ -61,18 +29,11 @@ public class SaveSystem : MonoBehaviour
     {
         Application.targetFrameRate = -1;
         QualitySettings.vSyncCount = 0;
-        if (_instance != null && _instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
-        _instance = this;
+        FindScreenshotCamera();
         DontDestroyOnLoad(gameObject);
 
         if (_config == null)
         {
-            Debug.LogWarning("SaveConfig not assigned to SaveSystem! Attempting to load from Resources...");
             _config = Resources.Load<SaveConfig>("SaveConfig");
 
             if (_config == null)
@@ -80,8 +41,6 @@ public class SaveSystem : MonoBehaviour
                 Debug.LogError("SaveConfig not found in Resources! SaveSystem initialization failed.");
                 return;
             }
-
-            Debug.Log("SaveConfig loaded from Resources successfully.");
         }
 
         _chunkManager = new ChunkManager(_config);
@@ -99,7 +58,6 @@ public class SaveSystem : MonoBehaviour
         }
 
         SceneManager.sceneLoaded += OnSceneLoaded;
-        FindScreenshotCamera();
     }
 
     private void OnDestroy()
