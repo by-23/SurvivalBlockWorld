@@ -77,6 +77,9 @@ namespace Assets._Project.Scripts.UI
             outlineMr.receiveShadows = false;
             outlineMr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             outlineMr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            // Ensure there is no default empty material slot which would result in a pink texture
+            // QuickOutline will append its own two materials on enable
+            outlineMr.sharedMaterials = new Material[0];
 
             // Add QuickOutline Outline component with parameters
             var outline = _unifiedOutlineObject.AddComponent<Outline>();

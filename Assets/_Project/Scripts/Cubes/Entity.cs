@@ -9,7 +9,14 @@ public class Entity : MonoBehaviour
     public bool _StartCheck = true;
 
     private static int _nextEntityId = 1;
-    public int EntityId { get; private set; }
+    [SerializeField, HideInInspector] private int _entityId;
+
+    public int EntityId
+    {
+        get => _entityId;
+        private set => _entityId = value;
+    }
+
     private bool _isLoading = false;
 
     private Rigidbody _rb;
