@@ -675,27 +675,12 @@ namespace Assets._Project.Scripts.UI
 
             GameObject newCube = Instantiate(_cubePrefab, spawnPosition, Quaternion.identity);
 
-            ColorCube colorCube = newCube.GetComponent<ColorCube>();
-            if (colorCube != null)
-            {
-                colorCube.Setup(_selectedColor);
-            }
-            else
-            {
-                MeshRenderer cubeRenderer = newCube.GetComponent<MeshRenderer>();
-                if (cubeRenderer != null)
-                {
-                    MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
-                    propertyBlock.SetColor("_BaseColor", _selectedColor);
-                    cubeRenderer.SetPropertyBlock(propertyBlock);
-                }
-            }
+            // Настраиваем цвет и тип куба через утилиту
+            CubeSetupHelper.SetupCube(newCube, _selectedColor, 0);
 
             Cube cubeComponent = newCube.GetComponent<Cube>();
             if (cubeComponent != null)
             {
-                cubeComponent.BlockTypeID = 0;
-
                 // Добавляем куб в список для группировки
                 _placedCubes.Add(cubeComponent);
 
@@ -978,42 +963,7 @@ namespace Assets._Project.Scripts.UI
         /// </summary>
         private void AddCubesToExistingEntity(Entity entity, List<Cube> cubes)
         {
-            if (entity == null || cubes == null || cubes.Count == 0)
-                return;
-
-            // Удаляем null кубы
-            cubes.RemoveAll(c => c == null);
-            if (cubes.Count == 0)
-                return;
-
-            Transform entityTransform = entity.transform;
-            Vector3 entityWorldPos = entityTransform.position;
-            float entityScale = entityTransform.localScale.x;
-
-            // Добавляем кубы к Entity
-            foreach (var cube in cubes)
-            {
-                if (cube == null || cube.transform.parent != null)
-                    continue;
-
-                // Сохраняем мировую позицию и поворот
-                Vector3 worldPos = cube.transform.position;
-                Quaternion worldRot = cube.transform.rotation;
-
-                // Устанавливаем родителя
-                cube.transform.SetParent(entityTransform);
-
-                // Конвертируем мировую позицию в локальную относительно Entity
-                cube.transform.localPosition = (worldPos - entityWorldPos) / entityScale;
-                cube.transform.localRotation = worldRot;
-
-                // Устанавливаем связь с Entity
-                cube.SetEntity(entity);
-            }
-
-            // Обновляем Entity (масса, меши и т.д.)
-            entity.UpdateMassAndCubes();
-            entity.StartSetup();
+            EntityCubeAttacher.AttachCubesToEntity(cubes, entity, updateEntity: true);
         }
 
         /// <summary>
@@ -1021,61 +971,7 @@ namespace Assets._Project.Scripts.UI
         /// </summary>
         private void CreateEntityFromCubes(List<Cube> cubes)
         {
-            if (cubes == null || cubes.Count == 0)
-                return;
-
-            // Удаляем null кубы
-            cubes.RemoveAll(c => c == null);
-            if (cubes.Count == 0)
-                return;
-
-            // Находим центр группы для позиции Entity
-            Vector3 center = Vector3.zero;
-            foreach (var cube in cubes)
-            {
-                center += cube.transform.position;
-            }
-
-            center /= cubes.Count;
-
-            // Создаем GameObject для Entity
-            GameObject entityObject = new GameObject($"Entity_{System.DateTime.Now.Ticks}");
-            entityObject.transform.position = center;
-            entityObject.transform.localScale = Vector3.one;
-
-            // Добавляем необходимые компоненты
-            Rigidbody rb = entityObject.AddComponent<Rigidbody>();
-            rb.mass = cubes.Count / 10f;
-            rb.drag = 0f;
-            rb.angularDrag = 0.05f;
-            rb.useGravity = true;
-            rb.isKinematic = true;
-
-            Entity entity = entityObject.AddComponent<Entity>();
-            entityObject.AddComponent<EntityMeshCombiner>();
-            entityObject.AddComponent<EntityHookManager>();
-            entityObject.AddComponent<EntityVehicleConnector>();
-
-            // Перемещаем кубы в Entity и устанавливаем локальные позиции
-            foreach (var cube in cubes)
-            {
-                // Сохраняем мировую позицию до изменения родителя
-                Vector3 worldPos = cube.transform.position;
-                Quaternion worldRot = cube.transform.rotation;
-
-                // Устанавливаем родителя
-                cube.transform.SetParent(entityObject.transform);
-
-                // Конвертируем мировую позицию в локальную относительно Entity
-                cube.transform.localPosition = worldPos - center;
-                cube.transform.localRotation = worldRot;
-
-                // Устанавливаем связь с Entity
-                cube.SetEntity(entity);
-            }
-
-            // Инициализируем Entity
-            entity.StartSetup();
+            EntityFactory.CreateEntityFromCubes(cubes, centerPosition: null, isKinematic: true);
         }
     }
 }

@@ -327,17 +327,21 @@ public class Entity : MonoBehaviour
 
             if (group.Length == 0) continue;
 
-            GameObject newEntityObject = new GameObject("Entity");
-
             if (_cubeIdToIndex.TryGetValue(group[0], out int firstCubeIndex))
             {
                 Cube firstCubeInGroup = _cubes[firstCubeIndex];
                 if (firstCubeInGroup != null)
                 {
-                    newEntityObject.transform.SetPositionAndRotation(firstCubeInGroup.transform.position,
-                        firstCubeInGroup.transform.rotation);
-                    newEntityObject.transform.localScale = transform.localScale;
+                    // Создаем Entity через фабрику
+                    Entity newEntity = EntityFactory.CreateEntity(
+                        firstCubeInGroup.transform.position,
+                        firstCubeInGroup.transform.rotation,
+                        transform.localScale,
+                        isKinematic: true,
+                        entityName: "Entity"
+                    );
 
+                    // Перемещаем кубы в новое Entity
                     for (int j = 0; j < group.Length; j++)
                     {
                         if (_cubeIdToIndex.TryGetValue(group[j], out int cubeIndex))
@@ -345,12 +349,11 @@ public class Entity : MonoBehaviour
                             Cube cubeToMove = _cubes[cubeIndex];
                             if (cubeToMove != null)
                             {
-                                cubeToMove.transform.parent = newEntityObject.transform;
+                                cubeToMove.transform.SetParent(newEntity.transform, true);
                             }
                         }
                     }
 
-                    Entity newEntity = newEntityObject.AddComponent<Entity>();
                     newEntity.StartSetup();
 
                     if (_vehicleConnector)
@@ -956,17 +959,20 @@ public class Entity : MonoBehaviour
 
             if (group.Length == 0) continue;
 
-            GameObject newEntityObject = new GameObject("Entity");
-
             // Используем кэш для быстрого поиска первого куба
             if (_cubeIdToIndex.TryGetValue(group[0], out int firstCubeIndex))
             {
                 Cube firstCubeInGroup = _cubes[firstCubeIndex];
                 if (firstCubeInGroup != null)
                 {
-                    newEntityObject.transform.SetPositionAndRotation(firstCubeInGroup.transform.position,
-                        firstCubeInGroup.transform.rotation);
-                    newEntityObject.transform.localScale = transform.localScale;
+                    // Создаем Entity через фабрику с isKinematic = false для разделенных Entity
+                    Entity newEntity = EntityFactory.CreateEntity(
+                        firstCubeInGroup.transform.position,
+                        firstCubeInGroup.transform.rotation,
+                        transform.localScale,
+                        isKinematic: false,
+                        entityName: "Entity"
+                    );
 
                     // Перемещаем кубы в новое entity с использованием кэша
                     for (int j = 0; j < group.Length; j++)
@@ -976,21 +982,12 @@ public class Entity : MonoBehaviour
                             Cube cubeToMove = _cubes[cubeIndex];
                             if (cubeToMove != null)
                             {
-                                cubeToMove.transform.parent = newEntityObject.transform;
+                                cubeToMove.transform.SetParent(newEntity.transform, true);
                             }
                         }
                     }
 
-                    Entity newEntity = newEntityObject.AddComponent<Entity>();
                     newEntity.StartSetup();
-
-                    // Сбрасываем isKinematic для нового Entity
-                    var newRb = newEntity.GetComponent<Rigidbody>();
-                    if (newRb != null)
-                    {
-                        newRb.isKinematic = false;
-                    }
-
                     newEntities.Add(newEntity);
 
                     if (_vehicleConnector)

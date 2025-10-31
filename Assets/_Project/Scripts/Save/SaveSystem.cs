@@ -6,7 +6,6 @@ using UnityEngine.SceneManagement;
 
 public class SaveSystem : Singleton<SaveSystem>
 {
-
     [Header("Configuration")] [SerializeField]
     private SaveConfig _config;
 
@@ -466,11 +465,15 @@ public class SaveSystem : Singleton<SaveSystem>
                 }
             }
 
-            GameObject entityObj = new GameObject("Entity");
-            entityObj.transform.position = minPos;
-            entityObj.transform.localScale = Vector3.one * _config.entityScale;
+            // Создаем Entity через фабрику
+            Entity entity = EntityFactory.CreateEntity(
+                minPos,
+                Quaternion.identity,
+                Vector3.one * _config.entityScale,
+                isKinematic: true,
+                entityName: "Entity"
+            );
 
-            Entity entity = entityObj.AddComponent<Entity>();
             await entity.LoadFromDataAsync(kvp.Value.ToArray(), _cubeSpawner, deferredSetup: _config.useDeferredSetup);
 
             if (_config.useDeferredSetup)

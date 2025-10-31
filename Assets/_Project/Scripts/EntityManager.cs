@@ -240,22 +240,14 @@ public class EntityManager : MonoBehaviour
 
         EntitySaveData saveData = _savedEntities[index];
 
-        GameObject newEntityObj = new GameObject("Entity_" + DateTime.Now.Ticks);
-        newEntityObj.transform.position = position;
-        newEntityObj.transform.rotation = rotation; // Используем переданный поворот
-        newEntityObj.transform.localScale = saveData.scale;
-
-        Rigidbody rb = newEntityObj.AddComponent<Rigidbody>();
-        rb.mass = 1f;
-        rb.drag = 0f;
-        rb.angularDrag = 0.05f;
-        rb.useGravity = true;
-        rb.isKinematic = true;
-
-        Entity newEntity = newEntityObj.AddComponent<Entity>();
-        newEntityObj.AddComponent<EntityMeshCombiner>();
-        newEntityObj.AddComponent<EntityHookManager>();
-        newEntityObj.AddComponent<EntityVehicleConnector>();
+        // Создаем Entity через фабрику
+        Entity newEntity = EntityFactory.CreateEntity(
+            position,
+            rotation,
+            saveData.scale,
+            isKinematic: true,
+            entityName: $"Entity_{DateTime.Now.Ticks}"
+        );
 
         StartCoroutine(LoadEntityAsync(newEntity, saveData, rotation));
     }
