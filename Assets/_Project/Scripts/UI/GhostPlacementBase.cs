@@ -16,19 +16,25 @@ namespace Assets._Project.Scripts.UI
 
         protected GameObject _ghostRoot;
         protected bool _isGhostActive;
+        private Camera _cachedCamera;
 
         /// <summary>
         /// Получает главную камеру игрока с fallback на любую доступную камеру.
+        /// Кэширует результат для оптимизации.
         /// </summary>
         protected Camera GetPlayerCamera()
         {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null)
+            // Проверяем валидность кэша
+            if (_cachedCamera == null || !_cachedCamera.gameObject.activeInHierarchy)
             {
-                playerCamera = FindAnyObjectByType<Camera>();
+                _cachedCamera = Camera.main;
+                if (_cachedCamera == null)
+                {
+                    _cachedCamera = FindAnyObjectByType<Camera>();
+                }
             }
 
-            return playerCamera;
+            return _cachedCamera;
         }
 
         /// <summary>
@@ -103,6 +109,14 @@ namespace Assets._Project.Scripts.UI
                 _isGhostActive = false;
                 _ghostRoot.SetActive(false);
             }
+        }
+
+        /// <summary>
+        /// Автоматически скрывает ghost при деактивации компонента (например, при переключении инструментов).
+        /// </summary>
+        private void OnDisable()
+        {
+            HideGhost();
         }
 
         public virtual void ShowGhost()

@@ -19,6 +19,8 @@ namespace Assets._Project.Scripts.UI
         [Header("Ghost Placement"), SerializeField]
         private float _maxGhostDistance = 8f;
 
+        [SerializeField] private float _groundOffset = 0.1f; // Отступ от земли для ghost, чтобы избежать коллизий
+
         [Header("References"), SerializeField] private EntityManager _entitySaveManager;
 
         private int _lastSelectedIndex = -1;
@@ -160,6 +162,9 @@ namespace Assets._Project.Scripts.UI
             {
                 targetPosition = FindAlternativePosition(targetPosition);
             }
+
+            // Автоматически корректируем позицию так, чтобы ghost стоял на земле
+            targetPosition = AdjustGhostPositionToGround(targetPosition);
 
             _ghostRoot.transform.position = targetPosition;
 
@@ -369,8 +374,63 @@ namespace Assets._Project.Scripts.UI
             // Применяем зеленый цвет по умолчанию
             UpdateGhostMaterial(false);
         }
+
+        /// <summary>
+        /// Корректирует позицию ghost так, чтобы нижняя часть объекта находилась на уровне земли
+        /// </summary>
+        private Vector3 AdjustGhostPositionToGround(Vector3 ghostPosition)
+        {
+            if (_ghostRoot == null) return ghostPosition;
+
+            // Временно устанавливаем позицию ghost для вычисления bounds
+            Vector3 originalPosition = _ghostRoot.transform.position;
+            _ghostRoot.transform.position = ghostPosition;
+
+            // Получаем bounds всех renderers в ghost
+            var renderers = _ghostRoot.GetComponentsInChildren<Renderer>(true);
+            if (renderers == null || renderers.Length == 0)
+            {
+                _ghostRoot.transform.position = originalPosition;
+                return ghostPosition;
+            }
+
+            // Вычисляем общие bounds ghost объекта в новой позиции
+            Bounds combinedBounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+            {
+                combinedBounds.Encapsulate(renderers[i].bounds);
+            }
+
+            // Нижняя точка bounds
+            float bottomY = combinedBounds.min.y;
+
+            // Восстанавливаем исходную позицию
+            _ghostRoot.transform.position = originalPosition;
+
+            // Выполняем Raycast вниз от нижней точки для поиска земли
+            Vector3 rayStart = ghostPosition;
+            rayStart.y = bottomY + 2f; // Начинаем raycast немного выше нижней точки
+
+            RaycastHit hit;
+            if (Physics.Raycast(rayStart, Vector3.down, out hit, 100f, _groundLayerMask))
+            {
+                // Нашли землю - корректируем позицию так, чтобы нижняя точка была чуть выше земли
+                float groundLevel = hit.point.y;
+                float heightAdjustment = groundLevel - bottomY + _groundOffset; // Добавляем отступ от земли
+
+                // Корректируем позицию ghost
+                Vector3 correctedPosition = ghostPosition;
+                correctedPosition.y += heightAdjustment;
+
+                return correctedPosition;
+            }
+
+            // Если не нашли землю, возвращаем исходную позицию
+            return ghostPosition;
+        }
     }
 }
+
 
 
 

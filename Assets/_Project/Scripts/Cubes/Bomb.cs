@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class RaycastDetoucher : MonoBehaviour
+public class Bomb : MonoBehaviour
 {
     [SerializeField] private float _explosionRadius = 1.5f;
     [SerializeField] Camera _camera;
@@ -41,7 +41,18 @@ public class RaycastDetoucher : MonoBehaviour
                 if (!cube.Detouched)
                 {
                     cube.Detouch();
-                    cube.GetComponent<Rigidbody>().AddExplosionForce(1000f, point, _explosionRadius);
+
+                    // Получаем или добавляем Rigidbody, так как Detouch может обрабатываться асинхронно
+                    Rigidbody rb = cube.GetComponent<Rigidbody>();
+                    if (rb == null)
+                    {
+                        rb = cube.gameObject.AddComponent<Rigidbody>();
+                        rb.mass = 1f;
+                        rb.drag = 0.5f;
+                        rb.angularDrag = 0.5f;
+                    }
+
+                    rb.AddExplosionForce(1000f, point, _explosionRadius);
                 }
                 else
                 {

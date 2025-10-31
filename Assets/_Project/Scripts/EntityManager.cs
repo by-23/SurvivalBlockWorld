@@ -67,6 +67,11 @@ public class EntityManager : MonoBehaviour
     [Header("Entity Creator")] [SerializeField]
     private MonoBehaviour _entityCreatorBehaviour; // Избегает жесткой зависимости от namespace скрипта
 
+    [Header("Ground Placement")] [SerializeField]
+    private LayerMask _groundLayerMask = 1;
+
+    [SerializeField] private float _groundCheckDistance = 100f;
+
     private void Awake()
     {
         _entitySelector = FindAnyObjectByType<EntitySelector>();
@@ -240,9 +245,12 @@ public class EntityManager : MonoBehaviour
 
         EntitySaveData saveData = _savedEntities[index];
 
+        // Автоматически корректируем позицию так, чтобы объект стоял на земле
+        Vector3 correctedPosition = AdjustPositionToGround(position, rotation, saveData);
+
         // Создаем Entity через фабрику
         Entity newEntity = EntityFactory.CreateEntity(
-            position,
+            correctedPosition,
             rotation,
             saveData.scale,
             isKinematic: true,
@@ -250,6 +258,76 @@ public class EntityManager : MonoBehaviour
         );
 
         StartCoroutine(LoadEntityAsync(newEntity, saveData, rotation));
+    }
+
+    /// <summary>
+    /// Корректирует позицию спавна так, чтобы нижняя часть объекта находилась на уровне земли
+    /// </summary>
+    private Vector3 AdjustPositionToGround(Vector3 spawnPosition, Quaternion rotation, EntitySaveData saveData)
+    {
+        if (saveData.cubesData == null || saveData.cubesData.Length == 0)
+        {
+            return spawnPosition;
+        }
+
+        // Размер куба (стандартный размер в игре)
+        const float cubeSize = 1f;
+        const float cubeHalfSize = cubeSize * 0.5f;
+
+        // Вычисляем нижнюю границу объекта из исходных данных
+        // Находим минимальную Y координату нижней границы всех кубов (в мировых координатах оригинального объекта)
+        float minBottomWorldY = float.MaxValue;
+        foreach (var cubeData in saveData.cubesData)
+        {
+            // Позиция куба в мировых координатах оригинального объекта
+            Vector3 cubeWorldPos = cubeData.Position;
+
+            // Нижняя граница куба (куб размером 1, центр в позиции куба, нижняя точка на 0.5 ниже)
+            float cubeBottomY = cubeWorldPos.y - cubeHalfSize;
+
+            if (cubeBottomY < minBottomWorldY)
+            {
+                minBottomWorldY = cubeBottomY;
+            }
+        }
+
+        // Если не нашли нижнюю границу, возвращаем исходную позицию
+        if (minBottomWorldY == float.MaxValue)
+        {
+            return spawnPosition;
+        }
+
+        // Вычисляем смещение нижней границы относительно центра оригинальной Entity
+        // Это смещение в мировых координатах
+        float bottomOffsetFromOriginalCenter = minBottomWorldY - saveData.position.y;
+
+        // Вычисляем мировую позицию нижней точки нового объекта
+        // Учитываем, что spawnPosition - это центр нового Entity
+        // Смещение применяем напрямую, так как при спавне используется тот же масштаб
+        Vector3 bottomWorldPosition = spawnPosition;
+        bottomWorldPosition.y += bottomOffsetFromOriginalCenter;
+
+        // Выполняем Raycast вниз от нижней точки для поиска земли
+        RaycastHit hit;
+        Vector3 rayStart = bottomWorldPosition;
+        rayStart.y += 2f; // Небольшой отступ вверх для начала raycast (чтобы не начинать изнутри земли)
+
+        if (Physics.Raycast(rayStart, Vector3.down, out hit, _groundCheckDistance, _groundLayerMask))
+        {
+            // Нашли землю - корректируем позицию так, чтобы нижняя точка была на уровне земли
+            float groundLevel = hit.point.y;
+            float currentBottomY = bottomWorldPosition.y;
+            float heightAdjustment = groundLevel - currentBottomY;
+
+            // Корректируем позицию спавна (центр Entity)
+            Vector3 correctedPosition = spawnPosition;
+            correctedPosition.y += heightAdjustment;
+
+            return correctedPosition;
+        }
+
+        // Если не нашли землю, возвращаем исходную позицию
+        return spawnPosition;
     }
 
 
@@ -600,7 +678,7 @@ public class EntityManager : MonoBehaviour
         }
     }
 
-    private void InvokeEntityCreator(int index)
+    private void CacheEntityCreator()
     {
         if (_entityCreatorBehaviour == null)
         {
@@ -616,6 +694,11 @@ public class EntityManager : MonoBehaviour
                 }
             }
         }
+    }
+
+    private void InvokeEntityCreator(int index)
+    {
+        CacheEntityCreator();
 
         if (_entityCreatorBehaviour != null)
         {
@@ -632,19 +715,7 @@ public class EntityManager : MonoBehaviour
         // Обновляем текущий выбранный индекс при клике на кнопку UI
         _currentSelectedSaveIndex = index;
 
-        if (_entityCreatorBehaviour == null)
-        {
-            var behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            for (int i = 0; i < behaviours.Length; i++)
-            {
-                var b = behaviours[i];
-                if (b != null && b.GetType().Name == "EntityCreator")
-                {
-                    _entityCreatorBehaviour = b;
-                    break;
-                }
-            }
-        }
+        CacheEntityCreator();
 
         if (_entityCreatorBehaviour != null)
         {

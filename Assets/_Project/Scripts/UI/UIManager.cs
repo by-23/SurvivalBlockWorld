@@ -16,9 +16,11 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private PlayerMovement _playerMovement;
         [SerializeField] private RopeGenerator _ropeGenerator;
         [SerializeField] private VehicleForce _vehicleForce;
+        [SerializeField] private Bomb _raycastDetoucher;
 
         [Header("Buttons")] [SerializeField] private Button _saveButton;
         [SerializeField] private Button _mapsButton;
+        [SerializeField] private Button _bombButton;
 
         [Header("Save UI")] [SerializeField] private GameObject _savePanel;
         [SerializeField] private TMP_InputField _saveNameInput;
@@ -69,6 +71,11 @@ namespace Assets._Project.Scripts.UI
             if (_closeLoadPanelButton != null)
             {
                 _closeLoadPanelButton.onClick.AddListener(OnCloseLoadPanelButtonPressed);
+            }
+
+            if (_bombButton != null)
+            {
+                _bombButton.onClick.AddListener(OnBombButtonPressed);
             }
         }
 
@@ -268,6 +275,15 @@ namespace Assets._Project.Scripts.UI
         public void OnCarButtonPressed()
         {
             // This likely needs more logic to toggle entering/exiting
+        }
+
+        public void OnBombButtonPressed()
+        {
+            print("0");
+            if (_raycastDetoucher != null)
+            {
+                _raycastDetoucher.Raycast();
+            }
         }
     }
 }

@@ -8,6 +8,17 @@ namespace Assets._Project.Scripts.UI
 {
     public class CubeCreator : GhostPlacementBase
     {
+        // Статический массив смещений для проверки соседей
+        private static readonly Vector3Int[] NeighborOffsets = new Vector3Int[]
+        {
+            new Vector3Int(1, 0, 0), // right
+            new Vector3Int(-1, 0, 0), // left
+            new Vector3Int(0, 1, 0), // up
+            new Vector3Int(0, -1, 0), // down
+            new Vector3Int(0, 0, 1), // forward
+            new Vector3Int(0, 0, -1) // back
+        };
+
         [Header("UI References")] [SerializeField]
         private Button createButton;
 
@@ -35,6 +46,7 @@ namespace Assets._Project.Scripts.UI
 
         private List<Cube> _placedCubes = new List<Cube>();
         private Coroutine _groupingCoroutine;
+        private Camera _cachedCamera;
 
         private void Start()
         {
@@ -45,6 +57,12 @@ namespace Assets._Project.Scripts.UI
 
             SetupColorButtons();
             CreateGhostCube();
+            CacheCamera();
+        }
+
+        private void CacheCamera()
+        {
+            _cachedCamera = GetPlayerCamera();
         }
 
         private void Update()
@@ -186,15 +204,15 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 ApplyMagneticSnapping(Vector3 position)
         {
-            Camera playerCamera = GetPlayerCamera();
-
-            if (playerCamera == null)
+            if (_cachedCamera == null)
             {
-                return position;
+                CacheCamera();
+                if (_cachedCamera == null)
+                    return position;
             }
 
-            Vector3 lookDirection = playerCamera.transform.forward;
-            Ray ray = new Ray(playerCamera.transform.position, lookDirection);
+            Vector3 lookDirection = _cachedCamera.transform.forward;
+            Ray ray = new Ray(_cachedCamera.transform.position, lookDirection);
 
             RaycastHit[] hits = Physics.RaycastAll(ray, _magneticDistance * 2f);
             System.Array.Sort(hits, (hit1, hit2) => hit1.distance.CompareTo(hit2.distance));
@@ -210,7 +228,7 @@ namespace Assets._Project.Scripts.UI
                 if (cube != null)
                 {
                     Vector3 cubePosition = hit.collider.transform.position;
-                    Vector3 directionToCube = (cubePosition - playerCamera.transform.position).normalized;
+                    Vector3 directionToCube = (cubePosition - _cachedCamera.transform.position).normalized;
                     float dotProduct = Vector3.Dot(lookDirection.normalized, directionToCube);
 
                     if (dotProduct > 0.5f)
@@ -226,15 +244,15 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 SnapToNearestSide(Vector3 ghostPosition, Vector3 cubePosition)
         {
-            Camera playerCamera = GetPlayerCamera();
-
-            if (playerCamera == null)
+            if (_cachedCamera == null)
             {
-                return cubePosition;
+                CacheCamera();
+                if (_cachedCamera == null)
+                    return cubePosition;
             }
 
             // Используем направление взгляда игрока для определения стороны куба
-            Vector3 cameraForward = playerCamera.transform.forward;
+            Vector3 cameraForward = _cachedCamera.transform.forward;
             Vector3 snappedPosition = SnapToFacingSide(cameraForward, cubePosition);
 
             return snappedPosition;
@@ -242,14 +260,14 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 SnapToNearestSideFromPlayer(Vector3 playerPosition, Vector3 cubePosition)
         {
-            Camera playerCamera = GetPlayerCamera();
-
-            if (playerCamera == null)
+            if (_cachedCamera == null)
             {
-                return cubePosition;
+                CacheCamera();
+                if (_cachedCamera == null)
+                    return cubePosition;
             }
 
-            Vector3 cameraForward = playerCamera.transform.forward;
+            Vector3 cameraForward = _cachedCamera.transform.forward;
             Vector3 snappedPosition = SnapToFacingSide(cameraForward, cubePosition);
 
             return snappedPosition;
@@ -257,14 +275,14 @@ namespace Assets._Project.Scripts.UI
 
         private Vector3 SnapToFacingSide(Vector3 lookDirection, Vector3 cubePosition)
         {
-            Camera playerCamera = GetPlayerCamera();
-
-            if (playerCamera == null)
+            if (_cachedCamera == null)
             {
-                return cubePosition;
+                CacheCamera();
+                if (_cachedCamera == null)
+                    return cubePosition;
             }
 
-            Ray ray = new Ray(playerCamera.transform.position, lookDirection);
+            Ray ray = new Ray(_cachedCamera.transform.position, lookDirection);
             Bounds cubeBounds = new Bounds(cubePosition, Vector3.one * _cubeSize);
 
             if (cubeBounds.IntersectRay(ray, out float distance))
@@ -395,47 +413,47 @@ namespace Assets._Project.Scripts.UI
 
         protected override Vector3 GetGhostPosition()
         {
-            Camera playerCamera = GetPlayerCamera();
-
-            if (playerCamera != null)
+            if (_cachedCamera == null)
             {
-                Vector3 cameraPosition = playerCamera.transform.position;
-                Vector3 cameraForward = playerCamera.transform.forward;
-
-                Ray ray = new Ray(cameraPosition, cameraForward);
-
-                if (Physics.Raycast(ray, out RaycastHit cubeHit, 50f))
-                {
-                    GameObject hitObject = cubeHit.collider.gameObject;
-                    Cube hitCube = hitObject.GetComponent<Cube>();
-
-                    if (hitCube != null)
-                    {
-                        return SnapToNearestSideFromPlayer(cameraPosition, hitObject.transform.position);
-                    }
-                }
-
-                if (Physics.Raycast(ray, out RaycastHit hit, 50f))
-                {
-                    Vector3 spherecastResult = FindNearestCubeWithSpherecast(hit.point, cameraPosition);
-
-                    if (spherecastResult == Vector3.zero &&
-                        ((1 << hit.collider.gameObject.layer) & _groundLayerMask) != 0)
-                    {
-                        Vector3 surfacePosition = hit.point;
-                        surfacePosition.y = hit.point.y + (_cubeSize * 0.5f);
-                        return surfacePosition;
-                    }
-
-                    return spherecastResult;
-                }
-                else
-                {
+                CacheCamera();
+                if (_cachedCamera == null)
                     return Vector3.zero;
+            }
+
+            Vector3 cameraPosition = _cachedCamera.transform.position;
+            Vector3 cameraForward = _cachedCamera.transform.forward;
+
+            Ray ray = new Ray(cameraPosition, cameraForward);
+
+            if (Physics.Raycast(ray, out RaycastHit cubeHit, 50f))
+            {
+                GameObject hitObject = cubeHit.collider.gameObject;
+                Cube hitCube = hitObject.GetComponent<Cube>();
+
+                if (hitCube != null)
+                {
+                    return SnapToNearestSideFromPlayer(cameraPosition, hitObject.transform.position);
                 }
             }
 
-            return Vector3.zero;
+            if (Physics.Raycast(ray, out RaycastHit hit, 50f))
+            {
+                Vector3 spherecastResult = FindNearestCubeWithSpherecast(hit.point, cameraPosition);
+
+                if (spherecastResult == Vector3.zero &&
+                    ((1 << hit.collider.gameObject.layer) & _groundLayerMask) != 0)
+                {
+                    Vector3 surfacePosition = hit.point;
+                    surfacePosition.y = hit.point.y + (_cubeSize * 0.5f);
+                    return surfacePosition;
+                }
+
+                return spherecastResult;
+            }
+            else
+            {
+                return Vector3.zero;
+            }
         }
 
         private Vector3 FindNearestCubeWithSpherecast(Vector3 hitPoint, Vector3 cameraPosition)
@@ -575,15 +593,15 @@ namespace Assets._Project.Scripts.UI
 
         protected override Vector3 FindAlternativePosition(Vector3 occupiedPosition)
         {
-            Camera playerCamera = GetPlayerCamera();
-
-            if (playerCamera == null)
+            if (_cachedCamera == null)
             {
-                return occupiedPosition;
+                CacheCamera();
+                if (_cachedCamera == null)
+                    return occupiedPosition;
             }
 
-            Vector3 playerPosition = playerCamera.transform.position;
-            Vector3 cameraForward = playerCamera.transform.forward;
+            Vector3 playerPosition = _cachedCamera.transform.position;
+            Vector3 cameraForward = _cachedCamera.transform.forward;
 
             Collider[] nearbyColliders = Physics.OverlapSphere(occupiedPosition, _magneticDistance * 2f);
 
@@ -831,17 +849,7 @@ namespace Assets._Project.Scripts.UI
                 Vector3Int cubePos = WorldToGridPosition(cube.transform.position);
 
                 // Проверяем все 6 направлений на наличие кубов из существующих Entity
-                Vector3Int[] neighborOffsets = new Vector3Int[]
-                {
-                    new Vector3Int(1, 0, 0), // right
-                    new Vector3Int(-1, 0, 0), // left
-                    new Vector3Int(0, 1, 0), // up
-                    new Vector3Int(0, -1, 0), // down
-                    new Vector3Int(0, 0, 1), // forward
-                    new Vector3Int(0, 0, -1) // back
-                };
-
-                foreach (var offset in neighborOffsets)
+                foreach (var offset in NeighborOffsets)
                 {
                     Vector3Int neighborPos = cubePos + offset;
                     if (existingEntityCubes.TryGetValue(neighborPos, out var neighborData))
@@ -899,17 +907,8 @@ namespace Assets._Project.Scripts.UI
 
                     // Проверяем всех соседей (6 направлений)
                     Vector3Int currentPos = WorldToGridPosition(currentCube.transform.position);
-                    Vector3Int[] neighborOffsets = new Vector3Int[]
-                    {
-                        new Vector3Int(1, 0, 0), // right
-                        new Vector3Int(-1, 0, 0), // left
-                        new Vector3Int(0, 1, 0), // up
-                        new Vector3Int(0, -1, 0), // down
-                        new Vector3Int(0, 0, 1), // forward
-                        new Vector3Int(0, 0, -1) // back
-                    };
 
-                    foreach (var offset in neighborOffsets)
+                    foreach (var offset in NeighborOffsets)
                     {
                         Vector3Int neighborPos = currentPos + offset;
                         if (cubeGrid.TryGetValue(neighborPos, out Cube neighbor) && !visited.Contains(neighbor))
