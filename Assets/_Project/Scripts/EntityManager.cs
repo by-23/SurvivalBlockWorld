@@ -104,14 +104,14 @@ public class EntityManager : MonoBehaviour
 
         // Загружаем сущности из постоянной памяти
         LoadAllFromDisk();
+        Debug.Log($"Loaded {_savedEntities.Count} saved entities from disk. Path: {SavesFilePath}");
+
         // Восстанавливаем UI элементы для загруженных сохранений
+        // Создаем UI элементы для всех сохраненных entity, даже без скриншотов
         for (int i = 0; i < _savedEntities.Count; i++)
         {
-            string shotPath = _savedEntities[i].screenshotPath;
-            if (!string.IsNullOrEmpty(shotPath) && File.Exists(shotPath))
-            {
-                TryCreateSavedObjectUIItem(shotPath, i);
-            }
+            string shotPath = _savedEntities[i]?.screenshotPath;
+            TryCreateSavedObjectUIItem(shotPath, i);
         }
     }
 
@@ -164,8 +164,14 @@ public class EntityManager : MonoBehaviour
             return;
         }
 
+        // Инициализируем список если он еще не инициализирован (на случай если Awake еще не вызван)
+        if (_savedEntities == null)
+        {
+            _savedEntities = new List<EntitySaveData>();
+        }
+
         // Проверка на дубликат ID сущности
-        if (_savedEntities != null && _savedEntities.Exists(s => s.entityId == entity.EntityId))
+        if (_savedEntities.Exists(s => s.entityId == entity.EntityId))
         {
             ShowNotification(
                 $"Объект с ID {entity.EntityId} уже сохранён. Удалите существующий, чтобы сохранить новый.");
@@ -194,11 +200,16 @@ public class EntityManager : MonoBehaviour
         if (!string.IsNullOrEmpty(screenshotPath))
         {
             saveData.screenshotPath = screenshotPath;
-            TryCreateSavedObjectUIItem(screenshotPath, _currentSelectedSaveIndex);
         }
+
+        // Создаем UI элемент всегда, даже если скриншот не создан
+        TryCreateSavedObjectUIItem(screenshotPath, _currentSelectedSaveIndex);
 
         // Сохраняем все на диск
         SaveAllToDisk();
+
+        Debug.Log(
+            $"Entity saved successfully. Total saved: {_savedEntities.Count}, Screenshot: {(string.IsNullOrEmpty(screenshotPath) ? "None" : screenshotPath)}");
     }
 
     private void ShowNotification(string message)
@@ -583,15 +594,17 @@ public class EntityManager : MonoBehaviour
             if (!Directory.Exists(SavesDirectoryPath))
             {
                 Directory.CreateDirectory(SavesDirectoryPath);
+                Debug.Log($"Created saves directory: {SavesDirectoryPath}");
             }
 
             SaveFile saveFile = new SaveFile { entities = _savedEntities };
             string json = JsonUtility.ToJson(saveFile, false);
             File.WriteAllText(SavesFilePath, json);
+            Debug.Log($"Entities saved to disk: {SavesFilePath}. Total: {_savedEntities.Count}");
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to save entities to disk: {e.Message}");
+            Debug.LogError($"Failed to save entities to disk: {e.Message}\nStack trace: {e.StackTrace}");
         }
     }
 
@@ -601,21 +614,36 @@ public class EntityManager : MonoBehaviour
         {
             if (!File.Exists(SavesFilePath))
             {
+                Debug.Log($"Save file does not exist: {SavesFilePath}. Starting with empty list.");
+                _savedEntities = new List<EntitySaveData>();
                 return;
             }
 
             string json = File.ReadAllText(SavesFilePath);
-            if (string.IsNullOrEmpty(json)) return;
+            if (string.IsNullOrEmpty(json))
+            {
+                Debug.LogWarning($"Save file is empty: {SavesFilePath}");
+                _savedEntities = new List<EntitySaveData>();
+                return;
+            }
 
             SaveFile loaded = JsonUtility.FromJson<SaveFile>(json);
             if (loaded != null && loaded.entities != null)
             {
                 _savedEntities = loaded.entities;
+                Debug.Log($"Loaded {_savedEntities.Count} entities from {SavesFilePath}");
+            }
+            else
+            {
+                Debug.LogWarning($"Failed to parse save file: {SavesFilePath}");
+                _savedEntities = new List<EntitySaveData>();
             }
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to load entities from disk: {e.Message}");
+            Debug.LogError(
+                $"Failed to load entities from disk: {e.Message}\nStack trace: {e.StackTrace}\nPath: {SavesFilePath}");
+            _savedEntities = new List<EntitySaveData>();
         }
     }
 
@@ -647,6 +675,7 @@ public class EntityManager : MonoBehaviour
     {
         if (_savedObjectItemPrefab == null || _savedObjectsContainer == null)
         {
+            Debug.LogWarning($"Cannot create UI item: prefab or container is null (index: {index})");
             return;
         }
 
@@ -662,19 +691,50 @@ public class EntityManager : MonoBehaviour
                 image = button.GetComponentInChildren<Image>(true);
             }
 
-            if (image != null && File.Exists(screenshotPath))
+            // Загружаем скриншот если он существует
+            if (image != null && !string.IsNullOrEmpty(screenshotPath))
             {
-                byte[] bytes = File.ReadAllBytes(screenshotPath);
-                Texture2D texture = new Texture2D(2, 2);
-                texture.LoadImage(bytes);
-                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
-                    new Vector2(0.5f, 0.5f));
-                image.sprite = sprite;
+                try
+                {
+                    // На Android File.Exists может не работать корректно, используем try-catch
+                    if (File.Exists(screenshotPath))
+                    {
+                        byte[] bytes = File.ReadAllBytes(screenshotPath);
+                        if (bytes.Length > 0)
+                        {
+                            Texture2D texture = new Texture2D(2, 2);
+                            if (texture.LoadImage(bytes))
+                            {
+                                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
+                                    new Vector2(0.5f, 0.5f));
+                                image.sprite = sprite;
+                            }
+                            else
+                            {
+                                Debug.LogWarning($"Failed to load image from: {screenshotPath}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"Screenshot file does not exist: {screenshotPath}");
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning(
+                        $"Failed to load screenshot for entity {index}: {e.Message}. Path: {screenshotPath}");
+                    // Продолжаем выполнение, UI элемент все равно будет создан без изображения
+                }
             }
 
             // Привязываем кнопку для выбора этой сохраненной сущности через EntityCreator
             int capturedIndex = index;
             button.onClick.AddListener(() => InvokeEntityCreatorSelection(capturedIndex));
+        }
+        else
+        {
+            Debug.LogWarning($"Button not found in UI item prefab for index {index}");
         }
     }
 

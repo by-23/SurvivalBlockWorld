@@ -11,6 +11,7 @@ Library: /Users/macbook/RiderProjects/SurvivalBlockWorld/Temp/BurstOutput/tempbu
 --float-mode=Fast
 --assembly-defines=Assembly-CSharp-firstpass;
 --assembly-defines=Assembly-CSharp;
+--assembly-defines=AYellowpaper.SerializedCollections;
 --assembly-defines=DOTween;
 --assembly-defines=Firebase.App;
 --assembly-defines=Firebase.Firestore;
@@ -54,6 +55,7 @@ Library: /Users/macbook/RiderProjects/SurvivalBlockWorld/Temp/BurstOutput/tempbu
 --target-framework=NetFramework
 --assembly-defines=Assembly-CSharp-firstpass;
 --assembly-defines=Assembly-CSharp;
+--assembly-defines=AYellowpaper.SerializedCollections;
 --assembly-defines=DOTween;
 --assembly-defines=Firebase.App;
 --assembly-defines=Firebase.Firestore;

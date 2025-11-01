@@ -279,7 +279,6 @@ namespace Assets._Project.Scripts.UI
 
         public void OnBombButtonPressed()
         {
-            print("0");
             if (_raycastDetoucher != null)
             {
                 _raycastDetoucher.Raycast();

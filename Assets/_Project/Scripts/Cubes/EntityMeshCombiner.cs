@@ -11,6 +11,9 @@ public class EntityMeshCombiner : MonoBehaviour
     private bool _isKinematicOriginalState;
     private bool _isCombined;
 
+    // Публичное свойство для проверки состояния объединения из Entity
+    public bool IsCombined => _isCombined;
+
     // Кэшированные компоненты для оптимизации
     private struct CachedCubeComponents
     {

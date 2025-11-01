@@ -96,7 +96,10 @@ public class PlayerMovement : MonoBehaviour
         // Создаем вектор движения относительно камеры
         Vector3 moveDirection = Vector3.zero;
 
-        if (moveInput.magnitude > 0.1f && Camera.main != null)
+        // Уменьшаем порог для более чувствительного отклика на джойстик
+        float deadZone = InputManager.Instance._TOUCH ? 0.05f : 0.1f;
+
+        if (moveInput.magnitude > deadZone && Camera.main != null)
         {
             // Получаем направление камеры (без наклона по Y)
             Vector3 forward = Camera.main.transform.forward;
@@ -150,6 +153,7 @@ public class PlayerMovement : MonoBehaviour
     private void HandleJump()
     {
         // Проверяем ввод прыжка (пробел или клик на экране)
+        // Работает и от клавиатуры, и от сенсорных кнопок
         bool jumpInput = Input.GetKeyDown(KeyCode.Space) ||
                          (InputManager.Instance._TOUCH && InputManager.Instance._Press);
 
@@ -198,6 +202,8 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    private bool _lastLaserState;
+
     private void HandleLaser()
     {
         // Проверяем, что InputManager доступен
@@ -229,8 +235,14 @@ public class PlayerMovement : MonoBehaviour
             _laser.gameObject.SetActive(true);
         }
 
-        // Активируем/деактивируем лазер в зависимости от нажатия клавиши E
-        _laser.Press(InputManager.Instance._Laser);
+        // Обновляем лазер только если изменилось состояние клавиши E
+        // Это позволяет UI кнопкам работать независимо
+        bool currentLaserState = InputManager.Instance._Laser;
+        if (currentLaserState != _lastLaserState)
+        {
+            _laser.Press(currentLaserState);
+            _lastLaserState = currentLaserState;
+        }
     }
 
     private void OnDrawGizmosSelected()

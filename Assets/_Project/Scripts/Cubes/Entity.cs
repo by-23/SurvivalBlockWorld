@@ -45,6 +45,10 @@ public class Entity : MonoBehaviour
     private List<Cube> _pendingDetouchCubes;
     private bool _detouchBatchPending = false;
 
+    // Максимальное количество кубов, обрабатываемых за кадр при отсоединении
+    // Предотвращает создание сотен Rigidbody одновременно и WaitForJobGroupID
+    private const int MAX_CUBES_PER_FRAME_DETOUCH = 15;
+
     private EntityVehicleConnector _vehicleConnector;
     private EntityHookManager _hookManager;
     private EntityMeshCombiner _meshCombiner;
@@ -270,47 +274,67 @@ public class Entity : MonoBehaviour
         // Разделяем меши перед удалением кубов
         _meshCombiner.ShowCubes();
 
-        foreach (var cube in cubesToDetouch)
+        // Оптимизация: обрабатываем кубы батчами для предотвращения WaitForJobGroupID
+        // Создание множества Rigidbody одновременно перегружает Unity Physics Job System
+        int processed = 0;
+        while (processed < cubesToDetouch.Length)
         {
-            if (cube == null) continue;
+            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, cubesToDetouch.Length - processed);
 
-            Vector3 localPos = cube.transform.localPosition;
-            int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
-            int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
-            int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
-
-            if (x >= 0 && y >= 0 && z >= 0 &&
-                x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
+            // Обрабатываем батч кубов
+            for (int i = 0; i < batchSize; i++)
             {
-                _cubesInfo[x, y, z] = 0;
+                Cube cube = cubesToDetouch[processed + i];
+                if (cube == null) continue;
+
+                Vector3 localPos = cube.transform.localPosition;
+                int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
+                int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
+                int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
+
+                if (x >= 0 && y >= 0 && z >= 0 &&
+                    x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
+                {
+                    _cubesInfo[x, y, z] = 0;
+                }
+
+                int cubeIndex = cube.Id - 1;
+                if (cubeIndex >= 0 && cubeIndex < _cubes.Length)
+                {
+                    _cubes[cubeIndex] = null;
+                }
+
+                if (_cubeIdToIndex != null)
+                {
+                    _cubeIdToIndex.Remove(cube.Id);
+                }
+
+                cube.transform.parent = null;
+
+                // Создаем Rigidbody для куба (батчированное создание предотвращает WaitForJobGroupID)
+                var rb = cube.gameObject.GetComponent<Rigidbody>();
+                if (rb == null)
+                {
+                    rb = cube.gameObject.AddComponent<Rigidbody>();
+                    rb.mass = 1f;
+                    rb.drag = 0.5f;
+                    rb.angularDrag = 0.5f;
+                }
+
+                if (_hookManager)
+                    _hookManager.DetachHookFromCube(cube);
+
+                StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, 2f));
             }
 
-            int cubeIndex = cube.Id - 1;
-            if (cubeIndex >= 0 && cubeIndex < _cubes.Length)
+            processed += batchSize;
+
+            // Ждем FixedUpdate перед обработкой следующего батча
+            // Это дает Unity Physics время обработать созданные Rigidbody
+            if (processed < cubesToDetouch.Length)
             {
-                _cubes[cubeIndex] = null;
+                yield return new WaitForFixedUpdate();
             }
-
-            if (_cubeIdToIndex != null)
-            {
-                _cubeIdToIndex.Remove(cube.Id);
-            }
-
-            cube.transform.parent = null;
-
-            var rb = cube.gameObject.GetComponent<Rigidbody>();
-            if (rb == null)
-            {
-                rb = cube.gameObject.AddComponent<Rigidbody>();
-                rb.mass = 1f;
-                rb.drag = 0.5f;
-                rb.angularDrag = 0.5f;
-            }
-
-            if (_hookManager)
-                _hookManager.DetachHookFromCube(cube);
-
-            StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, 2f));
         }
 
         _cacheValid = false;
@@ -342,47 +366,65 @@ public class Entity : MonoBehaviour
         var cubesToDetouch = _pendingDetouchCubes.ToArray();
         _pendingDetouchCubes.Clear();
 
-        foreach (var cube in cubesToDetouch)
+        // Оптимизация: обрабатываем кубы батчами для предотвращения WaitForJobGroupID
+        int processed = 0;
+        while (processed < cubesToDetouch.Length)
         {
-            if (cube == null) continue;
+            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, cubesToDetouch.Length - processed);
 
-            Vector3 localPos = cube.transform.localPosition;
-            int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
-            int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
-            int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
-
-            if (x >= 0 && y >= 0 && z >= 0 &&
-                x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
+            // Обрабатываем батч кубов
+            for (int i = 0; i < batchSize; i++)
             {
-                _cubesInfo[x, y, z] = 0;
+                Cube cube = cubesToDetouch[processed + i];
+                if (cube == null) continue;
+
+                Vector3 localPos = cube.transform.localPosition;
+                int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
+                int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
+                int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
+
+                if (x >= 0 && y >= 0 && z >= 0 &&
+                    x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
+                {
+                    _cubesInfo[x, y, z] = 0;
+                }
+
+                int cubeIndex = cube.Id - 1;
+                if (cubeIndex >= 0 && cubeIndex < _cubes.Length)
+                {
+                    _cubes[cubeIndex] = null;
+                }
+
+                if (_cubeIdToIndex != null)
+                {
+                    _cubeIdToIndex.Remove(cube.Id);
+                }
+
+                cube.transform.parent = null;
+
+                // Создаем Rigidbody для куба (батчированное создание предотвращает WaitForJobGroupID)
+                var rb = cube.gameObject.GetComponent<Rigidbody>();
+                if (rb == null)
+                {
+                    rb = cube.gameObject.AddComponent<Rigidbody>();
+                    rb.mass = 1f;
+                    rb.drag = 0.5f;
+                    rb.angularDrag = 0.5f;
+                }
+
+                if (_hookManager)
+                    _hookManager.DetachHookFromCube(cube);
+
+                StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, 2f));
             }
 
-            int cubeIndex = cube.Id - 1;
-            if (cubeIndex >= 0 && cubeIndex < _cubes.Length)
+            processed += batchSize;
+
+            // Ждем FixedUpdate перед обработкой следующего батча
+            if (processed < cubesToDetouch.Length)
             {
-                _cubes[cubeIndex] = null;
+                yield return new WaitForFixedUpdate();
             }
-
-            if (_cubeIdToIndex != null)
-            {
-                _cubeIdToIndex.Remove(cube.Id);
-            }
-
-            cube.transform.parent = null;
-
-            var rb = cube.gameObject.GetComponent<Rigidbody>();
-            if (rb == null)
-            {
-                rb = cube.gameObject.AddComponent<Rigidbody>();
-                rb.mass = 1f;
-                rb.drag = 0.5f;
-                rb.angularDrag = 0.5f;
-            }
-
-            if (_hookManager)
-                _hookManager.DetachHookFromCube(cube);
-
-            StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, 2f));
         }
 
         _cacheValid = false;
@@ -395,11 +437,27 @@ public class Entity : MonoBehaviour
         }
     }
 
+    private float _lastCombineTime = -1f;
+    private const float MIN_COMBINE_INTERVAL = 2f; // Минимальный интервал между объединениями мешей
+
     private void RequestDelayedCombine()
     {
-        if (_recombineCoroutine != null)
+        // Дебаунсинг: не запускаем новую корутину если уже идет объединение или недавно было объединение
+        float timeSinceLastCombine = Time.time - _lastCombineTime;
+        if (_recombineCoroutine != null || timeSinceLastCombine < MIN_COMBINE_INTERVAL)
         {
-            StopCoroutine(_recombineCoroutine);
+            // Останавливаем старую корутину если она еще идет (перезапускаем таймер)
+            if (_recombineCoroutine != null)
+            {
+                StopCoroutine(_recombineCoroutine);
+                _recombineCoroutine = null;
+            }
+
+            // Не запускаем новую корутину сразу - ждем минимум интервал
+            if (timeSinceLastCombine < MIN_COMBINE_INTERVAL)
+            {
+                return;
+            }
         }
 
         _recombineCoroutine = StartCoroutine(DelayedCombineMeshes());
@@ -407,41 +465,69 @@ public class Entity : MonoBehaviour
 
     private IEnumerator DelayedCombineMeshes()
     {
-        // Минимальная задержка перед началом проверки
-        yield return new WaitForSeconds(0.5f);
+        // Увеличиваем задержку для больших Entity, чтобы не вызывать CombineMeshes слишком часто
+        int cubeCount = transform.childCount;
+        float initialDelay = cubeCount > 30 ? 1.5f : 0.5f; // Больше кубов = больше задержка
+        yield return new WaitForSeconds(initialDelay);
+
+        // Проверяем, не был ли Entity уничтожен во время ожидания
+        if (this == null || gameObject == null)
+        {
+            _recombineCoroutine = null;
+            yield break;
+        }
+
+        // Проверяем, не объединены ли меши уже (если другой процесс уже это сделал)
+        if (_meshCombiner != null && _meshCombiner.IsCombined)
+        {
+            _recombineCoroutine = null;
+            yield break;
+        }
 
         // Ждем, пока объект не перестанет двигаться
-        float maxWaitTime = 5f; // Максимальное время ожидания в секундах
+        float maxWaitTime = cubeCount > 30 ? 8f : 5f; // Для больших Entity ждем дольше
         float waitStartTime = Time.time;
-        float velocityThreshold = 0.01f; // Порог скорости для остановки
-        float angularVelocityThreshold = 0.01f; // Порог угловой скорости для остановки
+        float velocityThreshold = 0.01f;
+        float angularVelocityThreshold = 0.01f;
 
         // Проверяем движение каждый кадр, пока объект не остановится
         while (Time.time - waitStartTime < maxWaitTime)
         {
+            if (this == null || gameObject == null)
+            {
+                _recombineCoroutine = null;
+                yield break;
+            }
+
             if (_rb != null && !_rb.isKinematic)
             {
-                // Проверяем, что объект перестал двигаться
                 float velocityMagnitude = _rb.velocity.magnitude;
                 float angularVelocityMagnitude = _rb.angularVelocity.magnitude;
 
                 if (velocityMagnitude <= velocityThreshold &&
                     angularVelocityMagnitude <= angularVelocityThreshold)
                 {
-                    // Объект остановился, можем объединять меши
                     break;
                 }
             }
             else if (_rb == null || _rb.isKinematic)
             {
-                // Если нет Rigidbody или он kinematic, сразу объединяем
                 break;
             }
 
             yield return null;
         }
 
+        // Финальная проверка перед объединением
+        if (this == null || gameObject == null || _meshCombiner == null)
+        {
+            _recombineCoroutine = null;
+            yield break;
+        }
+
+        // Объединяем меши и записываем время для дебаунсинга
         _meshCombiner.CombineMeshes();
+        _lastCombineTime = Time.time;
         _recombineCoroutine = null;
     }
 
