@@ -250,6 +250,7 @@ MonoBehaviour:
   character: {fileID: 121130216740988453}
   sensitivity: 2
   smoothing: 1.5
+  _optimizeVolumeSystem: 1
 --- !u!1 &119038426097401229
 GameObject:
   m_ObjectHideFlags: 0
@@ -284,8 +285,6 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 121410363167605189}
-  - {fileID: 6936528218364182009}
-  - {fileID: 3775849398492970849}
   - {fileID: 1934978226}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -376,101 +375,9 @@ MonoBehaviour:
   _slopeLimit: 75
   _stepOffset: 1
   _Grounded: 0
-  _laser: {fileID: 1703371339137405915}
+  _laser: {fileID: 0}
   _GroundedOffset: -0.14
   _GroundedRadius: 0.15
   _GroundLayers:
     serializedVersion: 2
     m_Bits: 1033
---- !u!1 &5230519575060455322
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 6936528218364182009}
-  - component: {fileID: 1703371339137405915}
-  m_Layer: 7
-  m_Name: Laser
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &6936528218364182009
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5230519575060455322}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.25, y: 1.3000001, z: 0.70000005}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 121130216740988453}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1703371339137405915
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5230519575060455322}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ee6998e656a322844923839efb275192, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _Press: 0
-  _camera: {fileID: 137428015986575511}
---- !u!1 &7003668295881024527
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 3775849398492970849}
-  - component: {fileID: 840193326624357178}
-  m_Layer: 7
-  m_Name: Destruclion
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 0
---- !u!4 &3775849398492970849
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7003668295881024527}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.25, y: 1.3000001, z: 0.70000005}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 121130216740988453}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &840193326624357178
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7003668295881024527}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f7c88284dd3685b41a0af7912b3dbff9, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _explosionRadius: 1
-  _camera: {fileID: 137428015986575511}

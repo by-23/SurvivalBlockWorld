@@ -30,6 +30,14 @@ namespace Assets._Project.Scripts.UI
         private int _lastSelectedIndex = -1;
         private float _ghostManualRotation = 0f; // Дополнительный поворот ghost в градусах (по оси Y)
 
+        // Кэшированные данные для оптимизации
+        private Bounds _cachedGhostBounds;
+        private bool _boundsCacheValid = false;
+        private Vector3 _cachedBoundsOffset; // Смещение центра bounds относительно позиции ghost
+        private Vector3 _cachedBoundsExtents;
+        private Collider[] _overlapResultsCache = new Collider[64]; // Переиспользуемый массив для OverlapBox
+        private BoxCollider _ghostRootCollider; // Единый коллайдер для всего ghost
+
         private void Awake()
         {
             if (_entitySaveManager == null)
@@ -193,7 +201,7 @@ namespace Assets._Project.Scripts.UI
                     mat.EnableKeyword("_ALPHATEST_ON");
                 }
 
-                // Восстанавливаем нормальные коллайдеры (убираем trigger для ghost)
+                // Восстанавливаем нормальные коллайдеры кубов (включаем обратно после ghost)
                 Collider col = cube.GetComponent<Collider>();
                 if (col != null)
                 {
@@ -209,18 +217,53 @@ namespace Assets._Project.Scripts.UI
                 }
             }
 
+            // Удаляем единый коллайдер ghost после конвертации
+            if (_ghostRootCollider != null)
+            {
+                Destroy(_ghostRootCollider);
+                _ghostRootCollider = null;
+            }
+
+            // Очищаем кэш ghost цветов перед восстановлением
+            _originalCombinedMeshColors.Clear();
+
             // Пере-объединяем меши чтобы восстановить правильные цвета из ColorCube
             EntityMeshCombiner meshCombiner = entity.GetComponent<EntityMeshCombiner>();
-            if (meshCombiner != null && meshCombiner.IsCombined)
+            if (meshCombiner != null)
             {
-                // Показываем кубы временно чтобы EntityMeshCombiner мог их прочитать
-                meshCombiner.ShowCubes();
-                // Объединяем заново - теперь EntityMeshCombiner применит правильные цвета из ColorCube
+                // Показываем кубы временно чтобы EntityMeshCombiner мог прочитать цвета из ColorCube
+                if (meshCombiner.IsCombined)
+                {
+                    meshCombiner.ShowCubes();
+                }
+
+                // Объединяем заново - EntityMeshCombiner применит правильные оригинальные цвета из ColorCube компонентов
                 meshCombiner.CombineMeshes();
             }
 
             // Обновляем ссылку на объединенный меш
             _combinedMeshObject = entity.transform.Find("CombinedMesh")?.gameObject;
+
+            // Удаляем MeshRenderer с родителя CombinedMesh если он есть (не должен быть, но на всякий случай)
+            if (_combinedMeshObject != null)
+            {
+                MeshRenderer parentRenderer = _combinedMeshObject.GetComponent<MeshRenderer>();
+                if (parentRenderer != null)
+                {
+                    // Очищаем MaterialPropertyBlock перед удалением компонента
+                    MaterialPropertyBlock pb = new MaterialPropertyBlock();
+                    pb.Clear();
+                    parentRenderer.SetPropertyBlock(pb);
+                    Destroy(parentRenderer);
+                }
+
+                // Также удаляем MeshFilter если есть (родитель не должен иметь меш)
+                MeshFilter parentFilter = _combinedMeshObject.GetComponent<MeshFilter>();
+                if (parentFilter != null)
+                {
+                    Destroy(parentFilter);
+                }
+            }
 
             // Переименовываем ghost в Entity
             _ghostRoot.name = $"Entity_{System.DateTime.Now.Ticks}";
@@ -306,7 +349,12 @@ namespace Assets._Project.Scripts.UI
                 _combinedMeshObject = null;
             }
 
+            _ghostRootCollider = null;
             _isGhostActive = false;
+            _boundsCacheValid = false; // Инвалидируем кэш
+
+            // Очищаем кэш оригинальных цветов
+            _originalCombinedMeshColors.Clear();
         }
 
         /// <summary>
@@ -319,35 +367,98 @@ namespace Assets._Project.Scripts.UI
         }
 
 
+        // Кэш для оригинальных цветов объединенных мешей (для ghost эффекта)
+        private Dictionary<MeshRenderer, Color> _originalCombinedMeshColors = new Dictionary<MeshRenderer, Color>();
+
         protected override void UpdateGhostMaterial(bool isOccupied)
         {
             if (_ghostRoot == null) return;
 
-            // EntityMeshCombiner уже применил правильные цвета через MaterialPropertyBlock
-            // Нужно только добавить ghost эффект (зеленый/красный оттенок без прозрачности)
+            // Работаем только с объединенным мешем, не трогаем отдельные кубы
             if (_combinedMeshObject != null)
             {
+                // Получаем только ДОЧЕРНИЕ MeshRenderer'ы, исключая сам родитель CombinedMesh
+                // Родитель не должен иметь MeshRenderer, но на всякий случай исключаем его
                 MeshRenderer[] renderers = _combinedMeshObject.GetComponentsInChildren<MeshRenderer>();
-                Color ghostTint = isOccupied ? new Color(1f, 0f, 0f) : new Color(0f, 1f, 0f);
+                MeshRenderer parentRenderer = _combinedMeshObject.GetComponent<MeshRenderer>();
+
+                // Ghost оттенок: зеленый для свободного места, красный для занятого
+                Color ghostTint = isOccupied ? new Color(1.5f, 0.3f, 0.3f) : new Color(0.3f, 1.5f, 0.3f);
 
                 for (int i = 0; i < renderers.Length; i++)
                 {
                     MeshRenderer meshRenderer = renderers[i];
                     if (meshRenderer == null) continue;
 
-                    MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
-                    meshRenderer.GetPropertyBlock(propertyBlock);
+                    // Пропускаем MeshRenderer самого родителя CombinedMesh - обрабатываем только дочерние объекты
+                    if (meshRenderer == parentRenderer)
+                    {
+                        continue;
+                    }
 
-                    // Берем оригинальный цвет из PropertyBlock (установлен EntityMeshCombiner из ColorCube)
-                    Color baseColor = propertyBlock.HasColor("_BaseColor")
-                        ? propertyBlock.GetColor("_BaseColor")
-                        : Color.white;
+                    // Если оригинальный цвет еще не сохранен, получаем его из PropertyBlock
+                    // EntityMeshCombiner установил оригинальные цвета из ColorCube
+                    if (!_originalCombinedMeshColors.ContainsKey(meshRenderer))
+                    {
+                        MaterialPropertyBlock pb = new MaterialPropertyBlock();
+                        meshRenderer.GetPropertyBlock(pb);
 
-                    // Применяем ghost оттенок: смешиваем оригинальный цвет с зеленым/красным (без прозрачности)
+                        Color originalColor = Color.white;
+                        if (pb.HasColor("_BaseColor"))
+                        {
+                            originalColor = pb.GetColor("_BaseColor");
+                        }
+                        else
+                        {
+                            // Пытаемся получить из имени объекта (формат от EntityMeshCombiner)
+                            string objName = meshRenderer.gameObject.name;
+                            if (objName.Contains("RGBA("))
+                            {
+                                try
+                                {
+                                    int startIdx = objName.IndexOf("RGBA(") + 5;
+                                    int endIdx = objName.IndexOf(")", startIdx);
+                                    if (endIdx > startIdx)
+                                    {
+                                        string colorStr = objName.Substring(startIdx, endIdx - startIdx);
+                                        string[] parts = colorStr.Split(',');
+                                        if (parts.Length >= 3)
+                                        {
+                                            float r = float.Parse(parts[0].Trim(),
+                                                System.Globalization.CultureInfo.InvariantCulture);
+                                            float g = float.Parse(parts[1].Trim(),
+                                                System.Globalization.CultureInfo.InvariantCulture);
+                                            float b = float.Parse(parts[2].Trim(),
+                                                System.Globalization.CultureInfo.InvariantCulture);
+                                            originalColor = new Color(r, g, b, 1f);
+                                        }
+                                    }
+                                }
+                                catch
+                                {
+                                }
+                            }
+                        }
+
+                        _originalCombinedMeshColors[meshRenderer] = originalColor;
+                    }
+
+                    // Берем оригинальный цвет из кэша
+                    Color baseColor = _originalCombinedMeshColors[meshRenderer];
+
+                    // Применяем ghost оттенок: умножаем оригинальный цвет на tint
                     Color tintedColor = baseColor * ghostTint;
                     tintedColor.a = 1f; // Полная непрозрачность
 
+                    // Применяем к объединенному мешу через MaterialPropertyBlock
+                    MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
                     propertyBlock.SetColor("_BaseColor", tintedColor);
+
+                    if (meshRenderer.sharedMaterial != null && meshRenderer.sharedMaterial.HasProperty("_Color"))
+                    {
+                        propertyBlock.SetColor("_Color", tintedColor);
+                    }
+
                     meshRenderer.SetPropertyBlock(propertyBlock);
                 }
             }
@@ -359,6 +470,7 @@ namespace Assets._Project.Scripts.UI
 
             Vector3 targetPosition = GetGhostPosition();
 
+            // Проверяем занятость позиции
             if (IsPositionOccupied(targetPosition))
             {
                 targetPosition = FindAlternativePosition(targetPosition);
@@ -366,8 +478,6 @@ namespace Assets._Project.Scripts.UI
 
             // Автоматически корректируем позицию так, чтобы ghost стоял на земле
             targetPosition = AdjustGhostPositionToGround(targetPosition);
-
-            _ghostRoot.transform.position = targetPosition;
 
             // Поворачиваем ghost к камере (только по оси Y)
             Camera playerCamera = GetPlayerCamera();
@@ -384,8 +494,18 @@ namespace Assets._Project.Scripts.UI
             }
 
             // Применяем базовый поворот и дополнительный поворот от кнопки R
-            _ghostRoot.transform.rotation = baseRotation * Quaternion.Euler(0f, _ghostManualRotation, 0f);
+            Quaternion newRotation = baseRotation * Quaternion.Euler(0f, _ghostManualRotation, 0f);
 
+            // Обновляем кэш bounds если поворот изменился
+            if (_ghostRoot.transform.rotation != newRotation)
+            {
+                _boundsCacheValid = false;
+            }
+
+            _ghostRoot.transform.rotation = newRotation;
+            _ghostRoot.transform.position = targetPosition;
+
+            // Проверяем занятость финальной позиции только один раз
             bool isOccupied = IsPositionOccupied(targetPosition);
             UpdateGhostMaterial(isOccupied);
         }
@@ -410,54 +530,128 @@ namespace Assets._Project.Scripts.UI
             return Vector3.zero;
         }
 
-        protected override bool IsPositionOccupied(Vector3 candidatePosition)
+        /// <summary>
+        /// Обновляет кэш bounds ghost (вызывается только при изменении структуры ghost)
+        /// </summary>
+        private void UpdateGhostBoundsCache()
         {
-            if (_ghostRoot == null) return false;
+            if (_ghostRoot == null)
+            {
+                _boundsCacheValid = false;
+                return;
+            }
 
             // Получаем bounds объединенного меша или всех renderers
-            Bounds combined;
             if (_combinedMeshObject != null)
             {
                 Renderer combinedRenderer = _combinedMeshObject.GetComponent<Renderer>();
                 if (combinedRenderer != null)
                 {
-                    combined = combinedRenderer.bounds;
-                }
-                else
-                {
-                    return false;
+                    _cachedGhostBounds = combinedRenderer.bounds;
+                    _boundsCacheValid = true;
                 }
             }
-            else
+
+            if (!_boundsCacheValid)
             {
                 var renderers = _ghostRoot.GetComponentsInChildren<Renderer>(true);
-                if (renderers == null || renderers.Length == 0)
-                    return false;
-
-                combined = renderers[0].bounds;
-                for (int i = 1; i < renderers.Length; i++)
+                if (renderers != null && renderers.Length > 0)
                 {
-                    combined.Encapsulate(renderers[i].bounds);
+                    _cachedGhostBounds = renderers[0].bounds;
+                    for (int i = 1; i < renderers.Length; i++)
+                    {
+                        _cachedGhostBounds.Encapsulate(renderers[i].bounds);
+                    }
+
+                    _boundsCacheValid = true;
                 }
             }
 
-            Vector3 currentCenter = combined.center;
-            Vector3 centerOffset = currentCenter - _ghostRoot.transform.position;
-            Vector3 halfExtents = combined.extents;
-
-            // Уменьшаем extents на допуск, чтобы избежать ложных срабатываний когда ghost стоит на объекте
-            halfExtents.x = Mathf.Max(0f, halfExtents.x - _collisionCheckTolerance);
-            halfExtents.y = Mathf.Max(0f, halfExtents.y - _collisionCheckTolerance);
-            halfExtents.z = Mathf.Max(0f, halfExtents.z - _collisionCheckTolerance);
-
-            Vector3 testCenter = candidatePosition + centerOffset;
-            Collider[] hits = Physics.OverlapBox(testCenter, halfExtents, _ghostRoot.transform.rotation,
-                _collisionCheckLayerMask, QueryTriggerInteraction.Ignore);
-            for (int i = 0; i < hits.Length; i++)
+            if (_boundsCacheValid)
             {
-                var c = hits[i];
+                // Вычисляем смещение центра bounds относительно позиции ghost
+                _cachedBoundsOffset = _cachedGhostBounds.center - _ghostRoot.transform.position;
+                _cachedBoundsExtents = _cachedGhostBounds.extents;
+
+                // Создаем или обновляем единый коллайдер для ghost
+                SetupGhostRootCollider();
+            }
+        }
+
+        /// <summary>
+        /// Создает или обновляет единый BoxCollider для всего ghost объекта
+        /// </summary>
+        private void SetupGhostRootCollider()
+        {
+            if (_ghostRoot == null || !_boundsCacheValid) return;
+
+            // Получаем или создаем BoxCollider на root объекте
+            if (_ghostRootCollider == null)
+            {
+                _ghostRootCollider = _ghostRoot.GetComponent<BoxCollider>();
+                if (_ghostRootCollider == null)
+                {
+                    _ghostRootCollider = _ghostRoot.AddComponent<BoxCollider>();
+                }
+            }
+
+            // Настраиваем коллайдер на основе bounds
+            _ghostRootCollider.center = _cachedBoundsOffset; // Центр относительно позиции ghost
+            _ghostRootCollider.size = _cachedBoundsExtents * 2f; // Размер = extents * 2
+            _ghostRootCollider.isTrigger = true; // Ghost должен быть trigger
+            _ghostRootCollider.enabled = true;
+        }
+
+        protected override bool IsPositionOccupied(Vector3 candidatePosition)
+        {
+            if (_ghostRoot == null) return false;
+
+            // Обновляем кэш bounds если нужно (только при первом вызове или изменении структуры)
+            if (!_boundsCacheValid)
+            {
+                UpdateGhostBoundsCache();
+            }
+
+            if (!_boundsCacheValid)
+            {
+                return false;
+            }
+
+            // Вычисляем центр bounds в новой позиции (без перемещения ghost)
+            Vector3 testCenter = candidatePosition + _cachedBoundsOffset;
+            Vector3 halfExtents = _cachedBoundsExtents;
+
+            // Применяем небольшой допуск только для нижней границы (Y), чтобы ghost мог стоять на объектах
+            // Для X и Z используем полные extents для строгой проверки боковых пересечений
+            Vector3 testExtents = halfExtents;
+            testExtents.y = Mathf.Max(0f, testExtents.y - _collisionCheckTolerance); // Только Y уменьшаем
+            // X и Z оставляем полными для строгой проверки
+
+            // Проверяем пересечение с объектами на указанных слоях
+            // QueryTriggerInteraction.Collide - проверяем ВСЕ коллайдеры (и trigger и не trigger)
+            // Потом вручную фильтруем только нужные нам (solid коллайдеры)
+            int hitCount = Physics.OverlapBoxNonAlloc(testCenter, testExtents, _overlapResultsCache,
+                _ghostRoot.transform.rotation, _collisionCheckLayerMask, QueryTriggerInteraction.Collide);
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                var c = _overlapResultsCache[i];
                 if (c == null) continue;
-                if (_ghostRoot != null && c.transform.root == _ghostRoot.transform) continue;
+
+                // Исключаем сам ghost и его дочерние объекты
+                Transform cRoot = c.transform.root;
+                if (cRoot == _ghostRoot.transform || c.transform.IsChildOf(_ghostRoot.transform))
+                {
+                    continue;
+                }
+
+                // Игнорируем trigger коллайдеры - нужны только физические (solid) коллайдеры
+                if (c.isTrigger)
+                {
+                    continue;
+                }
+
+                // Найдено пересечение с другим физическим объектом - позиция занята
                 return true;
             }
 
@@ -475,23 +669,25 @@ namespace Assets._Project.Scripts.UI
 
             Vector3 playerPosition = playerCamera.transform.position;
 
-            // Пробуем небольшой набор смещений вокруг занятой позиции на плоскости XZ
-            float offset = 0.5f;
+            // Пробуем меньший набор смещений для оптимизации
+            // Используем только основные направления без диагоналей
+            float offset = _cachedBoundsExtents.x * 2f; // Используем размер bounds вместо фиксированного значения
+            if (offset < 0.5f) offset = 0.5f;
+            if (offset > 2f) offset = 2f;
+
+            // Ограничиваем количество проверок для оптимизации
             Vector3[] offsets =
             {
-                Vector3.zero,
                 new Vector3(offset, 0f, 0f),
                 new Vector3(-offset, 0f, 0f),
                 new Vector3(0f, 0f, offset),
                 new Vector3(0f, 0f, -offset),
-                new Vector3(offset, 0f, offset),
-                new Vector3(-offset, 0f, offset),
-                new Vector3(offset, 0f, -offset),
-                new Vector3(-offset, 0f, -offset)
             };
 
             float bestDist = float.MaxValue;
             Vector3 best = occupiedPosition;
+
+            // Проверяем только 4 основных направления вместо 9
             for (int i = 0; i < offsets.Length; i++)
             {
                 Vector3 candidatePos = occupiedPosition + offsets[i];
@@ -503,6 +699,12 @@ namespace Assets._Project.Scripts.UI
                     {
                         bestDist = d;
                         best = candidatePos;
+                    }
+
+                    // Нашли первую свободную позицию - можно выйти (оптимизация)
+                    if (best != occupiedPosition)
+                    {
+                        break;
                     }
                 }
             }
@@ -642,54 +844,51 @@ namespace Assets._Project.Scripts.UI
             // Загружаем кубы через Entity.LoadFromDataAsync (создает настоящие Cube объекты)
             yield return entity.LoadFromDataAsync(adjustedCubeData, spawner, deferredSetup: true);
 
-            // Применяем ghost материалы к кубам перед объединением
-            ApplyGhostMaterialsToCubes(entity);
-
-            // Используем EntityMeshCombiner для объединения мешей (как в обычных Entity)
-            // EntityMeshCombiner правильно применит цвета через MaterialPropertyBlock
+            // Сначала объединяем меши с правильными цветами из ColorCube
             EntityMeshCombiner meshCombiner = entity.GetComponent<EntityMeshCombiner>();
             if (meshCombiner != null)
             {
                 meshCombiner.CombineMeshes();
             }
 
-            // Сохраняем ссылку на объединенный меш для изменения цвета
+            // Сохраняем ссылку на объединенный меш
             _combinedMeshObject = entity.transform.Find("CombinedMesh")?.gameObject;
+
+            // Применяем ghost эффект к уже объединенным мешам с цветами
+            ApplyGhostEffectToCombinedMesh();
+
+            // Инвалидируем кэш bounds для пересчета
+            _boundsCacheValid = false;
+
+            // Небольшая задержка чтобы MaterialPropertyBlock успел установиться
+            yield return null;
 
             // Применяем зеленый цвет по умолчанию
             UpdateGhostMaterial(false);
         }
 
         /// <summary>
-        /// Применяет ghost материалы к кубам перед объединением
-        /// EntityMeshCombiner будет использовать эти материалы и правильно применит цвета из ColorCube
+        /// Применяет ghost эффект к объединенным мешам (после EntityMeshCombiner уже применил цвета)
+        /// Также сохраняет информацию о цветах для последующего использования
         /// </summary>
-        private void ApplyGhostMaterialsToCubes(Entity entity)
+        private void ApplyGhostEffectToCombinedMesh()
         {
-            Cube[] cubes = entity.GetComponentsInChildren<Cube>();
+            if (_combinedMeshObject == null) return;
 
+            // Отключаем коллайдеры у всех кубов - используем единый коллайдер на root
+            Cube[] cubes = _ghostRoot.GetComponentsInChildren<Cube>();
             for (int i = 0; i < cubes.Length; i++)
             {
                 GameObject cubeObj = cubes[i].gameObject;
-                MeshRenderer mr = cubeObj.GetComponent<MeshRenderer>();
-                if (mr != null && mr.sharedMaterial != null)
+                Collider cubeCollider = cubeObj.GetComponent<Collider>();
+                if (cubeCollider != null)
                 {
-                    // Используем существующий материал из куба без прозрачности
-                    Material ghostMat = new Material(mr.sharedMaterial);
-                    ghostMat.color = new Color(ghostMat.color.r, ghostMat.color.g, ghostMat.color.b, 1f);
-
-                    // Материал остается непрозрачным (режим по умолчанию)
-                    ghostMat.SetFloat("_Mode", 0);
-                    ghostMat.SetInt("_ZWrite", 1);
-                    ghostMat.DisableKeyword("_ALPHABLEND_ON");
-                    ghostMat.EnableKeyword("_ALPHATEST_ON");
-                    ghostMat.renderQueue = -1; // Дефолтный render queue
-
-                    mr.material = ghostMat;
+                    cubeCollider.enabled = false; // Отключаем, но не удаляем
                 }
-
-                SetupGhostCollider(cubeObj);
             }
+
+            // Кэш оригинальных цветов будет заполнен автоматически при первом вызове UpdateGhostMaterial
+            // EntityMeshCombiner уже установил правильные цвета в MaterialPropertyBlock объединенного меша
         }
 
         /// <summary>
