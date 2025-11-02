@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -102,17 +103,8 @@ public class EntityManager : MonoBehaviour
 
         // EntityCreator опционален и находится динамически при необходимости
 
-        // Загружаем сущности из постоянной памяти
-        LoadAllFromDisk();
-        Debug.Log($"Loaded {_savedEntities.Count} saved entities from disk. Path: {SavesFilePath}");
-
-        // Восстанавливаем UI элементы для загруженных сохранений
-        // Создаем UI элементы для всех сохраненных entity, даже без скриншотов
-        for (int i = 0; i < _savedEntities.Count; i++)
-        {
-            string shotPath = _savedEntities[i]?.screenshotPath;
-            TryCreateSavedObjectUIItem(shotPath, i);
-        }
+        // Загружаем сущности из постоянной памяти асинхронно
+        _ = LoadAllFromDiskAsync();
     }
 
     private void OnSaveButtonClicked()
@@ -202,11 +194,11 @@ public class EntityManager : MonoBehaviour
             saveData.screenshotPath = screenshotPath;
         }
 
+        // Сохраняем все на диск асинхронно
+        _ = SaveAllToDiskAsync();
+
         // Создаем UI элемент всегда, даже если скриншот не создан
         TryCreateSavedObjectUIItem(screenshotPath, _currentSelectedSaveIndex);
-
-        // Сохраняем все на диск
-        SaveAllToDisk();
 
         Debug.Log(
             $"Entity saved successfully. Total saved: {_savedEntities.Count}, Screenshot: {(string.IsNullOrEmpty(screenshotPath) ? "None" : screenshotPath)}");
@@ -442,7 +434,7 @@ public class EntityManager : MonoBehaviour
         _savedEntities.Clear();
         _currentSelectedSaveIndex = 0;
         Debug.Log("Saved entities cleared!");
-        SaveAllToDisk();
+        _ = SaveAllToDiskAsync();
     }
 
     /// <summary>
@@ -454,7 +446,7 @@ public class EntityManager : MonoBehaviour
         {
             _savedEntities.RemoveAt(index);
             Debug.Log($"Entity removed at index {index}");
-            SaveAllToDisk();
+            _ = SaveAllToDiskAsync();
         }
     }
 
@@ -551,7 +543,18 @@ public class EntityManager : MonoBehaviour
             byte[] png = tex.EncodeToPNG();
             string fileName = $"entity_{entity.EntityId}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
             string path = Path.Combine(SavesDirectoryPath, fileName);
-            File.WriteAllBytes(path, png);
+
+            // Используем асинхронную запись для Android-совместимости
+            // Сохраняем синхронно с помощью Task.Wait для гарантии записи файла
+            try
+            {
+                WriteScreenshotAsync(path, png).Wait(5000); // Максимум 5 секунд на запись
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Screenshot write timeout or error: {ex.Message}");
+                // Продолжаем выполнение, путь все равно вернется
+            }
 
             return path;
         }
@@ -587,7 +590,7 @@ public class EntityManager : MonoBehaviour
         }
     }
 
-    private void SaveAllToDisk()
+    private async Task SaveAllToDiskAsync()
     {
         try
         {
@@ -599,7 +602,9 @@ public class EntityManager : MonoBehaviour
 
             SaveFile saveFile = new SaveFile { entities = _savedEntities };
             string json = JsonUtility.ToJson(saveFile, false);
-            File.WriteAllText(SavesFilePath, json);
+
+            // Используем асинхронную запись для Android-совместимости
+            await File.WriteAllTextAsync(SavesFilePath, json);
             Debug.Log($"Entities saved to disk: {SavesFilePath}. Total: {_savedEntities.Count}");
         }
         catch (Exception e)
@@ -608,18 +613,31 @@ public class EntityManager : MonoBehaviour
         }
     }
 
-    private void LoadAllFromDisk()
+    private async Task LoadAllFromDiskAsync()
     {
         try
         {
-            if (!File.Exists(SavesFilePath))
+            // На Android File.Exists может не работать корректно, используем try-catch
+            bool fileExists = false;
+            try
+            {
+                fileExists = File.Exists(SavesFilePath);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"File.Exists check failed on Android: {ex.Message}");
+                fileExists = false;
+            }
+
+            if (!fileExists)
             {
                 Debug.Log($"Save file does not exist: {SavesFilePath}. Starting with empty list.");
                 _savedEntities = new List<EntitySaveData>();
                 return;
             }
 
-            string json = File.ReadAllText(SavesFilePath);
+            // Используем асинхронное чтение для Android-совместимости
+            string json = await File.ReadAllTextAsync(SavesFilePath);
             if (string.IsNullOrEmpty(json))
             {
                 Debug.LogWarning($"Save file is empty: {SavesFilePath}");
@@ -637,6 +655,13 @@ public class EntityManager : MonoBehaviour
             {
                 Debug.LogWarning($"Failed to parse save file: {SavesFilePath}");
                 _savedEntities = new List<EntitySaveData>();
+            }
+
+            // Восстанавливаем UI элементы для загруженных сохранений после загрузки данных
+            for (int i = 0; i < _savedEntities.Count; i++)
+            {
+                string shotPath = _savedEntities[i]?.screenshotPath;
+                TryCreateSavedObjectUIItem(shotPath, i);
             }
         }
         catch (Exception e)
@@ -691,41 +716,10 @@ public class EntityManager : MonoBehaviour
                 image = button.GetComponentInChildren<Image>(true);
             }
 
-            // Загружаем скриншот если он существует
+            // Загружаем скриншот если он существует (асинхронно для Android-совместимости)
             if (image != null && !string.IsNullOrEmpty(screenshotPath))
             {
-                try
-                {
-                    // На Android File.Exists может не работать корректно, используем try-catch
-                    if (File.Exists(screenshotPath))
-                    {
-                        byte[] bytes = File.ReadAllBytes(screenshotPath);
-                        if (bytes.Length > 0)
-                        {
-                            Texture2D texture = new Texture2D(2, 2);
-                            if (texture.LoadImage(bytes))
-                            {
-                                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
-                                    new Vector2(0.5f, 0.5f));
-                                image.sprite = sprite;
-                            }
-                            else
-                            {
-                                Debug.LogWarning($"Failed to load image from: {screenshotPath}");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"Screenshot file does not exist: {screenshotPath}");
-                    }
-                }
-                catch (Exception e)
-                {
-                    Debug.LogWarning(
-                        $"Failed to load screenshot for entity {index}: {e.Message}. Path: {screenshotPath}");
-                    // Продолжаем выполнение, UI элемент все равно будет создан без изображения
-                }
+                _ = LoadScreenshotAsync(image, screenshotPath, index);
             }
 
             // Привязываем кнопку для выбора этой сохраненной сущности через EntityCreator
@@ -786,4 +780,85 @@ public class EntityManager : MonoBehaviour
             Debug.LogWarning("EntityCreator not found in scene to handle selection click.");
         }
     }
+
+    private async Task WriteScreenshotAsync(string path, byte[] data)
+    {
+        try
+        {
+            if (!Directory.Exists(SavesDirectoryPath))
+            {
+                Directory.CreateDirectory(SavesDirectoryPath);
+            }
+
+            await File.WriteAllBytesAsync(path, data);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to write screenshot to disk: {e.Message}");
+        }
+    }
+
+    private async Task LoadScreenshotAsync(Image image, string screenshotPath, int index)
+    {
+        try
+        {
+            // На Android File.Exists может не работать корректно, используем try-catch
+            bool fileExists = false;
+            try
+            {
+                fileExists = File.Exists(screenshotPath);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"File.Exists check failed for screenshot on Android: {ex.Message}");
+                fileExists = false;
+            }
+
+            if (!fileExists)
+            {
+                Debug.LogWarning($"Screenshot file does not exist: {screenshotPath}");
+                return;
+            }
+
+            // Используем асинхронное чтение для Android-совместимости
+            byte[] bytes = await File.ReadAllBytesAsync(screenshotPath);
+            if (bytes == null || bytes.Length == 0)
+            {
+                Debug.LogWarning($"Screenshot file is empty: {screenshotPath}");
+                return;
+            }
+
+            // Загружаем текстуру на главном потоке через корутину (Unity требует этого)
+            StartCoroutine(LoadScreenshotCoroutine(image, bytes, screenshotPath));
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning(
+                $"Failed to load screenshot for entity {index}: {e.Message}. Path: {screenshotPath}");
+        }
+    }
+
+    private System.Collections.IEnumerator LoadScreenshotCoroutine(Image image, byte[] bytes, string screenshotPath)
+    {
+        if (image == null || bytes == null || bytes.Length == 0)
+            yield break;
+
+        yield return null; // Возвращаемся на главный поток
+
+        Texture2D texture = new Texture2D(2, 2);
+        if (texture.LoadImage(bytes))
+        {
+            Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
+                new Vector2(0.5f, 0.5f));
+            if (image != null)
+            {
+                image.sprite = sprite;
+            }
+        }
+        else
+        {
+            Debug.LogWarning($"Failed to load image from: {screenshotPath}");
+        }
+    }
 }
+

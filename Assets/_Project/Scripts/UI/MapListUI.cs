@@ -406,6 +406,92 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
+        /// <summary>
+        /// Начинает новую игру: загружает карту и очищает все entity на ней
+        /// </summary>
+        /// <param name="mapName">Имя карты для загрузки. Если null или пустое, просто загружается сцена без сохранений</param>
+        public async void StartNewGame(string mapName = null)
+        {
+            gameObject.SetActive(false);
+
+            if (_newGame != null)
+            {
+                _newGame.SetActive(false);
+            }
+
+            ShowLoadingPanel();
+
+            _originalTimeScale = Time.timeScale;
+            Time.timeScale = 0f;
+
+            bool isInMenu = SceneManager.GetActiveScene().buildIndex == 0;
+
+            if (isInMenu)
+            {
+                await LoadMapSceneAsync();
+            }
+
+            // Если указано имя карты, загружаем её
+            if (!string.IsNullOrEmpty(mapName) && SaveSystem.Instance != null)
+            {
+                bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
+
+                if (!loadSuccess)
+                {
+                    Debug.LogError($"Ошибка загрузки мира '{mapName}'");
+                    HideLoadingPanel();
+
+                    if (this != null && gameObject != null)
+                    {
+                        gameObject.SetActive(true);
+
+                        if (_newGame != null)
+                        {
+                            _newGame.SetActive(true);
+                        }
+                    }
+
+                    Time.timeScale = _originalTimeScale;
+                    return;
+                }
+            }
+
+            // Очищаем все Entity из сцены после загрузки карты
+            ClearAllEntities();
+
+            InputManager.ForceActivateInputManager();
+            if (Player.Instance != null)
+            {
+                Player.Instance.ForcePlayerControlMode();
+            }
+
+            HideLoadingPanel();
+
+            if (this != null)
+            {
+                CloseMapList();
+            }
+
+            Time.timeScale = _originalTimeScale;
+        }
+
+        /// <summary>
+        /// Очищает все Entity из текущей сцены
+        /// </summary>
+        private void ClearAllEntities()
+        {
+            Entity[] entities = FindObjectsByType<Entity>(FindObjectsSortMode.None);
+            foreach (var entity in entities)
+            {
+                if (entity != null && entity.gameObject != null)
+                {
+                    Destroy(entity.gameObject);
+                }
+            }
+
+            Debug.Log($"Удалено {entities.Length} Entity из сцены");
+        }
+
         public void ShowLoadingPanel()
         {
             if (_loadingPanel != null)

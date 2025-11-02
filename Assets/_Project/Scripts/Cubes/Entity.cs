@@ -438,7 +438,7 @@ public class Entity : MonoBehaviour
     }
 
     private float _lastCombineTime = -1f;
-    private const float MIN_COMBINE_INTERVAL = 2f; // Минимальный интервал между объединениями мешей
+    private const float MIN_COMBINE_INTERVAL = 0.3f; // Минимальный интервал между объединениями мешей
 
     private void RequestDelayedCombine()
     {
@@ -465,9 +465,9 @@ public class Entity : MonoBehaviour
 
     private IEnumerator DelayedCombineMeshes()
     {
-        // Увеличиваем задержку для больших Entity, чтобы не вызывать CombineMeshes слишком часто
+        // Минимальная задержка перед проверкой движения объекта
         int cubeCount = transform.childCount;
-        float initialDelay = cubeCount > 30 ? 1.5f : 0.5f; // Больше кубов = больше задержка
+        float initialDelay = cubeCount > 30 ? 0.2f : 0.1f; // Небольшая задержка для стабилизации
         yield return new WaitForSeconds(initialDelay);
 
         // Проверяем, не был ли Entity уничтожен во время ожидания
@@ -485,7 +485,7 @@ public class Entity : MonoBehaviour
         }
 
         // Ждем, пока объект не перестанет двигаться
-        float maxWaitTime = cubeCount > 30 ? 8f : 5f; // Для больших Entity ждем дольше
+        float maxWaitTime = cubeCount > 30 ? 2.5f : 1.5f; // Ожидание остановки объекта
         float waitStartTime = Time.time;
         float velocityThreshold = 0.01f;
         float angularVelocityThreshold = 0.01f;
