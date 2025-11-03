@@ -5118,9 +5118,9 @@ MonoBehaviour:
   _mapItemPrefab: {fileID: 5030668487433353665, guid: e8a15608c91c14ff694afb6a1e0e1448,
     type: 3}
   _snappingScroll: {fileID: 1656748944777107498}
+  _startNewGameButton: {fileID: 7699695306775861657}
   _saveSystem: {fileID: 0}
   _mapsMenu: {fileID: 3664865880457206787}
-  _newGame: {fileID: 6943467702969438943}
   _loadingPanel: {fileID: 6804201930632011971}
   _mapSceneIndex: 1
 --- !u!1 &3670986687653441498

@@ -252,6 +252,7 @@ MonoBehaviour:
   snapStopVelocity: 200
   longSwipeItemsThreshold: 2
   strongSwipeVelocity: 2000
+  minSwipePixels: 3
 --- !u!1 &2645465917463390682
 GameObject:
   m_ObjectHideFlags: 0
@@ -466,7 +467,7 @@ GameObject:
   - component: {fileID: 6422514586366771145}
   - component: {fileID: 2035265349959130760}
   m_Layer: 5
-  m_Name: Image
+  m_Name: NewMap
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -719,7 +720,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: -467.0271}
+  m_AnchoredPosition: {x: 0, y: -467.02707}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1280934777969364096
@@ -868,7 +869,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1385721541623934068}
   m_HandleRect: {fileID: 8671370234430348126}
   m_Direction: 2
-  m_Value: 1
+  m_Value: 0
   m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
@@ -1146,7 +1147,7 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7522302626090638246}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -1175,8 +1176,8 @@ MonoBehaviour:
   _mapItemPrefab: {fileID: 5030668487433353665, guid: e8a15608c91c14ff694afb6a1e0e1448,
     type: 3}
   _snappingScroll: {fileID: 4299471194937422439}
+  _startNewGameButton: {fileID: 2035265349959130760}
   _saveSystem: {fileID: 0}
   _mapsMenu: {fileID: 7522302626090638246}
-  _newGame: {fileID: 6744686964924351776}
   _loadingPanel: {fileID: 0}
   _mapSceneIndex: 1

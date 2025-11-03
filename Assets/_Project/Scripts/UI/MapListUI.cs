@@ -14,6 +14,7 @@ namespace Assets._Project.Scripts.UI
 
         [SerializeField] private GameObject _mapItemPrefab;
         [SerializeField] private SnappingScroll _snappingScroll;
+        [SerializeField] private Button _startNewGameButton; // Кнопка «Новая игра»
 
         [Header("Configuration")] [SerializeField]
         private SaveSystem _saveSystem;
@@ -21,11 +22,11 @@ namespace Assets._Project.Scripts.UI
         [Header("Map Selection UI")] [SerializeField]
         private GameObject _mapsMenu;
 
-        [SerializeField] private GameObject _newGame;
+        // [SerializeField] private GameObject _newGame;
         [SerializeField] private GameObject _loadingPanel;
 
         [Header("Scene Settings")] [SerializeField]
-        private int _mapSceneIndex = 0;
+        private int _mapSceneIndex = 1; // Индекс сцены карты в Build Settings
 
         private List<MapItemView> _mapItems = new List<MapItemView>();
         private bool _isLoading;
@@ -40,6 +41,13 @@ namespace Assets._Project.Scripts.UI
         private void Start()
         {
             SubscribeToSaveListEvents();
+            // Привязываем кнопку «Новая игра» к методу запуска
+            if (_startNewGameButton != null)
+            {
+                _startNewGameButton.onClick.RemoveAllListeners();
+                _startNewGameButton.onClick.AddListener(() => StartNewGame());
+            }
+
             if (SceneManager.GetActiveScene().buildIndex == 0)
                 LoadSaveList();
         }
@@ -80,12 +88,6 @@ namespace Assets._Project.Scripts.UI
             }
 
             gameObject.SetActive(true);
-
-
-            if (_newGame != null)
-            {
-                _newGame.SetActive(true);
-            }
 
             LoadSaveList();
         }
@@ -232,11 +234,6 @@ namespace Assets._Project.Scripts.UI
         {
             gameObject.SetActive(false);
 
-            if (_newGame != null)
-            {
-                _newGame.SetActive(false);
-            }
-
             ShowLoadingPanel();
 
             // Pause the game
@@ -279,11 +276,6 @@ namespace Assets._Project.Scripts.UI
                         if (this != null && gameObject != null)
                         {
                             gameObject.SetActive(true);
-
-                            if (_newGame != null)
-                            {
-                                _newGame.SetActive(true);
-                            }
                         }
 
                         // Resume the game even on error
@@ -323,11 +315,6 @@ namespace Assets._Project.Scripts.UI
                         if (this != null && gameObject != null)
                         {
                             gameObject.SetActive(true);
-
-                            if (_newGame != null)
-                            {
-                                _newGame.SetActive(true);
-                            }
                         }
 
                         // Resume the game even on error
@@ -395,29 +382,15 @@ namespace Assets._Project.Scripts.UI
 
             gameObject.SetActive(false);
 
-            if (_newGame != null)
-            {
-                _newGame.SetActive(false);
-            }
-
             if (_loadingPanel != null)
             {
                 _loadingPanel.SetActive(false);
             }
         }
-
-        /// <summary>
-        /// Начинает новую игру: загружает карту и очищает все entity на ней
-        /// </summary>
-        /// <param name="mapName">Имя карты для загрузки. Если null или пустое, просто загружается сцена без сохранений</param>
+        
         public async void StartNewGame(string mapName = null)
         {
             gameObject.SetActive(false);
-
-            if (_newGame != null)
-            {
-                _newGame.SetActive(false);
-            }
 
             ShowLoadingPanel();
 
@@ -444,11 +417,6 @@ namespace Assets._Project.Scripts.UI
                     if (this != null && gameObject != null)
                     {
                         gameObject.SetActive(true);
-
-                        if (_newGame != null)
-                        {
-                            _newGame.SetActive(true);
-                        }
                     }
 
                     Time.timeScale = _originalTimeScale;

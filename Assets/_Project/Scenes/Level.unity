@@ -34599,6 +34599,11 @@ PrefabInstance:
       propertyPath: m_AnchorMax.y
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 1571830905095497778, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: m_AnchorMin.x
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2315851459369726200, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
       propertyPath: m_AnchorMax.y
@@ -34659,6 +34664,11 @@ PrefabInstance:
       propertyPath: _saveSystem
       value: 
       objectReference: {fileID: 488925293}
+    - target: {fileID: 4125140849321513547, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: m_Name
+      value: NewMap
+      objectReference: {fileID: 0}
     - target: {fileID: 5174920926595170194, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
       propertyPath: m_AnchoredPosition.x
@@ -34689,6 +34699,21 @@ PrefabInstance:
       propertyPath: m_Delegates.Array.data[0].callback.m_PersistentCalls.m_Calls.Array.data[0].m_Target
       value: 
       objectReference: {fileID: 998732398}
+    - target: {fileID: 8265650818550509872, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: m_AnchorMax.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8265650818550509872, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: m_AnchorMax.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8265650818550509872, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: m_SizeDelta.y
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8282956957219985651, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
       propertyPath: m_OnClick.m_PersistentCalls.m_Calls.Array.data[0].m_Target
