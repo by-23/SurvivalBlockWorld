@@ -1,864 +1,703 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
-using Assets._Project.Scripts.UI;
 
-[Serializable]
-public class EntitySaveData
-{
-    public int entityId;
-    public Vector3 position;
-    public Vector3 scale;
-    public Quaternion rotation;
-    public CubeData[] cubesData;
-    public string screenshotPath; // Путь к скриншоту (может быть пустым, если не создан)
-}
-
-/// <summary>
-/// Управляет сохранением и загрузкой объектов Entity
-/// </summary>
 public class EntityManager : MonoBehaviour
 {
-    [Header("UI Buttons")] [SerializeField]
-    private UnityEngine.UI.Button _saveButton;
+    [Header("Local Save Settings")] [SerializeField]
+    private string _fileName = "entity.dat";
 
-    [SerializeField] private UnityEngine.UI.Button _spawnButton;
+    [Header("References")] [SerializeField]
+    private SaveConfig _config; // опционально: используем только для флага отложенной инициализации
 
-    // Спавн обрабатывается через ghost в EntityCreator
+    [SerializeField] private Camera _playerCamera;
+    [SerializeField] private EntitySelector _selector;
 
-    [SerializeField] private EntitySelector _entitySelector;
-    private List<EntitySaveData> _savedEntities;
-    private int _currentSelectedSaveIndex;
+    [Header("UI")] [SerializeField] private Button _saveButton;
+    [SerializeField] private Button _loadButton;
+    [SerializeField] private Button _saveItemButtonPrefab; // префаб кнопки сохранённого объекта
+    [SerializeField] private Transform _saveListContainer; // контейнер для кнопок
+
+    [SerializeField] private CubeSpawner _cubeSpawner;
+    private Assets._Project.Scripts.UI.ScreenshotManager _screenshotManager;
 
     [Serializable]
-    private class SaveFile
+    private struct SingleEntitySave
     {
-        public List<EntitySaveData> entities = new List<EntitySaveData>();
+        public string name;
+        public Vector3 position;
+        public Quaternion rotation;
+        public Vector3 scale;
+        public CubeData[] cubes;
+        public string screenshotId;
     }
 
-    private string SavesDirectoryPath => Application.persistentDataPath;
-    private string SavesFilePath => Path.Combine(Application.persistentDataPath, "entities.json");
-
-    [Header("Screenshot Settings")] [SerializeField]
-    private Camera _screenshotCamera;
-
-    [SerializeField] private Vector3 _cameraOffset = new Vector3(0f, 2f, -4f);
-    [SerializeField] private bool _useObjectSpaceOffset = true;
-    [SerializeField] private int _screenshotWidth = 512;
-    [SerializeField] private int _screenshotHeight = 512;
-    [SerializeField] private float _framingPadding = 1.1f;
-
-    [Header("Screenshot Isolation")] [SerializeField]
-    private int _screenshotSubjectLayer = 30;
-
-    [SerializeField] private Color _screenshotBackgroundColor = new Color(0f, 0f, 0f, 0f);
-
-    [Header("Saved Object UI")] [SerializeField]
-    private Transform _savedObjectsContainer;
-
-    [SerializeField] private GameObject _savedObjectItemPrefab;
-
-    [Header("Notifications")] [SerializeField]
-    private TextMeshProUGUI _notificationText;
-
-    [Header("Entity Creator")] [SerializeField]
-    private MonoBehaviour _entityCreatorBehaviour; // Избегает жесткой зависимости от namespace скрипта
-
-    [Header("Ground Placement")] [SerializeField]
-    private LayerMask _groundLayerMask = 1;
-
-    [SerializeField] private float _groundCheckDistance = 100f;
-
-    private void Awake()
+    [Serializable]
+    public class SavedEntry
     {
-        _entitySelector = FindAnyObjectByType<EntitySelector>();
-        _savedEntities = new List<EntitySaveData>();
+        public string path;
+        public string name;
+        public string screenshotId;
+    }
 
+
+    private void EnsureSpawner()
+    {
+        if (_cubeSpawner == null)
+        {
+            _cubeSpawner = FindFirstObjectByType<CubeSpawner>();
+        }
+    }
+
+    private string GetSavePath()
+    {
+        string nameToUse = string.IsNullOrEmpty(_fileName) ? "entity.dat" : _fileName;
+        return Path.Combine(Application.persistentDataPath, nameToUse);
+    }
+
+    private void OnEnable()
+    {
+        // Привязка UI-кнопок, если заданы в инспекторе
         if (_saveButton != null)
         {
-            _saveButton.onClick.AddListener(OnSaveButtonClicked);
+            _saveButton.onClick.RemoveAllListeners();
+            _saveButton.onClick.AddListener(SaveLookedEntity);
         }
 
-        if (_spawnButton != null)
+        if (_loadButton != null)
         {
-            _spawnButton.onClick.AddListener(OnSpawnButtonClicked);
+            _loadButton.onClick.RemoveAllListeners();
+            _loadButton.onClick.AddListener(LoadSavedEntity);
         }
 
-        if (_screenshotCamera == null)
-        {
-            var tagged = GameObject.FindWithTag("ScreenshotCamera");
-            if (tagged != null)
-            {
-                tagged.TryGetComponent(out _screenshotCamera);
-                if (_screenshotCamera != null)
-                {
-                    _screenshotCamera.gameObject.SetActive(false);
-                }
-            }
-        }
-
-        // EntityCreator опционален и находится динамически при необходимости
-
-        // Загружаем сущности из постоянной памяти асинхронно
-        _ = LoadAllFromDiskAsync();
+        RefreshSavedList();
     }
 
-    private void OnSaveButtonClicked()
+    private void OnDisable()
     {
-        if (_entitySelector == null)
+        if (_saveButton != null)
         {
-            Debug.LogError("EntitySelector not found!");
+            _saveButton.onClick.RemoveListener(SaveLookedEntity);
+        }
+
+        if (_loadButton != null)
+        {
+            _loadButton.onClick.RemoveListener(LoadSavedEntity);
+        }
+    }
+
+    public void RefreshSavedList()
+    {
+        if (_saveListContainer == null || _saveItemButtonPrefab == null)
+        {
             return;
         }
 
-        Entity hoveredEntity = _entitySelector.GetHoveredEntity();
-
-        if (hoveredEntity == null)
+        for (int i = _saveListContainer.childCount - 1; i >= 0; i--)
         {
-            Debug.LogWarning("No entity is being hovered over!");
-            return;
-        }
-
-        SaveEntity(hoveredEntity);
-    }
-
-    private void OnSpawnButtonClicked()
-    {
-        if (_savedEntities.Count == 0)
-        {
-            Debug.LogWarning("No saved entities to spawn!");
-            return;
-        }
-
-        // Проверяем текущий индекс
-        if (_currentSelectedSaveIndex < 0 || _currentSelectedSaveIndex >= _savedEntities.Count)
-        {
-            Debug.LogWarning($"Invalid current selected index {_currentSelectedSaveIndex}, resetting to 0");
-            _currentSelectedSaveIndex = 0;
-        }
-
-        // Спавним через EntityCreator в текущей позиции/повороте ghost
-        InvokeEntityCreator(_currentSelectedSaveIndex);
-    }
-
-    /// <summary>
-    /// Сохраняет указанную сущность в список сохраненных сущностей
-    /// </summary>
-    public void SaveEntity(Entity entity)
-    {
-        if (entity == null)
-        {
-            Debug.LogError("Cannot save null entity!");
-            return;
-        }
-
-        // Инициализируем список если он еще не инициализирован (на случай если Awake еще не вызван)
-        if (_savedEntities == null)
-        {
-            _savedEntities = new List<EntitySaveData>();
-        }
-
-        // Проверка на дубликат ID сущности
-        if (_savedEntities.Exists(s => s.entityId == entity.EntityId))
-        {
-            ShowNotification(
-                $"Объект с ID {entity.EntityId} уже сохранён. Удалите существующий, чтобы сохранить новый.");
-            return;
-        }
-
-        // Убираем временную подсветку перед сохранением/созданием скриншота
-        var outline = entity.GetComponent<EntityOutlineHighlight>();
-        if (outline != null)
-        {
-            outline.HideOutline();
-        }
-
-        EntitySaveData saveData = new EntitySaveData
-        {
-            entityId = entity.EntityId,
-            position = entity.transform.position,
-            scale = entity.transform.localScale,
-            rotation = entity.transform.rotation,
-            cubesData = entity.GetSaveData()
-        };
-
-        _savedEntities.Add(saveData);
-        _currentSelectedSaveIndex = _savedEntities.Count - 1;
-        string screenshotPath = TakeEntityScreenshot(entity);
-        if (!string.IsNullOrEmpty(screenshotPath))
-        {
-            saveData.screenshotPath = screenshotPath;
-        }
-
-        // Сохраняем все на диск асинхронно
-        _ = SaveAllToDiskAsync();
-
-        // Создаем UI элемент всегда, даже если скриншот не создан
-        TryCreateSavedObjectUIItem(screenshotPath, _currentSelectedSaveIndex);
-
-        Debug.Log(
-            $"Entity saved successfully. Total saved: {_savedEntities.Count}, Screenshot: {(string.IsNullOrEmpty(screenshotPath) ? "None" : screenshotPath)}");
-    }
-
-    private void ShowNotification(string message)
-    {
-        if (_notificationText != null)
-        {
-            _notificationText.gameObject.SetActive(true);
-            _notificationText.text = message;
-            StopAllCoroutines();
-            StartCoroutine(HideNotificationAfterSeconds(2f));
-        }
-        else
-        {
-            Debug.LogWarning(message);
-        }
-    }
-
-    private System.Collections.IEnumerator HideNotificationAfterSeconds(float seconds)
-    {
-        yield return new WaitForSeconds(seconds);
-        if (_notificationText != null)
-        {
-            _notificationText.gameObject.SetActive(false);
-        }
-    }
-
-
-    /// <summary>
-    /// Спавнит сохраненную сущность в указанной мировой позиции с заданным поворотом (используется EntityCreator)
-    /// </summary>
-    public void SpawnSavedEntityAt(int index, Vector3 position, Quaternion rotation)
-    {
-        if (_savedEntities == null || _savedEntities.Count == 0)
-        {
-            Debug.LogWarning("No saved entities to spawn!");
-            return;
-        }
-
-        if (index < 0 || index >= _savedEntities.Count)
-        {
-            Debug.LogWarning($"Invalid saved entity index: {index} (total: {_savedEntities.Count})");
-            return;
-        }
-
-        EntitySaveData saveData = _savedEntities[index];
-
-        // Автоматически корректируем позицию так, чтобы объект стоял на земле
-        Vector3 correctedPosition = AdjustPositionToGround(position, rotation, saveData);
-
-        // Создаем Entity через фабрику
-        Entity newEntity = EntityFactory.CreateEntity(
-            correctedPosition,
-            rotation,
-            saveData.scale,
-            isKinematic: true,
-            entityName: $"Entity_{DateTime.Now.Ticks}"
-        );
-
-        StartCoroutine(LoadEntityAsync(newEntity, saveData, rotation));
-    }
-
-    /// <summary>
-    /// Корректирует позицию спавна так, чтобы нижняя часть объекта находилась на уровне земли
-    /// </summary>
-    private Vector3 AdjustPositionToGround(Vector3 spawnPosition, Quaternion rotation, EntitySaveData saveData)
-    {
-        if (saveData.cubesData == null || saveData.cubesData.Length == 0)
-        {
-            return spawnPosition;
-        }
-
-        // Размер куба (стандартный размер в игре)
-        const float cubeSize = 1f;
-        const float cubeHalfSize = cubeSize * 0.5f;
-
-        // Вычисляем нижнюю границу объекта из исходных данных
-        // Находим минимальную Y координату нижней границы всех кубов (в мировых координатах оригинального объекта)
-        float minBottomWorldY = float.MaxValue;
-        foreach (var cubeData in saveData.cubesData)
-        {
-            // Позиция куба в мировых координатах оригинального объекта
-            Vector3 cubeWorldPos = cubeData.Position;
-
-            // Нижняя граница куба (куб размером 1, центр в позиции куба, нижняя точка на 0.5 ниже)
-            float cubeBottomY = cubeWorldPos.y - cubeHalfSize;
-
-            if (cubeBottomY < minBottomWorldY)
+            var child = _saveListContainer.GetChild(i);
+            if (Application.isPlaying)
             {
-                minBottomWorldY = cubeBottomY;
-            }
-        }
-
-        // Если не нашли нижнюю границу, возвращаем исходную позицию
-        if (minBottomWorldY == float.MaxValue)
-        {
-            return spawnPosition;
-        }
-
-        // Вычисляем смещение нижней границы относительно центра оригинальной Entity
-        // Это смещение в мировых координатах
-        float bottomOffsetFromOriginalCenter = minBottomWorldY - saveData.position.y;
-
-        // Вычисляем мировую позицию нижней точки нового объекта
-        // Учитываем, что spawnPosition - это центр нового Entity
-        // Смещение применяем напрямую, так как при спавне используется тот же масштаб
-        Vector3 bottomWorldPosition = spawnPosition;
-        bottomWorldPosition.y += bottomOffsetFromOriginalCenter;
-
-        // Выполняем Raycast вниз от нижней точки для поиска земли
-        RaycastHit hit;
-        Vector3 rayStart = bottomWorldPosition;
-        rayStart.y += 2f; // Небольшой отступ вверх для начала raycast (чтобы не начинать изнутри земли)
-
-        if (Physics.Raycast(rayStart, Vector3.down, out hit, _groundCheckDistance, _groundLayerMask))
-        {
-            // Нашли землю - корректируем позицию так, чтобы нижняя точка была на уровне земли
-            float groundLevel = hit.point.y;
-            float currentBottomY = bottomWorldPosition.y;
-            float heightAdjustment = groundLevel - currentBottomY;
-
-            // Корректируем позицию спавна (центр Entity)
-            Vector3 correctedPosition = spawnPosition;
-            correctedPosition.y += heightAdjustment;
-
-            return correctedPosition;
-        }
-
-        // Если не нашли землю, возвращаем исходную позицию
-        return spawnPosition;
-    }
-
-
-    /// <summary>
-    /// Загружает данные сущности асинхронно
-    /// </summary>
-    private System.Collections.IEnumerator LoadEntityAsync(Entity entity, EntitySaveData saveData,
-        Quaternion newRotation)
-    {
-        if (saveData.cubesData == null || saveData.cubesData.Length == 0)
-        {
-            Debug.LogWarning("No cube data to load!");
-            yield break;
-        }
-
-        CubeSpawner spawner = SaveSystem.Instance?.CubeSpawner;
-        if (spawner == null)
-        {
-            spawner = FindAnyObjectByType<CubeSpawner>();
-        }
-
-        if (spawner == null)
-        {
-            Debug.LogError("CubeSpawner not found!");
-            yield break;
-        }
-
-        // Извлекаем только поворот по оси Y из нового поворота
-        float newYRotation = newRotation.eulerAngles.y;
-        float originalYRotation = saveData.rotation.eulerAngles.y;
-        float yRotationDelta = newYRotation - originalYRotation;
-        Quaternion yRotationDeltaQuat = Quaternion.Euler(0f, yRotationDelta, 0f);
-
-        Vector3 originalEntityCenter = saveData.position;
-        Vector3 originalEntityScale = saveData.scale;
-        Vector3 newEntityPosition = entity.transform.position;
-        float newEntityScale = entity.transform.localScale.x;
-
-        float finalYRotation = newRotation.eulerAngles.y;
-        Quaternion finalRotationQuat = Quaternion.Euler(0f, finalYRotation, 0f);
-
-        // Устанавливаем поворот сущности перед расчетом позиций кубов
-        entity.transform.rotation = finalRotationQuat;
-
-        CubeData[] adjustedCubeData = new CubeData[saveData.cubesData.Length];
-        for (int i = 0; i < saveData.cubesData.Length; i++)
-        {
-            CubeData original = saveData.cubesData[i];
-
-            // Получаем локальную позицию куба относительно оригинальной сущности (без поворота)
-            Vector3 originalLocalPos =
-                (original.Position - originalEntityCenter) / Mathf.Max(0.0001f, originalEntityScale.x);
-
-            // Применяем поворот по оси Y для получения желаемой локальной позиции
-            Vector3 rotatedLocalPos = yRotationDeltaQuat * originalLocalPos;
-
-            // Конвертируем повернутую локальную позицию в мировую
-            // LoadFromDataAsync вычисляет: localPos = (worldPos - entityPos) / scale
-            // Unity автоматически поворачивает localPos при преобразовании в мировые координаты
-            // Поэтому используем обратный поворот для компенсации
-            Vector3 inverseRotatedLocalPos = Quaternion.Inverse(finalRotationQuat) * rotatedLocalPos;
-            Vector3 newWorldPos = newEntityPosition + inverseRotatedLocalPos * newEntityScale;
-
-            // Применяем поворот по оси Y к повороту куба (сохраняем повороты по X и Z)
-            Quaternion originalCubeRot = original.Rotation;
-            float cubeYRotation = originalCubeRot.eulerAngles.y;
-            float newCubeYRotation = cubeYRotation + yRotationDelta;
-            Quaternion adjustedCubeRotation = Quaternion.Euler(
-                originalCubeRot.eulerAngles.x,
-                newCubeYRotation,
-                originalCubeRot.eulerAngles.z
-            );
-
-            adjustedCubeData[i] = new CubeData(
-                newWorldPos, // Новая мировая позиция
-                original.Color,
-                original.blockTypeId,
-                original.entityId,
-                adjustedCubeRotation
-            );
-        }
-
-        // Entity.LoadFromDataAsync ожидает мировые позиции и конвертирует их в локальные
-        yield return entity.LoadFromDataAsync(adjustedCubeData, spawner, deferredSetup: true);
-        entity.FinalizeLoad();
-    }
-
-    /// <summary>
-    /// Возвращает количество сохраненных сущностей
-    /// </summary>
-    public int GetSavedEntityCount()
-    {
-        return _savedEntities.Count;
-    }
-
-    /// <summary>
-    /// Очищает все сохраненные сущности
-    /// </summary>
-    public void ClearSavedEntities()
-    {
-        _savedEntities.Clear();
-        _currentSelectedSaveIndex = 0;
-        Debug.Log("Saved entities cleared!");
-        _ = SaveAllToDiskAsync();
-    }
-
-    /// <summary>
-    /// Удаляет указанную сущность из списка сохраненных
-    /// </summary>
-    public void RemoveSavedEntity(int index)
-    {
-        if (index >= 0 && index < _savedEntities.Count)
-        {
-            _savedEntities.RemoveAt(index);
-            Debug.Log($"Entity removed at index {index}");
-            _ = SaveAllToDiskAsync();
-        }
-    }
-
-    /// <summary>
-    /// Предоставляет доступ только для чтения к данным сохраненной сущности для внешних систем (например, ghost preview)
-    /// </summary>
-    public bool TryGetSavedEntityData(int index, out EntitySaveData data)
-    {
-        data = null;
-        if (_savedEntities == null || index < 0 || index >= _savedEntities.Count)
-        {
-            return false;
-        }
-
-        data = _savedEntities[index];
-        return data != null;
-    }
-
-    private string TakeEntityScreenshot(Entity entity)
-    {
-        if (_screenshotCamera == null)
-        {
-            Debug.LogWarning("Screenshot camera is not assigned for EntitySaveManager.");
-            return string.Empty;
-        }
-
-        bool prevActive = _screenshotCamera.gameObject.activeSelf;
-        RenderTexture rt = null;
-        int prevCullingMask = _screenshotCamera.cullingMask;
-        CameraClearFlags prevClearFlags = _screenshotCamera.clearFlags;
-        Color prevBackground = _screenshotCamera.backgroundColor;
-        List<(Transform t, int layer)> originalLayers = new List<(Transform, int)>();
-        try
-        {
-            // Вычисляем границы
-            Renderer[] renderers = entity.GetComponentsInChildren<Renderer>();
-            if (renderers == null || renderers.Length == 0)
-                return string.Empty;
-
-            Bounds bounds = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
-            {
-                bounds.Encapsulate(renderers[i].bounds);
-            }
-
-            Vector3 target = bounds.center;
-
-            Transform camT = _screenshotCamera.transform;
-            Vector3 baseDir = _cameraOffset.sqrMagnitude > 0.0001f
-                ? _cameraOffset.normalized
-                : new Vector3(0f, 0f, -1f);
-            baseDir = _useObjectSpaceOffset ? (entity.transform.rotation * baseDir) : baseDir;
-
-            // Горизонтальная составляющая и подъем на 15 градусов
-            Vector3 horizontal = Vector3.ProjectOnPlane(baseDir, Vector3.up).normalized;
-            if (horizontal.sqrMagnitude < 1e-4f)
-            {
-                horizontal = Vector3.forward; // запасной вариант
-            }
-
-            Vector3 tiltAxis = Vector3.Cross(horizontal, Vector3.up).normalized;
-            Vector3 viewDirFromTarget = Quaternion.AngleAxis(15f, tiltAxis) * horizontal; // немного выше объекта
-
-            // Расстояние для размещения всего объекта в кадре (приближение через ограничивающую сферу)
-            float radius = bounds.extents.magnitude;
-            float tanHalfFov = Mathf.Tan(0.5f * _screenshotCamera.fieldOfView * Mathf.Deg2Rad);
-            float aspect = (float)_screenshotWidth / Mathf.Max(1, _screenshotHeight);
-            float dVert = radius / Mathf.Max(1e-4f, tanHalfFov);
-            float dHorz = radius / Mathf.Max(1e-4f, tanHalfFov * aspect);
-            float distance = Mathf.Max(dVert, dHorz) * Mathf.Max(1.0f, _framingPadding);
-
-            Vector3 desiredPos = target + viewDirFromTarget * distance;
-
-            // Включаем и ориентируем камеру для снимка
-            _screenshotCamera.gameObject.SetActive(true);
-            camT.position = desiredPos;
-            camT.rotation = Quaternion.LookRotation((target - desiredPos).normalized, Vector3.up);
-
-            // Изолируем рендеринг: только сущность на выделенном слое
-            CacheAndApplyLayerRecursive(entity.transform, _screenshotSubjectLayer, originalLayers);
-            _screenshotCamera.cullingMask = 1 << _screenshotSubjectLayer;
-            _screenshotCamera.clearFlags = CameraClearFlags.SolidColor;
-            _screenshotCamera.backgroundColor = _screenshotBackgroundColor;
-
-            // Настраиваем рендер с поддержкой альфа-канала
-            rt = new RenderTexture(_screenshotWidth, _screenshotHeight, 24, RenderTextureFormat.ARGB32);
-            _screenshotCamera.targetTexture = rt;
-            Texture2D tex = new Texture2D(_screenshotWidth, _screenshotHeight, TextureFormat.RGBA32, false);
-            _screenshotCamera.Render();
-            RenderTexture.active = rt;
-            tex.ReadPixels(new Rect(0, 0, _screenshotWidth, _screenshotHeight), 0, 0);
-            tex.Apply();
-
-            byte[] png = tex.EncodeToPNG();
-            string fileName = $"entity_{entity.EntityId}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-            string path = Path.Combine(SavesDirectoryPath, fileName);
-
-            // Используем асинхронную запись для Android-совместимости
-            // Сохраняем синхронно с помощью Task.Wait для гарантии записи файла
-            try
-            {
-                WriteScreenshotAsync(path, png).Wait(5000); // Максимум 5 секунд на запись
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"Screenshot write timeout or error: {ex.Message}");
-                // Продолжаем выполнение, путь все равно вернется
-            }
-
-            return path;
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to take entity screenshot: {e.Message}");
-            return string.Empty;
-        }
-        finally
-        {
-            // Очистка и восстановление состояния
-            if (_screenshotCamera != null)
-            {
-                _screenshotCamera.targetTexture = null;
-                _screenshotCamera.cullingMask = prevCullingMask;
-                _screenshotCamera.clearFlags = prevClearFlags;
-                _screenshotCamera.backgroundColor = prevBackground;
-                _screenshotCamera.gameObject.SetActive(prevActive);
-            }
-
-            if (RenderTexture.active == rt)
-            {
-                RenderTexture.active = null;
-            }
-
-            if (rt != null)
-            {
-                rt.Release();
-            }
-
-            // Восстанавливаем исходные слои иерархии сущности
-            RestoreLayers(originalLayers);
-        }
-    }
-
-    private async Task SaveAllToDiskAsync()
-    {
-        try
-        {
-            if (!Directory.Exists(SavesDirectoryPath))
-            {
-                Directory.CreateDirectory(SavesDirectoryPath);
-                Debug.Log($"Created saves directory: {SavesDirectoryPath}");
-            }
-
-            SaveFile saveFile = new SaveFile { entities = _savedEntities };
-            string json = JsonUtility.ToJson(saveFile, false);
-
-            // Используем асинхронную запись для Android-совместимости
-            await File.WriteAllTextAsync(SavesFilePath, json);
-            Debug.Log($"Entities saved to disk: {SavesFilePath}. Total: {_savedEntities.Count}");
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to save entities to disk: {e.Message}\nStack trace: {e.StackTrace}");
-        }
-    }
-
-    private async Task LoadAllFromDiskAsync()
-    {
-        try
-        {
-            // На Android File.Exists может не работать корректно, используем try-catch
-            bool fileExists = false;
-            try
-            {
-                fileExists = File.Exists(SavesFilePath);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"File.Exists check failed on Android: {ex.Message}");
-                fileExists = false;
-            }
-
-            if (!fileExists)
-            {
-                Debug.Log($"Save file does not exist: {SavesFilePath}. Starting with empty list.");
-                _savedEntities = new List<EntitySaveData>();
-                return;
-            }
-
-            // Используем асинхронное чтение для Android-совместимости
-            string json = await File.ReadAllTextAsync(SavesFilePath);
-            if (string.IsNullOrEmpty(json))
-            {
-                Debug.LogWarning($"Save file is empty: {SavesFilePath}");
-                _savedEntities = new List<EntitySaveData>();
-                return;
-            }
-
-            SaveFile loaded = JsonUtility.FromJson<SaveFile>(json);
-            if (loaded != null && loaded.entities != null)
-            {
-                _savedEntities = loaded.entities;
-                Debug.Log($"Loaded {_savedEntities.Count} entities from {SavesFilePath}");
+                Destroy(child.gameObject);
             }
             else
             {
-                Debug.LogWarning($"Failed to parse save file: {SavesFilePath}");
-                _savedEntities = new List<EntitySaveData>();
+                DestroyImmediate(child.gameObject);
             }
+        }
 
-            // Восстанавливаем UI элементы для загруженных сохранений после загрузки данных
-            for (int i = 0; i < _savedEntities.Count; i++)
+        var entries = GetSavedEntries();
+        if (entries != null)
+        {
+            for (int i = 0; i < entries.Count; i++)
             {
-                string shotPath = _savedEntities[i]?.screenshotPath;
-                TryCreateSavedObjectUIItem(shotPath, i);
+                CreateSaveButtonUI(entries[i].screenshotId, entries[i].path, entries[i].name);
+            }
+        }
+    }
+
+    public System.Collections.Generic.List<SavedEntry> GetSavedEntries()
+    {
+        var list = new System.Collections.Generic.List<SavedEntry>();
+        try
+        {
+            string dir = Application.persistentDataPath;
+            if (!Directory.Exists(dir)) return list;
+            var files = Directory.GetFiles(dir, "entity_*.dat", SearchOption.TopDirectoryOnly);
+            for (int i = 0; i < files.Length; i++)
+            {
+                if (TryReadMetadata(files[i], out var entry))
+                {
+                    list.Add(entry);
+                }
             }
         }
         catch (Exception e)
         {
-            Debug.LogError(
-                $"Failed to load entities from disk: {e.Message}\nStack trace: {e.StackTrace}\nPath: {SavesFilePath}");
-            _savedEntities = new List<EntitySaveData>();
+            Debug.LogWarning($"GetSavedEntries: ошибка перечисления — {e.Message}");
         }
+
+        return list;
     }
 
-    private void CacheAndApplyLayerRecursive(Transform root, int newLayer, List<(Transform t, int layer)> cache)
+    private bool TryReadMetadata(string path, out SavedEntry entry)
     {
-        if (root == null) return;
-        cache.Add((root, root.gameObject.layer));
-        root.gameObject.layer = newLayer;
-        for (int i = 0; i < root.childCount; i++)
+        entry = null;
+        try
         {
-            CacheAndApplyLayerRecursive(root.GetChild(i), newLayer, cache);
-        }
-    }
-
-    private void RestoreLayers(List<(Transform t, int layer)> cache)
-    {
-        if (cache == null) return;
-        for (int i = 0; i < cache.Count; i++)
-        {
-            var entry = cache[i];
-            if (entry.t != null)
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader = new BinaryReader(fs))
             {
-                entry.t.gameObject.layer = entry.layer;
+                string entryName = reader.ReadString();
+                // position (3), rotation (4), scale (3)
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+                _ = reader.ReadSingle();
+
+                int count = reader.ReadInt32();
+                long toSkip = (long)count * 31L; // 31 байт на CubeData
+                if (fs.Position + toSkip <= fs.Length)
+                {
+                    fs.Position += toSkip;
+                }
+
+                string screenshotId = string.Empty;
+                if (fs.Position < fs.Length)
+                {
+                    try
+                    {
+                        screenshotId = reader.ReadString();
+                    }
+                    catch
+                    {
+                        screenshotId = string.Empty;
+                    }
+                }
+
+                entry = new SavedEntry { path = path, name = entryName, screenshotId = screenshotId };
+                return true;
             }
         }
+        catch
+        {
+        }
+
+        return false;
     }
 
-    private void TryCreateSavedObjectUIItem(string screenshotPath, int index)
+    private string GetUniqueSavePath()
     {
-        if (_savedObjectItemPrefab == null || _savedObjectsContainer == null)
+        string file = $"entity_{DateTime.Now:yyyyMMdd_HHmmssfff}.dat";
+        return Path.Combine(Application.persistentDataPath, file);
+    }
+
+
+    private Entity GetTargetEntity()
+    {
+        // Сначала берём из EntitySelector, если он есть
+        if (_selector != null)
         {
-            Debug.LogWarning($"Cannot create UI item: prefab or container is null (index: {index})");
+            var hovered = _selector.GetHoveredEntity();
+            if (hovered != null) return hovered;
+        }
+
+        // Фоллбэк: рейкаст из центра экрана от камеры
+        var cam = _playerCamera != null ? _playerCamera : Camera.main;
+        if (cam == null) return null;
+
+        Vector3 screenCenter = new Vector3(Screen.width / 2f, Screen.height / 2f);
+        Ray ray = cam.ScreenPointToRay(screenCenter);
+        if (Physics.Raycast(ray, out var hit, 200f))
+        {
+            return hit.collider.GetComponentInParent<Entity>();
+        }
+
+        return null;
+    }
+
+    public async void SaveLookedEntity()
+    {
+        try
+        {
+            Entity target = GetTargetEntity();
+            if (target == null)
+            {
+                Debug.LogWarning("SaveLookedEntity: цель не найдена");
+                return;
+            }
+
+            // Получаем данные кубов
+            target.EnsureCacheValid();
+            CubeData[] cubes = target.GetSaveData();
+            if (cubes == null || cubes.Length == 0)
+            {
+                Debug.LogWarning("SaveLookedEntity: у цели нет кубов для сохранения");
+                return;
+            }
+
+            // Делаем скриншот
+            if (_screenshotManager == null)
+            {
+                _screenshotManager = Assets._Project.Scripts.UI.ScreenshotManager.Instance;
+                if (_screenshotManager != null && _playerCamera != null)
+                {
+                    _screenshotManager.SetCamera(_playerCamera);
+                }
+            }
+
+            string screenshotId = string.Empty;
+            if (_screenshotManager != null)
+            {
+                // Дожидаемся завершения сохранения файла и индекса — предотвращает гонки
+                screenshotId = await _screenshotManager.CaptureAsync(target, null, 512, 512, _playerCamera);
+            }
+
+            SingleEntitySave data = new SingleEntitySave
+            {
+                name = target.gameObject.name,
+                position = target.transform.position,
+                rotation = target.transform.rotation,
+                scale = target.transform.localScale,
+                cubes = cubes,
+                screenshotId = screenshotId
+            };
+
+            // Пишем в уникальный файл асинхронно в фоне
+            string path = GetUniqueSavePath();
+            string directory = Path.GetDirectoryName(path);
+            if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
+
+            byte[] buffer = await Task.Run(() => BuildSaveBytes(data));
+            await File.WriteAllBytesAsync(path, buffer);
+
+            // продолжаем на главном потоке Unity (контекст сохранён)
+            await Task.Yield();
+            Debug.Log($"Entity сохранён: {path}");
+            CreateSaveButtonUI(data.screenshotId, path, data.name);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"SaveLookedEntity: ошибка сохранения — {e.Message}");
+        }
+    }
+
+    private static byte[] BuildSaveBytes(SingleEntitySave data)
+    {
+        using (var ms = new MemoryStream())
+        using (var writer = new BinaryWriter(ms))
+        {
+            writer.Write(data.name ?? string.Empty);
+            writer.Write(data.position.x);
+            writer.Write(data.position.y);
+            writer.Write(data.position.z);
+
+            writer.Write(data.rotation.x);
+            writer.Write(data.rotation.y);
+            writer.Write(data.rotation.z);
+            writer.Write(data.rotation.w);
+
+            writer.Write(data.scale.x);
+            writer.Write(data.scale.y);
+            writer.Write(data.scale.z);
+
+            int count = data.cubes != null ? data.cubes.Length : 0;
+            writer.Write(count);
+            if (count > 0)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    data.cubes[i].WriteTo(writer);
+                }
+            }
+
+            writer.Write(data.screenshotId ?? string.Empty);
+            writer.Flush();
+            return ms.ToArray();
+        }
+    }
+
+    private async void CreateSaveButtonUI(string screenshotId, string saveFilePath, string title)
+    {
+        if (_saveItemButtonPrefab == null || _saveListContainer == null)
+        {
+            Debug.LogWarning("CreateSaveButtonUI: не задан префаб или контейнер");
             return;
         }
 
-        GameObject item = Instantiate(_savedObjectItemPrefab, _savedObjectsContainer);
+        var btn = Instantiate(_saveItemButtonPrefab, _saveListContainer);
+        btn.onClick.RemoveAllListeners();
+        // Сохраняем путь в имени объекта для возможности поиска кнопки при удалении
+        btn.gameObject.name = $"SavedEntity_{Path.GetFileName(saveFilePath)}";
+        btn.onClick.AddListener(() => LoadSavedEntityFromPath(saveFilePath));
 
-        // Находим кнопку и устанавливаем её изображение
-        Button button = item.GetComponentInChildren<Button>(true);
-        if (button != null)
+        // Назначаем спрайт скриншота на Image, расположенный на том же объекте, где и Button
+        Image image = null;
+        // Сначала пробуем targetGraphic, если он Image
+        if (btn.targetGraphic != null && btn.targetGraphic is Image targetImg)
         {
-            Image image = button.GetComponent<Image>();
-            if (image == null)
-            {
-                image = button.GetComponentInChildren<Image>(true);
-            }
-
-            // Загружаем скриншот если он существует (асинхронно для Android-совместимости)
-            if (image != null && !string.IsNullOrEmpty(screenshotPath))
-            {
-                _ = LoadScreenshotAsync(image, screenshotPath, index);
-            }
-
-            // Привязываем кнопку для выбора этой сохраненной сущности через EntityCreator
-            int capturedIndex = index;
-            button.onClick.AddListener(() => InvokeEntityCreatorSelection(capturedIndex));
+            image = targetImg;
         }
-        else
+
+        // Иначе берём Image на том же объекте
+        if (image == null)
         {
-            Debug.LogWarning($"Button not found in UI item prefab for index {index}");
+            image = btn.GetComponent<Image>();
+        }
+
+        if (_screenshotManager == null)
+        {
+            _screenshotManager = Assets._Project.Scripts.UI.ScreenshotManager.Instance;
+        }
+
+        if (image != null && _screenshotManager != null && !string.IsNullOrEmpty(screenshotId))
+        {
+            image.preserveAspect = true;
+            await _screenshotManager.LoadToImageByIdAsync(screenshotId, image);
+        }
+
+        // Текст на кнопке (если есть)
+        var text = btn.GetComponentInChildren<TMPro.TMP_Text>();
+        if (text != null)
+        {
+            text.text = string.IsNullOrEmpty(title) ? "Entity" : title;
+        }
+
+        // Кнопка удаления, если есть дочерняя Button с именем, содержащим "Delete"
+        var childButtons = btn.GetComponentsInChildren<Button>(true);
+        for (int i = 0; i < childButtons.Length; i++)
+        {
+            var cb = childButtons[i];
+            if (cb == btn) continue;
+            if (cb.name.IndexOf("Delete", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                cb.onClick.RemoveAllListeners();
+                cb.onClick.AddListener(() =>
+                {
+                    DeleteSavedEntity(saveFilePath, screenshotId);
+                    Destroy(btn.gameObject);
+                });
+                break;
+            }
         }
     }
 
-    private void CacheEntityCreator()
+    public async void LoadSavedEntity()
     {
-        if (_entityCreatorBehaviour == null)
+        try
         {
-            // Пытаемся найти компонент с именем 'EntityCreator' в сцене
-            var behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            for (int i = 0; i < behaviours.Length; i++)
+            string path = GetSavePath();
+            if (!File.Exists(path))
             {
-                var b = behaviours[i];
-                if (b != null && b.GetType().Name == "EntityCreator")
+                Debug.LogWarning($"LoadSavedEntity: файл не найден: {path}");
+                return;
+            }
+
+            SingleEntitySave data;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader = new BinaryReader(fs))
+            {
+                data = new SingleEntitySave();
+                data.name = reader.ReadString();
+
+                Vector3 pos;
+                pos.x = reader.ReadSingle();
+                pos.y = reader.ReadSingle();
+                pos.z = reader.ReadSingle();
+                data.position = pos;
+
+                Quaternion rot;
+                rot.x = reader.ReadSingle();
+                rot.y = reader.ReadSingle();
+                rot.z = reader.ReadSingle();
+                rot.w = reader.ReadSingle();
+                data.rotation = rot;
+
+                Vector3 scl;
+                scl.x = reader.ReadSingle();
+                scl.y = reader.ReadSingle();
+                scl.z = reader.ReadSingle();
+                data.scale = scl;
+
+                int count = reader.ReadInt32();
+                if (count > 0)
                 {
-                    _entityCreatorBehaviour = b;
+                    data.cubes = new CubeData[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        data.cubes[i] = CubeData.ReadFrom(reader);
+                    }
+                }
+                else
+                {
+                    data.cubes = Array.Empty<CubeData>();
+                }
+            }
+
+            if (data.cubes == null || data.cubes.Length == 0)
+            {
+                Debug.LogWarning("LoadSavedEntity: сохранённый набор пуст");
+                return;
+            }
+
+            EnsureSpawner();
+            if (_cubeSpawner == null)
+            {
+                Debug.LogError("LoadSavedEntity: CubeSpawner не найден в сцене");
+                return;
+            }
+
+            // Создаём пустой Entity и наполняем его кубами
+            Entity entity = EntityFactory.CreateEntity(
+                data.position,
+                data.rotation,
+                data.scale,
+                isKinematic: true,
+                entityName: string.IsNullOrEmpty(data.name) ? "Entity" : data.name
+            );
+
+            bool deferred = _config != null ? _config.useDeferredSetup : true;
+            await entity.LoadFromDataAsync(data.cubes, _cubeSpawner, deferredSetup: deferred);
+            if (deferred)
+            {
+                entity.FinalizeLoad();
+            }
+
+            Debug.Log("Entity загружен из локального файла");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"LoadSavedEntity: ошибка загрузки — {e.Message}");
+        }
+    }
+
+    public async void LoadSavedEntityFromPath(string path)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                Debug.LogWarning($"LoadSavedEntityFromPath: файл не найден: {path}");
+                return;
+            }
+
+            SingleEntitySave data;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader = new BinaryReader(fs))
+            {
+                data = new SingleEntitySave();
+                data.name = reader.ReadString();
+
+                Vector3 pos;
+                pos.x = reader.ReadSingle();
+                pos.y = reader.ReadSingle();
+                pos.z = reader.ReadSingle();
+                data.position = pos;
+
+                Quaternion rot;
+                rot.x = reader.ReadSingle();
+                rot.y = reader.ReadSingle();
+                rot.z = reader.ReadSingle();
+                rot.w = reader.ReadSingle();
+                data.rotation = rot;
+
+                Vector3 scl;
+                scl.x = reader.ReadSingle();
+                scl.y = reader.ReadSingle();
+                scl.z = reader.ReadSingle();
+                data.scale = scl;
+
+                int count = reader.ReadInt32();
+                if (count > 0)
+                {
+                    data.cubes = new CubeData[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        data.cubes[i] = CubeData.ReadFrom(reader);
+                    }
+                }
+                else
+                {
+                    data.cubes = Array.Empty<CubeData>();
+                }
+
+                // поле скриншота может отсутствовать в старых файлах — защищаемся
+                if (fs.Position < fs.Length)
+                {
+                    try
+                    {
+                        data.screenshotId = reader.ReadString();
+                    }
+                    catch
+                    {
+                        /* совместимость */
+                    }
+                }
+            }
+
+            if (data.cubes == null || data.cubes.Length == 0)
+            {
+                Debug.LogWarning("LoadSavedEntityFromPath: сохранённый набор пуст");
+                return;
+            }
+
+            EnsureSpawner();
+            if (_cubeSpawner == null)
+            {
+                Debug.LogError("LoadSavedEntityFromPath: CubeSpawner не найден в сцене");
+                return;
+            }
+
+            Entity entity = EntityFactory.CreateEntity(
+                data.position,
+                data.rotation,
+                data.scale,
+                isKinematic: true,
+                entityName: string.IsNullOrEmpty(data.name) ? "Entity" : data.name
+            );
+
+            bool deferred = _config != null ? _config.useDeferredSetup : true;
+            await entity.LoadFromDataAsync(data.cubes, _cubeSpawner, deferredSetup: deferred);
+            if (deferred)
+            {
+                entity.FinalizeLoad();
+            }
+
+            Debug.Log("Entity загружен из локального файла");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"LoadSavedEntityFromPath: ошибка загрузки — {e.Message}");
+        }
+    }
+
+    public void DeleteSavedEntity(string path, string screenshotId)
+    {
+        // Удаляем кнопку из UI, если контейнер задан
+        if (_saveListContainer != null)
+        {
+            string fileName = Path.GetFileName(path);
+            string targetName = $"SavedEntity_{fileName}";
+            for (int i = _saveListContainer.childCount - 1; i >= 0; i--)
+            {
+                var child = _saveListContainer.GetChild(i);
+                if (child.name == targetName)
+                {
+                    if (Application.isPlaying)
+                    {
+                        Destroy(child.gameObject);
+                    }
+                    else
+                    {
+                        DestroyImmediate(child.gameObject);
+                    }
+
                     break;
                 }
             }
         }
-    }
 
-    private void InvokeEntityCreator(int index)
-    {
-        CacheEntityCreator();
-
-        if (_entityCreatorBehaviour != null)
-        {
-            _entityCreatorBehaviour.SendMessage("SpawnSavedIndex", index, SendMessageOptions.DontRequireReceiver);
-        }
-        else
-        {
-            Debug.LogWarning("EntityCreator not found in scene to handle spawn click.");
-        }
-    }
-
-    private void InvokeEntityCreatorSelection(int index)
-    {
-        // Обновляем текущий выбранный индекс при клике на кнопку UI
-        _currentSelectedSaveIndex = index;
-
-        CacheEntityCreator();
-
-        if (_entityCreatorBehaviour != null)
-        {
-            _entityCreatorBehaviour.SendMessage("SelectSavedIndex", index, SendMessageOptions.DontRequireReceiver);
-        }
-        else
-        {
-            Debug.LogWarning("EntityCreator not found in scene to handle selection click.");
-        }
-    }
-
-    private async Task WriteScreenshotAsync(string path, byte[] data)
-    {
         try
         {
-            if (!Directory.Exists(SavesDirectoryPath))
+            if (!string.IsNullOrEmpty(path) && File.Exists(path))
             {
-                Directory.CreateDirectory(SavesDirectoryPath);
+                File.Delete(path);
             }
-
-            await File.WriteAllBytesAsync(path, data);
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to write screenshot to disk: {e.Message}");
+            Debug.LogWarning($"DeleteSavedEntity: не удалось удалить файл {path}: {e.Message}");
         }
-    }
 
-    private async Task LoadScreenshotAsync(Image image, string screenshotPath, int index)
-    {
         try
         {
-            // На Android File.Exists может не работать корректно, используем try-catch
-            bool fileExists = false;
-            try
+            if (!string.IsNullOrEmpty(screenshotId))
             {
-                fileExists = File.Exists(screenshotPath);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"File.Exists check failed for screenshot on Android: {ex.Message}");
-                fileExists = false;
-            }
+                if (_screenshotManager == null)
+                    _screenshotManager = Assets._Project.Scripts.UI.ScreenshotManager.Instance;
 
-            if (!fileExists)
-            {
-                Debug.LogWarning($"Screenshot file does not exist: {screenshotPath}");
-                return;
-            }
+                if (_screenshotManager != null)
+                {
+                    // Режим игры: используем менеджер
+                    _screenshotManager.DeleteScreenshot(screenshotId);
+                    _ = _screenshotManager.SaveIndexAsync();
+                }
+                else
+                {
+                    // Режим редактора (менеджера нет): удаляем вручную из индекса и с диска
+                    string indexPath = Path.Combine(Application.persistentDataPath, "screenshots.json");
+                    string json = File.Exists(indexPath) ? File.ReadAllText(indexPath) : string.Empty;
+                    if (!string.IsNullOrEmpty(json))
+                    {
+                        try
+                        {
+                            ScreenshotIndexDTO dto = JsonUtility.FromJson<ScreenshotIndexDTO>(json);
+                            if (dto != null && dto.Entries != null)
+                            {
+                                // Найдём путь и удалим запись
+                                string ssPath = null;
+                                for (int i = dto.Entries.Count - 1; i >= 0; i--)
+                                {
+                                    if (dto.Entries[i] != null && dto.Entries[i].Id == screenshotId)
+                                    {
+                                        ssPath = dto.Entries[i].Path;
+                                        dto.Entries.RemoveAt(i);
+                                        break;
+                                    }
+                                }
 
-            // Используем асинхронное чтение для Android-совместимости
-            byte[] bytes = await File.ReadAllBytesAsync(screenshotPath);
-            if (bytes == null || bytes.Length == 0)
-            {
-                Debug.LogWarning($"Screenshot file is empty: {screenshotPath}");
-                return;
-            }
+                                if (!string.IsNullOrEmpty(ssPath) && File.Exists(ssPath))
+                                {
+                                    try
+                                    {
+                                        File.Delete(ssPath);
+                                    }
+                                    catch
+                                    {
+                                        /* ignore */
+                                    }
+                                }
 
-            // Загружаем текстуру на главном потоке через корутину (Unity требует этого)
-            StartCoroutine(LoadScreenshotCoroutine(image, bytes, screenshotPath));
+                                // Записываем обновлённый индекс
+                                string outJson = JsonUtility.ToJson(dto, false);
+                                File.WriteAllText(indexPath, outJson);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning($"DeleteSavedEntity(Editor): ошибка обновления индекса: {ex.Message}");
+                        }
+                    }
+                }
+            }
         }
         catch (Exception e)
         {
-            Debug.LogWarning(
-                $"Failed to load screenshot for entity {index}: {e.Message}. Path: {screenshotPath}");
+            Debug.LogWarning($"DeleteSavedEntity: не удалось удалить скриншот {screenshotId}: {e.Message}");
         }
     }
 
-    private System.Collections.IEnumerator LoadScreenshotCoroutine(Image image, byte[] bytes, string screenshotPath)
+    // DTO для работы с индексом скриншотов в редакторе (копия структуры из ScreenshotManager)
+    [Serializable]
+    private class ScreenshotIndexDTO
     {
-        if (image == null || bytes == null || bytes.Length == 0)
-            yield break;
+        public System.Collections.Generic.List<ScreenshotEntryDTO> Entries;
+    }
 
-        yield return null; // Возвращаемся на главный поток
-
-        Texture2D texture = new Texture2D(2, 2);
-        if (texture.LoadImage(bytes))
-        {
-            Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
-                new Vector2(0.5f, 0.5f));
-            if (image != null)
-            {
-                image.sprite = sprite;
-            }
-        }
-        else
-        {
-            Debug.LogWarning($"Failed to load image from: {screenshotPath}");
-        }
+    [Serializable]
+    private class ScreenshotEntryDTO
+    {
+        public string Id;
+        public string Path;
     }
 }
+
 
