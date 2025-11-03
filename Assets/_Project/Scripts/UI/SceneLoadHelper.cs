@@ -70,9 +70,7 @@ namespace Assets._Project.Scripts.UI
             if (loadSuccess)
             {
                 Debug.Log($"Мир '{mapName}' успешно загружен");
-
-                // Убеждаемся, что InputManager и Player готовы после загрузки мира
-                InputManager.ForceActivateInputManager();
+                
                 if (Player.Instance != null)
                 {
                     Player.Instance.ForcePlayerControlMode();

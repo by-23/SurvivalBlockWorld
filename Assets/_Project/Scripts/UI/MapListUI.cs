@@ -252,7 +252,6 @@ namespace Assets._Project.Scripts.UI
 
                     if (loadSuccess)
                     {
-                        InputManager.ForceActivateInputManager();
                         if (Player.Instance != null)
                         {
                             Player.Instance.ForcePlayerControlMode();
@@ -291,7 +290,6 @@ namespace Assets._Project.Scripts.UI
 
                     if (loadSuccess)
                     {
-                        InputManager.ForceActivateInputManager();
                         if (Player.Instance != null)
                         {
                             Player.Instance.ForcePlayerControlMode();
@@ -427,7 +425,6 @@ namespace Assets._Project.Scripts.UI
             // Очищаем все Entity из сцены после загрузки карты
             ClearAllEntities();
 
-            InputManager.ForceActivateInputManager();
             if (Player.Instance != null)
             {
                 Player.Instance.ForcePlayerControlMode();

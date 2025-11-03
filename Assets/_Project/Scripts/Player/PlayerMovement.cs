@@ -43,8 +43,6 @@ public class PlayerMovement : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
 
-        // Убеждаемся, что InputManager существует
-        InputManager.EnsureInputManagerExists();
     }
 
     private void Update()
@@ -72,13 +70,6 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleMovement()
     {
-        // Проверяем, что InputManager доступен
-        if (!InputManager.IsInputManagerReady())
-        {
-            InputManager.ForceActivateInputManager();
-            if (!InputManager.IsInputManagerReady())
-                return;
-        }
 
         // Проверяем режим игрока
         if (Player.Instance != null && Player.Instance._playerMode != PlayerMode.PlayerControl)
@@ -206,13 +197,6 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleLaser()
     {
-        // Проверяем, что InputManager доступен
-        if (!InputManager.IsInputManagerReady())
-        {
-            InputManager.ForceActivateInputManager();
-            if (!InputManager.IsInputManagerReady())
-                return;
-        }
 
         // Проверяем режим игрока
         if (Player.Instance != null && Player.Instance._playerMode != PlayerMode.PlayerControl)

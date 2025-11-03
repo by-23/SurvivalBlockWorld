@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using System.Linq;
 
 [RequireComponent(typeof(Rigidbody)), RequireComponent(typeof(EntityMeshCombiner))]
 public class Entity : MonoBehaviour
@@ -23,6 +22,7 @@ public class Entity : MonoBehaviour
     private int[,,] _cubesInfo;
     private Vector3 _cubesInfoStartPosition;
     private Cube[] _cubes;
+    public Cube[] Cubes => _cubes; // Публичный доступ к кэшу кубов
 
     private int _cubesInfoSizeX;
     private int _cubesInfoSizeY;
@@ -39,11 +39,20 @@ public class Entity : MonoBehaviour
     private int[] _tempCurrentGroup;
     private int[][] _tempGroups;
     private int[] _tempGroupSizes;
+
     private int[] _tempGroupIndices;
 
-    // Группируем отсоединение кубов чтобы не вызывать дорогие пересчеты на каждом удалении
-    private List<Cube> _pendingDetouchCubes;
+    // Быстрый маппинг id куба -> индекс в активных массивах BFS
+    private int[] _idToActiveIndex;
+
+    // Группируем отсоединение кубов: используем массивный буфер вместо List для минимизации аллокаций
+    private Cube[] _pendingDetouchBuffer;
+    private int _pendingDetouchCount;
+
     private bool _detouchBatchPending = false;
+
+    // Рабочий буфер для батчей отделения кубов (переиспользуем, чтобы избежать GC)
+    private Cube[] _detouchWorkBuffer;
 
     // Максимальное количество кубов, обрабатываемых за кадр при отсоединении
     // Предотвращает создание сотен Rigidbody одновременно и WaitForJobGroupID
@@ -52,7 +61,14 @@ public class Entity : MonoBehaviour
     private EntityVehicleConnector _vehicleConnector;
     private EntityHookManager _hookManager;
     private EntityMeshCombiner _meshCombiner;
+
     private Coroutine _recombineCoroutine;
+
+    // Флаг изменения структуры: влияет на необходимость пересборки меша
+    private bool _structureDirty;
+
+    // Локальные области влияния после удаления кубов
+    private List<Vector3Int> _affectedCells;
 
     private void Awake()
     {
@@ -87,6 +103,7 @@ public class Entity : MonoBehaviour
     public void AddCube()
     {
         UpdateMassAndCubes();
+        _structureDirty = true; // структура изменилась
         RequestDelayedCombine();
     }
 
@@ -148,8 +165,12 @@ public class Entity : MonoBehaviour
 
         _cacheValid = true;
 
-        if (_hookManager)
-            _hookManager.DetachAllHooks(_cubes);
+        // Инвалидируем кэш комбинирования мешей после любого пересчёта структуры
+        if (_meshCombiner)
+            _meshCombiner.InvalidateCubeCache();
+
+        // if (_hookManager)
+        //     _hookManager.DetachAllHooks(_cubes);
     }
 
     private void RecalculateCubes()
@@ -242,17 +263,28 @@ public class Entity : MonoBehaviour
     {
         if (cube == null) return;
 
-        if (_pendingDetouchCubes == null)
+        if (_pendingDetouchBuffer == null)
         {
-            _pendingDetouchCubes = new List<Cube>();
+            _pendingDetouchBuffer = new Cube[16];
+            _pendingDetouchCount = 0;
         }
 
-        _pendingDetouchCubes.Add(cube);
+        if (_pendingDetouchCount == _pendingDetouchBuffer.Length)
+        {
+            int newCapacity = _pendingDetouchBuffer.Length << 1;
+            var newArr = new Cube[newCapacity];
+            System.Array.Copy(_pendingDetouchBuffer, 0, newArr, 0, _pendingDetouchCount);
+            _pendingDetouchBuffer = newArr;
+        }
+
+        _pendingDetouchBuffer[_pendingDetouchCount++] = cube;
 
         if (!_detouchBatchPending)
         {
             StartCoroutine(ProcessDetouchBatch());
         }
+
+        _structureDirty = true;
     }
 
     private IEnumerator ProcessDetouchBatch()
@@ -262,14 +294,22 @@ public class Entity : MonoBehaviour
         // Собираем несколько удалений за кадр - экономит вызовы дорогих операций
         yield return null;
 
-        if (_pendingDetouchCubes.Count == 0)
+        if (_pendingDetouchCount == 0)
         {
             _detouchBatchPending = false;
             yield break;
         }
 
-        var cubesToDetouch = _pendingDetouchCubes.ToArray();
-        _pendingDetouchCubes.Clear();
+        // Копируем в переиспользуемый буфер, чтобы не аллоцировать каждый раз
+        if (_detouchWorkBuffer == null || _detouchWorkBuffer.Length < _pendingDetouchCount)
+        {
+            int newCapacity = _pendingDetouchCount < 16 ? 16 : _pendingDetouchCount;
+            _detouchWorkBuffer = new Cube[newCapacity];
+        }
+
+        int workCount = _pendingDetouchCount;
+        System.Array.Copy(_pendingDetouchBuffer, 0, _detouchWorkBuffer, 0, workCount);
+        _pendingDetouchCount = 0;
 
         // Разделяем меши перед удалением кубов
         _meshCombiner.ShowCubes();
@@ -277,14 +317,14 @@ public class Entity : MonoBehaviour
         // Оптимизация: обрабатываем кубы батчами для предотвращения WaitForJobGroupID
         // Создание множества Rigidbody одновременно перегружает Unity Physics Job System
         int processed = 0;
-        while (processed < cubesToDetouch.Length)
+        while (processed < workCount)
         {
-            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, cubesToDetouch.Length - processed);
+            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, workCount - processed);
 
             // Обрабатываем батч кубов
             for (int i = 0; i < batchSize; i++)
             {
-                Cube cube = cubesToDetouch[processed + i];
+                Cube cube = _detouchWorkBuffer[processed + i];
                 if (cube == null) continue;
 
                 Vector3 localPos = cube.transform.localPosition;
@@ -296,6 +336,17 @@ public class Entity : MonoBehaviour
                     x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
                 {
                     _cubesInfo[x, y, z] = 0;
+                }
+
+                // Копим соседние клетки как область локальной проверки
+                if (_affectedCells == null) _affectedCells = new List<Vector3Int>(32);
+                for (int n = 0; n < NeighborOffsets.Length; n++)
+                {
+                    Vector3Int p = new Vector3Int(x + NeighborOffsets[n].x, y + NeighborOffsets[n].y,
+                        z + NeighborOffsets[n].z);
+                    if (p.x >= 0 && p.y >= 0 && p.z >= 0 && p.x < _cubesInfoSizeX && p.y < _cubesInfoSizeY &&
+                        p.z < _cubesInfoSizeZ)
+                        _affectedCells.Add(p);
                 }
 
                 int cubeIndex = cube.Id - 1;
@@ -331,7 +382,7 @@ public class Entity : MonoBehaviour
 
             // Ждем FixedUpdate перед обработкой следующего батча
             // Это дает Unity Physics время обработать созданные Rigidbody
-            if (processed < cubesToDetouch.Length)
+            if (processed < workCount)
             {
                 yield return new WaitForFixedUpdate();
             }
@@ -339,8 +390,8 @@ public class Entity : MonoBehaviour
 
         _cacheValid = false;
 
-        // Делаем один пересчет для всего батча вместо множества мелких
-        RecalculateCubes();
+        // Локальная рекалькуляция только вокруг затронутых кубов
+        RecalculateAroundAffected();
         RequestDelayedCombine();
 
         if (_rb != null)
@@ -353,7 +404,7 @@ public class Entity : MonoBehaviour
 
     public void FlushDetouchBatch()
     {
-        if (_pendingDetouchCubes != null && _pendingDetouchCubes.Count > 0)
+        if (_pendingDetouchBuffer != null && _pendingDetouchCount > 0)
         {
             StartCoroutine(ProcessDetouchBatchImmediate());
         }
@@ -361,21 +412,29 @@ public class Entity : MonoBehaviour
 
     private IEnumerator ProcessDetouchBatchImmediate()
     {
-        if (_pendingDetouchCubes.Count == 0) yield break;
+        if (_pendingDetouchCount == 0) yield break;
 
-        var cubesToDetouch = _pendingDetouchCubes.ToArray();
-        _pendingDetouchCubes.Clear();
+        // Копируем в переиспользуемый буфер, чтобы не аллоцировать каждый раз
+        if (_detouchWorkBuffer == null || _detouchWorkBuffer.Length < _pendingDetouchCount)
+        {
+            int newCapacity = _pendingDetouchCount < 16 ? 16 : _pendingDetouchCount;
+            _detouchWorkBuffer = new Cube[newCapacity];
+        }
+
+        int workCount = _pendingDetouchCount;
+        System.Array.Copy(_pendingDetouchBuffer, 0, _detouchWorkBuffer, 0, workCount);
+        _pendingDetouchCount = 0;
 
         // Оптимизация: обрабатываем кубы батчами для предотвращения WaitForJobGroupID
         int processed = 0;
-        while (processed < cubesToDetouch.Length)
+        while (processed < workCount)
         {
-            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, cubesToDetouch.Length - processed);
+            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, workCount - processed);
 
             // Обрабатываем батч кубов
             for (int i = 0; i < batchSize; i++)
             {
-                Cube cube = cubesToDetouch[processed + i];
+                Cube cube = _detouchWorkBuffer[processed + i];
                 if (cube == null) continue;
 
                 Vector3 localPos = cube.transform.localPosition;
@@ -387,6 +446,17 @@ public class Entity : MonoBehaviour
                     x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
                 {
                     _cubesInfo[x, y, z] = 0;
+                }
+
+                // Копим соседние клетки как область локальной проверки
+                if (_affectedCells == null) _affectedCells = new List<Vector3Int>(32);
+                for (int n = 0; n < NeighborOffsets.Length; n++)
+                {
+                    Vector3Int p = new Vector3Int(x + NeighborOffsets[n].x, y + NeighborOffsets[n].y,
+                        z + NeighborOffsets[n].z);
+                    if (p.x >= 0 && p.y >= 0 && p.z >= 0 && p.x < _cubesInfoSizeX && p.y < _cubesInfoSizeY &&
+                        p.z < _cubesInfoSizeZ)
+                        _affectedCells.Add(p);
                 }
 
                 int cubeIndex = cube.Id - 1;
@@ -421,14 +491,14 @@ public class Entity : MonoBehaviour
             processed += batchSize;
 
             // Ждем FixedUpdate перед обработкой следующего батча
-            if (processed < cubesToDetouch.Length)
+            if (processed < workCount)
             {
                 yield return new WaitForFixedUpdate();
             }
         }
 
         _cacheValid = false;
-        RecalculateCubes();
+        RecalculateAroundAffected();
         RequestDelayedCombine();
 
         if (_rb != null)
@@ -563,6 +633,137 @@ public class Entity : MonoBehaviour
         return new Vector3Int((int)x, (int)y, (int)z);
     }
 
+    // Локальная проверка связности вокруг удалённых кубов
+    private void RecalculateAroundAffected()
+    {
+        if (_affectedCells == null || _affectedCells.Count == 0)
+        {
+            RecalculateCubes();
+            return;
+        }
+
+        // Собираем кандидатов: кубы-соседи вокруг удалённых
+        var candidateIds = new HashSet<int>();
+        for (int i = 0; i < _affectedCells.Count; i++)
+        {
+            Vector3Int c = _affectedCells[i];
+            int idHere = _cubesInfo[c.x, c.y, c.z];
+            if (idHere > 0) candidateIds.Add(idHere);
+            for (int n = 0; n < NeighborOffsets.Length; n++)
+            {
+                int nx = c.x + NeighborOffsets[n].x;
+                int ny = c.y + NeighborOffsets[n].y;
+                int nz = c.z + NeighborOffsets[n].z;
+                if (nx >= 0 && ny >= 0 && nz >= 0 && nx < _cubesInfoSizeX && ny < _cubesInfoSizeY &&
+                    nz < _cubesInfoSizeZ)
+                {
+                    int nid = _cubesInfo[nx, ny, nz];
+                    if (nid > 0) candidateIds.Add(nid);
+                }
+            }
+        }
+
+        _affectedCells.Clear();
+
+        if (candidateIds.Count == 0)
+            return;
+
+        // BFS по кандидатам; если компонент касается кубов вне кандидатов — считаем его прикреплённым
+        var visited = new HashSet<int>();
+        var queue = new Queue<int>();
+        var groupIds = new List<int>(32);
+
+        foreach (int startId in candidateIds)
+        {
+            if (visited.Contains(startId)) continue;
+
+            bool touchesOutside = false;
+            groupIds.Clear();
+            queue.Clear();
+            queue.Enqueue(startId);
+            visited.Add(startId);
+
+            while (queue.Count > 0)
+            {
+                int id = queue.Dequeue();
+                groupIds.Add(id);
+
+                if (!_cubeIdToIndex.TryGetValue(id, out int cubeIndex))
+                    continue;
+                Cube cube = (cubeIndex >= 0 && cubeIndex < _cubes.Length) ? _cubes[cubeIndex] : null;
+                if (cube == null) continue;
+
+                Vector3Int gp = GridPosition(cube.transform.localPosition);
+                for (int n = 0; n < NeighborOffsets.Length; n++)
+                {
+                    int nx = gp.x + NeighborOffsets[n].x;
+                    int ny = gp.y + NeighborOffsets[n].y;
+                    int nz = gp.z + NeighborOffsets[n].z;
+                    if (nx < 0 || ny < 0 || nz < 0 || nx >= _cubesInfoSizeX || ny >= _cubesInfoSizeY ||
+                        nz >= _cubesInfoSizeZ)
+                        continue;
+
+                    int nid = _cubesInfo[nx, ny, nz];
+                    if (nid <= 0) continue;
+
+                    if (candidateIds.Contains(nid))
+                    {
+                        if (!visited.Contains(nid))
+                        {
+                            visited.Add(nid);
+                            queue.Enqueue(nid);
+                        }
+                    }
+                    else
+                    {
+                        // Нашли связь с внешними кубами — компонент должен остаться
+                        touchesOutside = true;
+                    }
+                }
+            }
+
+            if (!touchesOutside && groupIds.Count > 0)
+            {
+                // Отделяем изолированную группу
+                int firstId = groupIds[0];
+                if (_cubeIdToIndex.TryGetValue(firstId, out int firstIndex))
+                {
+                    Cube firstCube = (firstIndex >= 0 && firstIndex < _cubes.Length) ? _cubes[firstIndex] : null;
+                    if (firstCube != null)
+                    {
+                        Entity newEntity = EntityFactory.CreateEntity(
+                            firstCube.transform.position,
+                            firstCube.transform.rotation,
+                            transform.localScale,
+                            isKinematic: false,
+                            entityName: "Entity"
+                        );
+
+                        for (int j = 0; j < groupIds.Count; j++)
+                        {
+                            int gid = groupIds[j];
+                            if (_cubeIdToIndex.TryGetValue(gid, out int gi))
+                            {
+                                Cube cc = (gi >= 0 && gi < _cubes.Length) ? _cubes[gi] : null;
+                                if (cc != null)
+                                {
+                                    cc.transform.SetParent(newEntity.transform, true);
+                                }
+                            }
+                        }
+
+                        newEntity.StartSetup();
+                        if (_vehicleConnector)
+                            _vehicleConnector.OnEntityRecalculated();
+                    }
+                }
+            }
+        }
+
+        // Обновляем данные текущего Entity
+        CollectCubes();
+    }
+
     // Статические смещения для проверки соседей (6 направлений)
     private static readonly Vector3Int[] NeighborOffsets = new Vector3Int[]
     {
@@ -598,14 +799,26 @@ public class Entity : MonoBehaviour
             _tempCurrentGroup = new int[activeCubeCount];
         }
 
-        // Заполняем массивы активными кубами
+        // Подготовка маппинга id -> индекс активного куба
+        int idMapSize = _cubes.Length + 1; // id назначаются как i+1
+        if (_idToActiveIndex == null || _idToActiveIndex.Length < idMapSize)
+        {
+            _idToActiveIndex = new int[idMapSize];
+        }
+
+        for (int i = 0; i < _idToActiveIndex.Length; i++) _idToActiveIndex[i] = -1;
+
+        // Заполняем массивы активными кубами и маппинг
         int index = 0;
         for (int i = 0; i < _cubes.Length; i++)
         {
             if (_cubes[i] != null)
             {
-                _tempCubeIds[index] = _cubes[i].Id;
+                int id = _cubes[i].Id;
+                _tempCubeIds[index] = id;
                 _tempActiveCubes[index] = _cubes[i];
+                if (id >= 0 && id < _idToActiveIndex.Length)
+                    _idToActiveIndex[id] = index;
                 index++;
             }
         }
@@ -628,7 +841,7 @@ public class Entity : MonoBehaviour
     /// <summary>
     /// Проверяет соседа куба в указанном направлении
     /// </summary>
-    private void CheckNeighborOptimized(Vector3Int currentPos, int dx, int dy, int dz, int activeCubeCount,
+    private void CheckNeighborOptimized(Vector3Int currentPos, int dx, int dy, int dz,
         ref int queueEnd)
     {
         int x = currentPos.x + dx;
@@ -642,18 +855,14 @@ public class Entity : MonoBehaviour
         int neighborId = _cubesInfo[x, y, z];
         if (neighborId <= 0) return;
 
-        // Используем кэш для быстрого поиска
-        if (_cubeIdToIndex.ContainsKey(neighborId))
+        // O(1): берем индекс активного куба напрямую по id
+        if (_idToActiveIndex != null && neighborId < _idToActiveIndex.Length)
         {
-            // Находим индекс в массиве активных кубов
-            for (int j = 0; j < activeCubeCount; j++)
+            int activeIdx = _idToActiveIndex[neighborId];
+            if (activeIdx >= 0 && !_tempVisited[activeIdx])
             {
-                if (_tempCubeIds[j] == neighborId && !_tempVisited[j])
-                {
-                    _tempVisited[j] = true;
-                    _tempQueue[queueEnd++] = j;
-                    break;
-                }
+                _tempVisited[activeIdx] = true;
+                _tempQueue[queueEnd++] = activeIdx;
             }
         }
     }
@@ -697,7 +906,7 @@ public class Entity : MonoBehaviour
                 // Проверяем всех соседей
                 foreach (var offset in NeighborOffsets)
                 {
-                    CheckNeighborOptimized(gridPosition, offset.x, offset.y, offset.z, activeCubeCount, ref queueEnd);
+                    CheckNeighborOptimized(gridPosition, offset.x, offset.y, offset.z, ref queueEnd);
                 }
             }
 
@@ -762,18 +971,28 @@ public class Entity : MonoBehaviour
         if (_cubes == null || _cubes.Length == 0)
             return new CubeData[0];
 
-        List<CubeData> cubeDataList = new List<CubeData>();
-        Vector3 entityWorldPos = transform.position;
-
-        foreach (var cube in _cubes)
+        // Считаем количество валидных кубов, затем заполняем массив точного размера
+        int validCount = 0;
+        for (int i = 0; i < _cubes.Length; i++)
         {
+            if (_cubes[i] != null) validCount++;
+        }
+
+        if (validCount == 0) return new CubeData[0];
+
+        var result = new CubeData[validCount];
+        Vector3 entityWorldPos = transform.position;
+        int write = 0;
+        for (int i = 0; i < _cubes.Length; i++)
+        {
+            var cube = _cubes[i];
             if (cube != null)
             {
-                cubeDataList.Add(cube.GetSaveData(entityWorldPos, EntityId));
+                result[write++] = cube.GetSaveData(entityWorldPos, EntityId);
             }
         }
 
-        return cubeDataList.ToArray();
+        return result;
     }
 
     public async System.Threading.Tasks.Task LoadFromDataAsync(CubeData[] cubes, CubeSpawner spawner,
@@ -845,29 +1064,34 @@ public class Entity : MonoBehaviour
         return FindConnectedGroups(activeCubeCount, out _);
     }
 
-    public List<Entity> SplitIntoSeparateEntities()
+    public Entity[] SplitIntoSeparateEntities()
     {
-        CollectCubes();
+        if (!_cacheValid)
+        {
+            CollectCubes();
+        }
 
         if (_isLoading || _cubes == null)
         {
-            return new List<Entity>();
+            return System.Array.Empty<Entity>();
         }
 
         int activeCubeCount = FillActiveCubesArrays();
         if (activeCubeCount == 0)
         {
-            return new List<Entity>();
+            return System.Array.Empty<Entity>();
         }
 
         int groupCount = FindConnectedGroups(activeCubeCount, out int[][] groups);
 
         if (groupCount <= 1)
         {
-            return new List<Entity>();
+            return System.Array.Empty<Entity>();
         }
 
-        List<Entity> newEntities = new List<Entity>();
+        // Максимально возможное число новых Entity: groupCount - 1 (кроме самой большой группы)
+        Entity[] newEntities = new Entity[groupCount - 1];
+        int writeIndex = 0;
 
         SortGroupsBySize(groupCount, groups, out int[] groupIndices);
 
@@ -908,7 +1132,7 @@ public class Entity : MonoBehaviour
                     }
 
                     newEntity.StartSetup();
-                    newEntities.Add(newEntity);
+                    newEntities[writeIndex++] = newEntity;
 
                     if (_vehicleConnector)
                     {
@@ -927,7 +1151,12 @@ public class Entity : MonoBehaviour
             _rb.isKinematic = false;
         }
 
-        return newEntities;
+        if (writeIndex == newEntities.Length)
+            return newEntities;
+
+        var compact = new Entity[writeIndex];
+        System.Array.Copy(newEntities, 0, compact, 0, writeIndex);
+        return compact;
     }
 
     // Вызывается когда к entity прикрепляется хук - включаем физику
@@ -946,6 +1175,80 @@ public class Entity : MonoBehaviour
         {
             _rb.isKinematic = true;
         }
+    }
+
+    // Гарантирует валидность кэша кубов без лишней работы
+    public void EnsureCacheValid()
+    {
+        if (!_cacheValid)
+        {
+            CollectCubes();
+        }
+    }
+
+    // Пометить структуру изменённой
+    public void MarkStructureDirty()
+    {
+        _structureDirty = true;
+    }
+
+    // Сбросить флаг грязности (после успешного Combine)
+    public void ClearStructureDirty()
+    {
+        _structureDirty = false;
+    }
+
+    public bool IsStructureDirty => _structureDirty;
+
+    // Быстро получить куб по id
+    public bool TryGetCubeById(int cubeId, out Cube cube)
+    {
+        cube = null;
+        if (cubeId <= 0 || _cubeIdToIndex == null) return false;
+        if (_cubeIdToIndex.TryGetValue(cubeId, out int idx))
+        {
+            if (idx >= 0 && _cubes != null && idx < _cubes.Length)
+            {
+                cube = _cubes[idx];
+                return cube != null;
+            }
+        }
+
+        return false;
+    }
+
+    // Удалить куб по id (точечно обновляя карты) и добавить его в батч отсоединения
+    public bool RemoveCubeById(int cubeId)
+    {
+        if (!TryGetCubeById(cubeId, out Cube cube) || cube == null)
+            return false;
+
+        // Кладём куб в существующий батч-канал
+        DetouchCube(cube);
+        _structureDirty = true;
+        return true;
+    }
+
+    // Получить id соседей куба по id (до 6 штук)
+    public int GetNeighborIds(int cubeId, System.Collections.Generic.List<int> output)
+    {
+        output.Clear();
+        if (!TryGetCubeById(cubeId, out Cube cube) || cube == null)
+            return 0;
+
+        Vector3Int gp = GridPosition(cube.transform.localPosition);
+        for (int i = 0; i < NeighborOffsets.Length; i++)
+        {
+            int nx = gp.x + NeighborOffsets[i].x;
+            int ny = gp.y + NeighborOffsets[i].y;
+            int nz = gp.z + NeighborOffsets[i].z;
+            if (nx < 0 || ny < 0 || nz < 0 || nx >= _cubesInfoSizeX || ny >= _cubesInfoSizeY || nz >= _cubesInfoSizeZ)
+                continue;
+            int nid = _cubesInfo[nx, ny, nz];
+            if (nid > 0) output.Add(nid);
+        }
+
+        return output.Count;
     }
 
     private void OnDrawGizmosSelected()

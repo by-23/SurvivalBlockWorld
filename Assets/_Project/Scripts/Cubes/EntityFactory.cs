@@ -8,6 +8,23 @@ using UnityEngine;
 /// </summary>
 public static class EntityFactory
 {
+    // Путь к префабу-пустышке в Resources (можно переопределить до первого вызова)
+    public static string EntityPrefabPath = "EntityPrefab";
+
+    // Кэш префаба, чтобы не вызывать Resources.Load каждый раз
+    private static GameObject _cachedEntityPrefab;
+
+    // Возвращает кэшированный префаб, если он есть в Resources; иначе null
+    private static GameObject GetEntityPrefab()
+    {
+        if (_cachedEntityPrefab == null)
+        {
+            _cachedEntityPrefab = Resources.Load<GameObject>(EntityPrefabPath);
+        }
+
+        return _cachedEntityPrefab;
+    }
+
     /// <summary>
     /// Создает новый Entity GameObject с базовыми компонентами и настройками.
     /// </summary>
@@ -20,10 +37,25 @@ public static class EntityFactory
     public static Entity CreateEntity(Vector3 position, Quaternion rotation, Vector3 scale, bool isKinematic = true,
         string entityName = null)
     {
-        GameObject entityObject = new GameObject(entityName ?? $"Entity_{System.DateTime.Now.Ticks}");
-        entityObject.transform.position = position;
-        entityObject.transform.rotation = rotation;
-        entityObject.transform.localScale = scale;
+        // Сначала пытаемся создать из префаба-пустышки, чтобы избежать рантайм-добавления компонентов
+        GameObject prefab = GetEntityPrefab();
+        GameObject entityObject;
+        if (prefab != null)
+        {
+            entityObject = Object.Instantiate(prefab);
+            if (!string.IsNullOrEmpty(entityName)) entityObject.name = entityName; // сохраняем заданное имя
+        }
+        else
+        {
+            // Фоллбэк: создаем пустой объект, как раньше
+            entityObject = new GameObject(entityName ?? $"Entity_{System.DateTime.Now.Ticks}");
+        }
+
+        // Приводим трансформ к заданным параметрам
+        Transform t = entityObject.transform;
+        t.position = position;
+        t.rotation = rotation;
+        t.localScale = scale;
 
         SetupEntityComponents(entityObject, isKinematic);
 
@@ -86,48 +118,28 @@ public static class EntityFactory
             return;
         }
 
-        // Добавляем Rigidbody
-        Rigidbody rb = entityObject.GetComponent<Rigidbody>();
-        if (rb == null)
-        {
+        // Получаем/добавляем Rigidbody (на префабе он уже должен быть)
+        Rigidbody rb;
+        if (!entityObject.TryGetComponent<Rigidbody>(out rb))
             rb = entityObject.AddComponent<Rigidbody>();
-        }
 
-        // Настраиваем Rigidbody
-        if (cubeCount.HasValue)
-        {
-            rb.mass = cubeCount.Value / 10f;
-        }
-        else
-        {
-            rb.mass = 1f;
-        }
+        // Настраиваем Rigidbody — только если значения реально отличаются
+        float desiredMass = cubeCount.HasValue ? cubeCount.Value * 0.1f : 1f;
+        if (!Mathf.Approximately(rb.mass, desiredMass)) rb.mass = desiredMass;
+        if (!Mathf.Approximately(rb.drag, 0f)) rb.drag = 0f;
+        if (!Mathf.Approximately(rb.angularDrag, 0.05f)) rb.angularDrag = 0.05f;
+        if (!rb.useGravity) rb.useGravity = true;
+        if (rb.isKinematic != isKinematic) rb.isKinematic = isKinematic;
 
-        rb.drag = 0f;
-        rb.angularDrag = 0.05f;
-        rb.useGravity = true;
-        rb.isKinematic = isKinematic;
-
-        // Добавляем обязательные компоненты Entity
-        if (entityObject.GetComponent<Entity>() == null)
-        {
+        // Обязательные компоненты — на префабе уже есть; добавляем только в фоллбэке
+        if (!entityObject.TryGetComponent<Entity>(out _))
             entityObject.AddComponent<Entity>();
-        }
 
-        // Добавляем вспомогательные компоненты (если еще не добавлены)
-        if (entityObject.GetComponent<EntityMeshCombiner>() == null)
-        {
+        // Вспомогательные компоненты — аналогично
+        if (!entityObject.TryGetComponent<EntityMeshCombiner>(out _))
             entityObject.AddComponent<EntityMeshCombiner>();
-        }
 
-        if (entityObject.GetComponent<EntityHookManager>() == null)
-        {
+        if (!entityObject.TryGetComponent<EntityHookManager>(out _))
             entityObject.AddComponent<EntityHookManager>();
-        }
-
-        if (entityObject.GetComponent<EntityVehicleConnector>() == null)
-        {
-            entityObject.AddComponent<EntityVehicleConnector>();
-        }
     }
 }

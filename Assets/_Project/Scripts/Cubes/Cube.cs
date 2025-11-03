@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[RequireComponent(typeof(MeshFilter)), RequireComponent(typeof(MeshRenderer))]
 public class Cube : MonoBehaviour
 {
     private bool _detouched;
@@ -9,16 +10,34 @@ public class Cube : MonoBehaviour
     public byte BlockTypeID = 0;
 
     private Entity _entity;
-    private ColorCube _colorCube;
+    [SerializeField] private MeshFilter _meshFilter; // Ссылка на MeshFilter
+    [SerializeField] private MeshRenderer _meshRenderer; // Ссылка на MeshRenderer
+    [SerializeField] private ColorCube _colorCube; // Ссылка на ColorCube
     private Rigidbody _rigidbody;
     private Collider _collider;
 
+    public MeshFilter MeshFilter => _meshFilter;
+    public MeshRenderer MeshRenderer => _meshRenderer;
+    public ColorCube ColorCube => _colorCube;
+    public Color Color => _colorCube ? _colorCube.GetColor32() : Color.white;
+
     private void Awake()
     {
-        _colorCube = GetComponent<ColorCube>();
+        if (_meshFilter == null) _meshFilter = GetComponent<MeshFilter>();
+        if (_meshRenderer == null) _meshRenderer = GetComponent<MeshRenderer>();
+        if (_colorCube == null) _colorCube = GetComponent<ColorCube>();
         _rigidbody = GetComponent<Rigidbody>();
         _collider = GetComponent<Collider>();
     }
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        if (_meshFilter == null) _meshFilter = GetComponent<MeshFilter>();
+        if (_meshRenderer == null) _meshRenderer = GetComponent<MeshRenderer>();
+        if (_colorCube == null) _colorCube = GetComponent<ColorCube>();
+    }
+#endif
 
     public void SetEntity(Entity entity)
     {
