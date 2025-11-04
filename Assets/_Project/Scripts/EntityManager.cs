@@ -270,10 +270,6 @@ public class EntityManager : MonoBehaviour
             if (_screenshotManager == null)
             {
                 _screenshotManager = ScreenshotManager.Instance;
-                if (_screenshotManager != null && _playerCamera != null)
-                {
-                    _screenshotManager.SetCamera(_playerCamera);
-                }
             }
 
             string screenshotId = string.Empty;

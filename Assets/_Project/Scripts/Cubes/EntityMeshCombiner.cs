@@ -311,16 +311,17 @@ public class EntityMeshCombiner : MonoBehaviour
         // Очищаем MaterialPropertyBlock для переиспользования
         _propertyBlock.Clear();
 
-        foreach (var colorGroup in _instancesCache)
+        // Обходим только актуальные цвета; старые группы удаляем из кэша
+        var colorsToIterate = new System.Collections.Generic.List<Color>(_colorCounts.Keys);
+        for (int ci = 0; ci < colorsToIterate.Count; ci++)
         {
-            var color = colorGroup.Key;
-            var instances = colorGroup.Value;
+            var color = colorsToIterate[ci];
+            var instances = _instancesCache[color];
 
             var subMesh = GetPooledMesh();
             subMesh.CombineMeshes(instances, true, true);
 
-            // Убираем дорогие операции RecalculateNormals и Optimize
-            // Они не нужны для простых кубов и сильно замедляют процесс
+            // Для кубов хватает пересчёта границ
             subMesh.RecalculateBounds();
 
             var colorMeshObject = GetPooledGameObject($"CombinedMesh_{color.ToString()}");
@@ -338,9 +339,18 @@ public class EntityMeshCombiner : MonoBehaviour
 
             _propertyBlock.SetColor("_BaseColor", color);
             meshRenderer.SetPropertyBlock(_propertyBlock);
-
-            // Буфер остаётся в кэше и переиспользуется
         }
+
+        // Чистим устаревшие записи цветов из кэша, чтобы не собирать лишние меши в будущем
+        var toRemove = new System.Collections.Generic.List<Color>();
+        foreach (var kv in _instancesCache)
+        {
+            if (!_colorCounts.ContainsKey(kv.Key))
+                toRemove.Add(kv.Key);
+        }
+
+        for (int i = 0; i < toRemove.Count; i++)
+            _instancesCache.Remove(toRemove[i]);
 
         // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
         CacheChildObjects();
@@ -616,11 +626,13 @@ public class EntityMeshCombiner : MonoBehaviour
         // Очищаем MaterialPropertyBlock для переиспользования
         _propertyBlock.Clear();
 
+        // Обходим только актуальные цвета; старые группы удаляем из кэша
         int colorIndex = 0;
-        foreach (var colorGroup in _instancesCache)
+        var colorsToIterate = new System.Collections.Generic.List<Color>(_colorCounts.Keys);
+        for (int ci = 0; ci < colorsToIterate.Count; ci++)
         {
-            var color = colorGroup.Key;
-            var instances = colorGroup.Value;
+            var color = colorsToIterate[ci];
+            var instances = _instancesCache[color];
 
             var subMesh = GetPooledMesh();
             subMesh.CombineMeshes(instances, true, true);
@@ -642,8 +654,6 @@ public class EntityMeshCombiner : MonoBehaviour
             _propertyBlock.SetColor("_BaseColor", color);
             meshRenderer.SetPropertyBlock(_propertyBlock);
 
-            // Буфер остаётся в кэше и переиспользуется
-
             // Yield каждые 2 цвета для предотвращения фризов
             if (colorIndex % 2 == 0)
             {
@@ -652,6 +662,17 @@ public class EntityMeshCombiner : MonoBehaviour
 
             colorIndex++;
         }
+
+        // Чистим устаревшие записи цветов из кэша
+        var toRemove = new System.Collections.Generic.List<Color>();
+        foreach (var kv in _instancesCache)
+        {
+            if (!_colorCounts.ContainsKey(kv.Key))
+                toRemove.Add(kv.Key);
+        }
+
+        for (int i = 0; i < toRemove.Count; i++)
+            _instancesCache.Remove(toRemove[i]);
 
         // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
         CacheChildObjects();

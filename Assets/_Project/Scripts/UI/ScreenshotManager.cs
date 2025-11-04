@@ -36,15 +36,6 @@ namespace Assets._Project.Scripts.UI
         // Файл индекса для восстановления соответствий между сессиями
         private string IndexFilePath => Path.Combine(SavesDirectoryPath, "screenshots.json");
 
-        // Скрипт исполнитель: не делает ничего сам по себе. Камера назначается извне при необходимости.
-
-        /// <summary>
-        /// Установить камеру для скриншотов (опционально)
-        /// </summary>
-        public void SetCamera(Camera cam)
-        {
-            _screenshotCamera = cam;
-        }
 
         /// <summary>
         /// Сделать скриншот и сохранить в память устройства.
@@ -92,18 +83,10 @@ namespace Assets._Project.Scripts.UI
             int w = Mathf.Max(1, width ?? _screenshotWidth);
             int h = Mathf.Max(1, height ?? _screenshotHeight);
 
-            Camera cam = cameraOverride != null ? cameraOverride : _screenshotCamera;
-            if (cam == null)
-            {
-                Debug.LogWarning("Screenshot camera is not assigned for ScreenshotManager.");
-                tcs.SetResult(string.Empty);
-                return tcs.Task;
-            }
-
-            bool prevActive = cam.gameObject.activeSelf;
-            int prevCullingMask = cam.cullingMask;
-            CameraClearFlags prevClearFlags = cam.clearFlags;
-            Color prevBackground = cam.backgroundColor;
+            bool prevActive = _screenshotCamera.gameObject.activeSelf;
+            int prevCullingMask = _screenshotCamera.cullingMask;
+            CameraClearFlags prevClearFlags = _screenshotCamera.clearFlags;
+            Color prevBackground = _screenshotCamera.backgroundColor;
 
             var originalLayers = new List<(Transform t, int layer)>();
             RenderTexture rt = null;
@@ -114,11 +97,11 @@ namespace Assets._Project.Scripts.UI
 
                 // Рендер
                 rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
-                cam.targetTexture = rt;
-                cam.clearFlags = CameraClearFlags.SolidColor;
-                cam.backgroundColor = _screenshotBackgroundColor;
-                cam.cullingMask = 1 << _screenshotSubjectLayer;
-                cam.gameObject.SetActive(true);
+                _screenshotCamera.targetTexture = rt;
+                _screenshotCamera.clearFlags = CameraClearFlags.SolidColor;
+                _screenshotCamera.backgroundColor = _screenshotBackgroundColor;
+                _screenshotCamera.cullingMask = 1 << _screenshotSubjectLayer;
+                _screenshotCamera.gameObject.SetActive(true);
 
                 // Расставляем камеру
                 var renderers = entity.GetComponentsInChildren<Renderer>();
@@ -140,16 +123,17 @@ namespace Assets._Project.Scripts.UI
                     Vector3 tiltAxis = Vector3.Cross(horizontal, Vector3.up).normalized;
                     Vector3 viewDir = Quaternion.AngleAxis(15f, tiltAxis) * horizontal;
                     float radius = bounds.extents.magnitude;
-                    float tanHalfFov = Mathf.Tan(0.5f * cam.fieldOfView * Mathf.Deg2Rad);
+                    float tanHalfFov = Mathf.Tan(0.5f * _screenshotCamera.fieldOfView * Mathf.Deg2Rad);
                     float aspect = (float)w / Mathf.Max(1, h);
                     float dVert = radius / Mathf.Max(1e-4f, tanHalfFov);
                     float dHorz = radius / Mathf.Max(1e-4f, tanHalfFov * aspect);
                     float distance = Mathf.Max(dVert, dHorz) * Mathf.Max(1.0f, _framingPadding);
                     Vector3 desiredPos = target + viewDir * distance;
-                    cam.transform.position = desiredPos;
-                    cam.transform.rotation = Quaternion.LookRotation((target - desiredPos).normalized, Vector3.up);
+                    _screenshotCamera.transform.position = desiredPos;
+                    _screenshotCamera.transform.rotation =
+                        Quaternion.LookRotation((target - desiredPos).normalized, Vector3.up);
 
-                    cam.Render();
+                    _screenshotCamera.Render();
 
 #if UNITY_2018_2_OR_NEWER
                     // Асинхронное считывание с GPU (через колбэк)
@@ -182,13 +166,13 @@ namespace Assets._Project.Scripts.UI
             finally
             {
                 // Восстанавливаем состояние камеры и слои сразу после постановки запроса
-                if (cam != null)
+                if (_screenshotCamera != null)
                 {
-                    cam.targetTexture = null;
-                    cam.cullingMask = prevCullingMask;
-                    cam.clearFlags = prevClearFlags;
-                    cam.backgroundColor = prevBackground;
-                    cam.gameObject.SetActive(prevActive);
+                    _screenshotCamera.targetTexture = null;
+                    _screenshotCamera.cullingMask = prevCullingMask;
+                    _screenshotCamera.clearFlags = prevClearFlags;
+                    _screenshotCamera.backgroundColor = prevBackground;
+                    _screenshotCamera.gameObject.SetActive(prevActive);
                 }
 
                 RestoreLayers(originalLayers);
@@ -203,7 +187,15 @@ namespace Assets._Project.Scripts.UI
         public async Task<bool> LoadToImageByIdAsync(string screenshotId, Image image)
         {
             if (image == null) return false;
-            if (!_idToPath.TryGetValue(screenshotId, out var path) || string.IsNullOrEmpty(path)) return false;
+            if (!_idToPath.TryGetValue(screenshotId, out var path) || string.IsNullOrEmpty(path))
+            {
+                await RefreshIndexAsync(scanFolder: true);
+                if (!_idToPath.TryGetValue(screenshotId, out path) || string.IsNullOrEmpty(path)) return false;
+            }
+
+            image.enabled = true;
+            image.preserveAspect = true;
+            image.color = Color.white;
             await LoadScreenshotAsync(image, path);
             return image.sprite != null;
         }
@@ -506,6 +498,7 @@ namespace Assets._Project.Scripts.UI
                 string path = Path.Combine(SavesDirectoryPath, fileName);
                 await File.WriteAllBytesAsync(path, pngBytes);
                 _idToPath[id] = path;
+                await SaveIndexAsync();
                 tcs.TrySetResult(id);
             }
             catch (Exception e)
