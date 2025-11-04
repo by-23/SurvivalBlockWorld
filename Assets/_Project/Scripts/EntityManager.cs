@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
+using Assets._Project.Scripts.UI;
 
 public class EntityManager : MonoBehaviour
 {
@@ -19,9 +20,13 @@ public class EntityManager : MonoBehaviour
     [SerializeField] private Button _loadButton;
     [SerializeField] private Button _saveItemButtonPrefab; // префаб кнопки сохранённого объекта
     [SerializeField] private Transform _saveListContainer; // контейнер для кнопок
+    [SerializeField] private Button _confirmGhostButton;
+    [SerializeField] private Button _cancelGhostButton;
 
     [SerializeField] private CubeSpawner _cubeSpawner;
-    private Assets._Project.Scripts.UI.ScreenshotManager _screenshotManager;
+    [SerializeField] private Assets._Project.Scripts.UI.GhostEntityPlacer _ghostPlacer;
+    private ScreenshotManager _screenshotManager;
+    private Entity _currentGhostEntity;
 
     [Serializable]
     private struct SingleEntitySave
@@ -70,6 +75,23 @@ public class EntityManager : MonoBehaviour
         {
             _loadButton.onClick.RemoveAllListeners();
             _loadButton.onClick.AddListener(LoadSavedEntity);
+        }
+
+        if (_confirmGhostButton != null)
+        {
+            _confirmGhostButton.onClick.RemoveAllListeners();
+            _confirmGhostButton.onClick.AddListener(ConfirmGhost);
+        }
+
+        if (_cancelGhostButton != null)
+        {
+            _cancelGhostButton.onClick.RemoveAllListeners();
+            _cancelGhostButton.onClick.AddListener(CancelGhost);
+        }
+
+        if (_ghostPlacer == null)
+        {
+            _ghostPlacer = FindFirstObjectByType<Assets._Project.Scripts.UI.GhostEntityPlacer>();
         }
 
         RefreshSavedList();
@@ -247,7 +269,7 @@ public class EntityManager : MonoBehaviour
             // Делаем скриншот
             if (_screenshotManager == null)
             {
-                _screenshotManager = Assets._Project.Scripts.UI.ScreenshotManager.Instance;
+                _screenshotManager = ScreenshotManager.Instance;
                 if (_screenshotManager != null && _playerCamera != null)
                 {
                     _screenshotManager.SetCamera(_playerCamera);
@@ -355,7 +377,7 @@ public class EntityManager : MonoBehaviour
 
         if (_screenshotManager == null)
         {
-            _screenshotManager = Assets._Project.Scripts.UI.ScreenshotManager.Instance;
+            _screenshotManager = ScreenshotManager.Instance;
         }
 
         if (image != null && _screenshotManager != null && !string.IsNullOrEmpty(screenshotId))
@@ -465,7 +487,8 @@ public class EntityManager : MonoBehaviour
             );
 
             bool deferred = _config != null ? _config.useDeferredSetup : true;
-            await entity.LoadFromDataAsync(data.cubes, _cubeSpawner, deferredSetup: deferred);
+            await entity.LoadFromDataAsync(data.cubes, _cubeSpawner, deferredSetup: deferred,
+                savedEntityPosition: data.position);
             if (deferred)
             {
                 entity.FinalizeLoad();
@@ -557,21 +580,34 @@ public class EntityManager : MonoBehaviour
             }
 
             Entity entity = EntityFactory.CreateEntity(
-                data.position,
-                data.rotation,
+                Vector3.zero, // позиция будет установлена ghost placer'ом
+                Quaternion.identity,
                 data.scale,
                 isKinematic: true,
                 entityName: string.IsNullOrEmpty(data.name) ? "Entity" : data.name
             );
 
             bool deferred = _config != null ? _config.useDeferredSetup : true;
-            await entity.LoadFromDataAsync(data.cubes, _cubeSpawner, deferredSetup: deferred);
+            await entity.LoadFromDataAsync(data.cubes, _cubeSpawner, deferredSetup: deferred,
+                savedEntityPosition: data.position);
             if (deferred)
             {
                 entity.FinalizeLoad();
             }
 
-            Debug.Log("Entity загружен из локального файла");
+            // Переходим в ghost-режим вместо финального размещения
+            if (_ghostPlacer != null)
+            {
+                _currentGhostEntity = entity;
+                _ghostPlacer.Begin(entity, _playerCamera);
+                Debug.Log("Entity загружен в ghost-режиме");
+            }
+            else
+            {
+                Debug.LogWarning("GhostPlacer не найден, размещаем entity напрямую");
+                entity.transform.position = data.position;
+                entity.transform.rotation = data.rotation;
+            }
         }
         catch (Exception e)
         {
@@ -622,7 +658,7 @@ public class EntityManager : MonoBehaviour
             if (!string.IsNullOrEmpty(screenshotId))
             {
                 if (_screenshotManager == null)
-                    _screenshotManager = Assets._Project.Scripts.UI.ScreenshotManager.Instance;
+                    _screenshotManager = ScreenshotManager.Instance;
 
                 if (_screenshotManager != null)
                 {
@@ -697,6 +733,29 @@ public class EntityManager : MonoBehaviour
     {
         public string Id;
         public string Path;
+    }
+
+    public void ConfirmGhost()
+    {
+        if (_ghostPlacer != null && _ghostPlacer.TryConfirm())
+        {
+            _currentGhostEntity = null;
+            Debug.Log("Ghost entity подтверждён и размещён");
+        }
+        else
+        {
+            Debug.LogWarning("Нельзя подтвердить ghost: объект заблокирован или не активен");
+        }
+    }
+
+    public void CancelGhost()
+    {
+        if (_ghostPlacer != null)
+        {
+            _ghostPlacer.Cancel();
+            _currentGhostEntity = null;
+            Debug.Log("Ghost entity отменён");
+        }
     }
 }
 

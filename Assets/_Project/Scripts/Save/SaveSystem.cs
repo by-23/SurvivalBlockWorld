@@ -474,7 +474,9 @@ public class SaveSystem : Singleton<SaveSystem>
                 entityName: "Entity"
             );
 
-            await entity.LoadFromDataAsync(kvp.Value.ToArray(), _cubeSpawner, deferredSetup: _config.useDeferredSetup);
+            // minPos используется как сохранённая позиция entity для правильного вычисления локальных позиций кубов
+            await entity.LoadFromDataAsync(kvp.Value.ToArray(), _cubeSpawner, deferredSetup: _config.useDeferredSetup,
+                savedEntityPosition: minPos);
 
             if (_config.useDeferredSetup)
             {

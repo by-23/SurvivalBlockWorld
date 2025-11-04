@@ -17,6 +17,14 @@ public class Entity : MonoBehaviour
     }
 
     private bool _isLoading = false;
+    private bool _isGhost = false;
+
+    public bool IsGhost => _isGhost;
+
+    public void SetGhostMode(bool isGhost)
+    {
+        _isGhost = isGhost;
+    }
 
     private Rigidbody _rb;
     private int[,,] _cubesInfo;
@@ -996,14 +1004,15 @@ public class Entity : MonoBehaviour
     }
 
     public async System.Threading.Tasks.Task LoadFromDataAsync(CubeData[] cubes, CubeSpawner spawner,
-        bool deferredSetup = true)
+        bool deferredSetup = true, Vector3? savedEntityPosition = null)
     {
         if (cubes == null || cubes.Length == 0)
             return;
 
         _isLoading = true;
         _StartCheck = true;
-        Vector3 entityPos = transform.position;
+        // Используем сохранённую позицию entity, если указана, иначе текущую
+        Vector3 entityPos = savedEntityPosition ?? transform.position;
         float entityScale = transform.localScale.x;
 
         foreach (var cubeData in cubes)

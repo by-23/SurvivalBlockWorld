@@ -5600,6 +5600,12 @@ Transform:
     type: 3}
   m_PrefabInstance: {fileID: 278433870}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &287722680 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 5242944358624983510, guid: 9a5203b361cd64768af7b6bb7fa67371,
+    type: 3}
+  m_PrefabInstance: {fileID: 3089680211429349745}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &296500027
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -18746,12 +18752,37 @@ MonoBehaviour:
     type: 3}
   m_PrefabInstance: {fileID: 3089680211429349745}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 287722680}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e4e5351e667b446218aaf0341b6ab730, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &1065748387
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 287722680}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ccd31a05161d4bdeb72cd2da9e2af45, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _surfaceLayerMask:
+    serializedVersion: 2
+    m_Bits: 66569
+  _blockedLayerMask:
+    serializedVersion: 2
+    m_Bits: 67457
+  _surfaceOffset: 0
+  _maxGhostDistance: 100
+  _minGhostDistance: 10
+  _distanceMultiplier: 1
+  _ghostMaterialGreen: {fileID: 2100000, guid: c2e5da4fa9f59e84096ab0ad2d4deff7, type: 2}
+  _ghostMaterialRed: {fileID: 2100000, guid: 7f48292e9165348dfbe135eb468b0582, type: 2}
+  _ghostTransparency: 0.5
 --- !u!1001 &1070172431
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -34567,9 +34598,19 @@ PrefabInstance:
       objectReference: {fileID: 1840580579}
     - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
+      propertyPath: _ghostPlacer
+      value: 
+      objectReference: {fileID: 1065748387}
+    - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
       propertyPath: _playerCamera
       value: 
-      objectReference: {fileID: 1077464701}
+      objectReference: {fileID: 1844830215}
+    - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: _ghostOkMaterial
+      value: 
+      objectReference: {fileID: 2100000, guid: c2e5da4fa9f59e84096ab0ad2d4deff7, type: 2}
     - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
       propertyPath: _screenshotCamera
@@ -34582,10 +34623,35 @@ PrefabInstance:
       objectReference: {fileID: 1534298382}
     - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
+      propertyPath: _confirmGhostButton
+      value: 
+      objectReference: {fileID: 1252341612}
+    - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: _ghostBlockedMaterial
+      value: 
+      objectReference: {fileID: 2100000, guid: 7f48292e9165348dfbe135eb468b0582, type: 2}
+    - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
       propertyPath: _saveItemButtonPrefab
       value: 
       objectReference: {fileID: 411221214996393682, guid: 65d26ba2018ac42e3a1138cd374f1fac,
         type: 3}
+    - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: _ghostMinPlayerDistance
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: _ghostBlockedMask.m_Bits
+      value: 131063
+      objectReference: {fileID: 0}
+    - target: {fileID: 433496490823526850, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: _ghostSurfaceMask.m_Bits
+      value: 65545
+      objectReference: {fileID: 0}
     - target: {fileID: 850543028667921937, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
       propertyPath: _camera
@@ -34766,6 +34832,11 @@ PrefabInstance:
       propertyPath: _saveSystem
       value: 
       objectReference: {fileID: 488925293}
+    - target: {fileID: 3860604188821503258, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: -33
+      objectReference: {fileID: 0}
     - target: {fileID: 4125140849321513547, guid: 9a5203b361cd64768af7b6bb7fa67371,
         type: 3}
       propertyPath: m_Name
@@ -34871,10 +34942,15 @@ PrefabInstance:
       propertyPath: _camera
       value: 
       objectReference: {fileID: 1844830215}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: 150641297075090862, guid: 9a5203b361cd64768af7b6bb7fa67371, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 5242944358624983510, guid: 9a5203b361cd64768af7b6bb7fa67371,
+        type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1065748387}
   m_SourcePrefab: {fileID: 100100000, guid: 9a5203b361cd64768af7b6bb7fa67371, type: 3}
 --- !u!1001 &4636413021261838198
 PrefabInstance:
