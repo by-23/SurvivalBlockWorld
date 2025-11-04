@@ -1209,6 +1209,21 @@ public class Entity : MonoBehaviour
 
     public bool IsStructureDirty => _structureDirty;
 
+    // Быстрые локальные границы на основе карты кубов
+    public bool TryGetLocalBounds(out Bounds bounds)
+    {
+        if (_cubesInfo == null || _cubesInfoSizeX == 0 || _cubesInfoSizeY == 0 || _cubesInfoSizeZ == 0)
+        {
+            bounds = default;
+            return false;
+        }
+
+        Vector3 size = new Vector3(_cubesInfoSizeX, _cubesInfoSizeY, _cubesInfoSizeZ);
+        Vector3 center = _cubesInfoStartPosition + (size - Vector3.one) * 0.5f;
+        bounds = new Bounds(center, size);
+        return true;
+    }
+
     // Быстро получить куб по id
     public bool TryGetCubeById(int cubeId, out Cube cube)
     {

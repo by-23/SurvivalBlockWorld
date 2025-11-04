@@ -23,24 +23,48 @@ public class EntityMeshCombiner : MonoBehaviour
         public MeshFilter MeshFilter;
         public MeshRenderer MeshRenderer;
         public ColorCube ColorCube;
-        public Color Color;
+        public Color32 Color; // используем Color32 как ключ
+        public Mesh Mesh; // кэш меша (убирает 6075 вызовов get_sharedMesh)
+        public int ColorIndex; // индекс цвета в _uniqueColors (убирает TryGetValue)
+        public bool IsValid; // флаг валидности (убирает проверки на null)
     }
 
     private CachedCubeComponents[] _cachedComponents;
 
     // Кэш массивов точного размера по цветам, чтобы избежать повторных аллокаций
-    private Dictionary<Color, CombineInstance[]> _instancesCache = new Dictionary<Color, CombineInstance[]>();
+    private Dictionary<Color32, CombineInstance[]> _instancesCache = new Dictionary<Color32, CombineInstance[]>();
+
+    // Быстрый доступ по индексу уникального цвета в текущем Combine (без Dictionary.get_Item)
+    private System.Collections.Generic.List<CombineInstance[]> _instancesByIndex =
+        new System.Collections.Generic.List<CombineInstance[]>(16);
+
     private MaterialPropertyBlock _propertyBlock;
 
     private Material _sourceMaterial;
 
-    // Переиспользуемые словари для подсчётов
-    private Dictionary<Color, int> _colorCounts = new Dictionary<Color, int>();
-    private Dictionary<Color, int> _writeIndices = new Dictionary<Color, int>();
+    // Переиспользуемые структуры для подсчётов без дорогих Dictionary.set по каждому кубу
+    private Dictionary<Color32, int> _colorToIndex = new Dictionary<Color32, int>(16);
+
+    private readonly System.Collections.Generic.List<Color32> _uniqueColors =
+        new System.Collections.Generic.List<Color32>(16);
+
+    private readonly System.Collections.Generic.List<int> _colorCountsList =
+        new System.Collections.Generic.List<int>(16);
+
+    private int[] _writeIndicesArray = System.Array.Empty<int>();
+
+    private Color32[] _tempColors = System.Array.Empty<Color32>();
+
+    // Маппинг индекс куба -> индекс цвета в _uniqueColors (убирает TryGetValue во втором проходе)
+    private int[] _cubeToColorIndex = System.Array.Empty<int>();
 
     // Object pooling для мешей
     private Queue<Mesh> _meshPool = new Queue<Mesh>();
     private Queue<GameObject> _gameObjectPool = new Queue<GameObject>();
+
+    // Переиспользуемый список цветов для обхода
+    private readonly System.Collections.Generic.List<Color32> _colorsToIterate =
+        new System.Collections.Generic.List<Color32>(32);
 
     // Кэш для дочерних объектов combined mesh
     private GameObject[] _cachedChildObjects = System.Array.Empty<GameObject>();
@@ -52,6 +76,40 @@ public class EntityMeshCombiner : MonoBehaviour
             _entity = GetComponent<Entity>();
         _rb = GetComponent<Rigidbody>();
         _propertyBlock = new MaterialPropertyBlock();
+    }
+
+    // Компаратор для быстрой сортировки Color32
+    private sealed class Color32Comparer : System.Collections.Generic.IComparer<Color32>
+    {
+        public static readonly Color32Comparer Instance = new Color32Comparer();
+        private static uint Pack(Color32 c) => ((uint)c.r << 24) | ((uint)c.g << 16) | ((uint)c.b << 8) | c.a;
+
+        public int Compare(Color32 x, Color32 y)
+        {
+            uint a = Pack(x);
+            uint b = Pack(y);
+            return a < b ? -1 : (a > b ? 1 : 0);
+        }
+    }
+
+    // Компаратор для сортировки индексов по цветам
+    private sealed class ColorIndexComparer : System.Collections.Generic.IComparer<int>
+    {
+        private readonly Color32[] _colors;
+
+        public ColorIndexComparer(Color32[] colors)
+        {
+            _colors = colors;
+        }
+
+        private static uint Pack(Color32 c) => ((uint)c.r << 24) | ((uint)c.g << 16) | ((uint)c.b << 8) | c.a;
+
+        public int Compare(int x, int y)
+        {
+            uint a = Pack(_colors[x]);
+            uint b = Pack(_colors[y]);
+            return a < b ? -1 : (a > b ? 1 : 0);
+        }
     }
 
 #if UNITY_EDITOR
@@ -93,12 +151,18 @@ public class EntityMeshCombiner : MonoBehaviour
             var meshRenderer = cube.MeshRenderer;
             var colorCube = cube.ColorCube;
 
+            // Кэшируем mesh сразу (убирает 6075 вызовов get_sharedMesh)
+            Mesh mesh = meshFilter != null ? meshFilter.sharedMesh : null;
+
             _cachedComponents[i] = new CachedCubeComponents
             {
                 MeshFilter = meshFilter,
                 MeshRenderer = meshRenderer,
                 ColorCube = colorCube,
-                Color = cube.Color
+                Color = (Color32)cube.Color,
+                Mesh = mesh,
+                ColorIndex = -1, // установится в первом проходе
+                IsValid = meshFilter != null && mesh != null && meshRenderer != null
             };
         }
     }
@@ -195,10 +259,6 @@ public class EntityMeshCombiner : MonoBehaviour
     {
         if (_isCombined) return;
 
-        // Гарантируем валидность кэша кубов в Entity
-        if (_entity != null)
-            _entity.EnsureCacheValid();
-
         // Перестраиваем кэш только при необходимости (надежно и без лишней работы)
         var entityCubes = _entity != null ? _entity.Cubes : GetComponentsInChildren<Cube>();
         if (_cachedComponents == null || entityCubes == null || _cachedComponents.Length != entityCubes.Length)
@@ -208,25 +268,22 @@ public class EntityMeshCombiner : MonoBehaviour
 
         if (_cachedComponents == null || _cachedComponents.Length == 0) return;
 
-        // Проверяем и разделяем кубы на отдельные Entity если необходимо
+        // Мало кубов — выгоды от Combine нет
+        if (_cachedComponents.Length <= 8) return;
+
+        // Гарантируем валидность кэша кубов в Entity (один раз)
         if (_entity != null)
         {
-            // Дешёвая гарантия валидности кэша вместо тяжёлого пересчёта
             _entity.EnsureCacheValid();
 
-            // Если структура не менялась, пересборка не нужна
-            if (!_entity.IsStructureDirty && _isCombined)
+            // Разделяем только если структура менялась
+            if (_entity.IsStructureDirty)
             {
-                return;
-            }
-
-            // Автоматически разделяем кубы на отдельные Entity если обнаружено несколько групп
-            var newEntities = _entity.SplitIntoSeparateEntities();
-
-            // Если были созданы новые Entity, прерываем сборку меша для текущего Entity
-            if (newEntities.Length > 0)
-            {
-                return;
+                var newEntities = _entity.SplitIntoSeparateEntities();
+                if (newEntities.Length > 0)
+                {
+                    return;
+                }
             }
         }
 
@@ -238,17 +295,35 @@ public class EntityMeshCombiner : MonoBehaviour
 
         // Очищаем кэш и переиспользуем структуры
         _sourceMaterial = null;
-        _sourceMaterial = null;
 
-        // Первый проход: считаем количества по цветам и выключаем рендеры
-        _colorCounts.Clear();
+        // Первый проход: собираем цвета и выключаем рендеры (без Dictionary.set на каждый куб)
+        int validCount = 0;
+        if (_tempColors.Length < _cachedComponents.Length)
+            _tempColors = new Color32[_cachedComponents.Length];
+        if (_cubeToColorIndex.Length < _cachedComponents.Length)
+        {
+            _cubeToColorIndex = new int[_cachedComponents.Length];
+            // Инициализируем все индексы как невалидные
+            for (int k = 0; k < _cubeToColorIndex.Length; k++)
+                _cubeToColorIndex[k] = -1;
+        }
+        else
+        {
+            // Сбрасываем индексы для невалидных кубов
+            for (int k = 0; k < _cubeToColorIndex.Length; k++)
+                _cubeToColorIndex[k] = -1;
+        }
+
+        // Сначала собираем валидные кубы с их индексами
+        var validCubeIndices = new int[_cachedComponents.Length]; // маппинг validCount -> оригинальный индекс куба
         for (int i = 0; i < _cachedComponents.Length; i++)
         {
             var cached = _cachedComponents[i];
 
-            if (cached.MeshFilter == null || cached.MeshFilter.sharedMesh == null) continue;
+            // Используем флаг валидности вместо проверок на null
+            if (!cached.IsValid || cached.Mesh == null) continue;
 
-            if (cached.MeshRenderer != null)
+            if (cached.MeshRenderer.enabled)
             {
                 if (_sourceMaterial == null)
                 {
@@ -258,43 +333,117 @@ public class EntityMeshCombiner : MonoBehaviour
                 cached.MeshRenderer.enabled = false;
             }
 
-            if (_colorCounts.TryGetValue(cached.Color, out int count))
-                _colorCounts[cached.Color] = count + 1;
-            else
-                _colorCounts[cached.Color] = 1;
+            _tempColors[validCount] = cached.Color;
+            validCubeIndices[validCount] = i; // сохраняем оригинальный индекс куба
+            validCount++;
         }
 
-        // Обеспечиваем массивы точного размера в кэше
-        foreach (var kvp in _colorCounts)
+        // Считаем количества по цветам через сортировку и линейный проход
+        _uniqueColors.Clear();
+        _colorCountsList.Clear();
+        _colorToIndex.Clear();
+        if (validCount > 0)
         {
-            if (!_instancesCache.TryGetValue(kvp.Key, out var arr) || arr == null || arr.Length != kvp.Value)
+            // Сортируем индексы по цветам
+            var sortedIndices = new int[validCount];
+            for (int i = 0; i < validCount; i++) sortedIndices[i] = i;
+            System.Array.Sort(sortedIndices, 0, validCount, new ColorIndexComparer(_tempColors));
+
+            Color32 current = _tempColors[sortedIndices[0]];
+            int groupStart = 0;
+            int count = 1;
+
+            for (int i = 1; i < validCount; i++)
             {
-                _instancesCache[kvp.Key] = new CombineInstance[kvp.Value];
+                int idx = sortedIndices[i];
+                var c = _tempColors[idx];
+
+                if (c.r == current.r && c.g == current.g && c.b == current.b && c.a == current.a)
+                {
+                    count++;
+                }
+                else
+                {
+                    int colorIdx = _uniqueColors.Count;
+                    _uniqueColors.Add(current);
+                    _colorCountsList.Add(count);
+                    _colorToIndex[current] = colorIdx;
+
+                    // Устанавливаем индекс цвета для всех кубов этой группы (по оригинальным индексам)
+                    for (int j = groupStart; j < groupStart + count; j++)
+                    {
+                        int origCubeIdx = validCubeIndices[sortedIndices[j]];
+                        _cubeToColorIndex[origCubeIdx] = colorIdx;
+                    }
+
+                    current = c;
+                    groupStart = i;
+                    count = 1;
+                }
+            }
+
+            // последний диапазон
+            int lastColorIdx = _uniqueColors.Count;
+            _uniqueColors.Add(current);
+            _colorCountsList.Add(count);
+            _colorToIndex[current] = lastColorIdx;
+
+            // Устанавливаем индекс для последней группы
+            for (int j = groupStart; j < groupStart + count; j++)
+            {
+                int origCubeIdx = validCubeIndices[sortedIndices[j]];
+                _cubeToColorIndex[origCubeIdx] = lastColorIdx;
             }
         }
 
-        // Подготовим индексы записи
-        _writeIndices.Clear();
-        foreach (var kvp in _colorCounts)
+        // Обеспечиваем массивы точного размера в кэше
+        _instancesByIndex.Clear();
+        if (_instancesByIndex.Capacity < _uniqueColors.Count) _instancesByIndex.Capacity = _uniqueColors.Count;
+        for (int i = 0; i < _uniqueColors.Count; i++)
         {
-            _writeIndices[kvp.Key] = 0;
+            var col = _uniqueColors[i];
+            int cnt = _colorCountsList[i];
+            if (!_instancesCache.TryGetValue(col, out var arr) || arr == null || arr.Length != cnt)
+            {
+                _instancesCache[col] = new CombineInstance[cnt];
+                arr = _instancesCache[col];
+            }
+            else
+            {
+                arr = _instancesCache[col];
+            }
+
+            _instancesByIndex.Add(arr);
         }
 
-        // Второй проход: заполняем массивы CombineInstance
+        // Подготовим индексы записи (массив по индексам цветов)
+        if (_writeIndicesArray.Length < _uniqueColors.Count)
+            _writeIndicesArray = new int[_uniqueColors.Count];
+        else
+            System.Array.Clear(_writeIndicesArray, 0, _uniqueColors.Count);
+
+        // Второй проход: заполняем массивы CombineInstance (без get_sharedMesh и TryGetValue)
+        var worldToLocal = transform.worldToLocalMatrix; // кэшируем матрицу
         for (int i = 0; i < _cachedComponents.Length; i++)
         {
             var cached = _cachedComponents[i];
-            if (cached.MeshFilter == null || cached.MeshFilter.sharedMesh == null) continue;
+            if (!cached.IsValid || cached.Mesh == null) continue;
 
+            // Используем кэшированный mesh (без get_sharedMesh)
             var ci = new CombineInstance
             {
-                mesh = cached.MeshFilter.sharedMesh,
-                transform = transform.worldToLocalMatrix * cached.MeshFilter.transform.localToWorldMatrix
+                mesh = cached.Mesh,
+                transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
             };
 
-            int idx = _writeIndices[cached.Color];
-            _instancesCache[cached.Color][idx] = ci;
-            _writeIndices[cached.Color] = idx + 1;
+            // Используем маппинг индексов (без TryGetValue)
+            int colorIdx = _cubeToColorIndex[i];
+            if (colorIdx >= 0 && colorIdx < _instancesByIndex.Count)
+            {
+                int write = _writeIndicesArray[colorIdx];
+                _instancesByIndex[colorIdx][write] = ci;
+                _writeIndicesArray[colorIdx] = write + 1;
+            }
         }
 
         if (_sourceMaterial == null)
@@ -312,19 +461,21 @@ public class EntityMeshCombiner : MonoBehaviour
         _propertyBlock.Clear();
 
         // Обходим только актуальные цвета; старые группы удаляем из кэша
-        var colorsToIterate = new System.Collections.Generic.List<Color>(_colorCounts.Keys);
-        for (int ci = 0; ci < colorsToIterate.Count; ci++)
+        for (int ci = 0; ci < _uniqueColors.Count; ci++)
         {
-            var color = colorsToIterate[ci];
-            var instances = _instancesCache[color];
+            var color = _uniqueColors[ci];
+            var instances = _instancesByIndex[ci];
 
             var subMesh = GetPooledMesh();
             subMesh.CombineMeshes(instances, true, true);
 
-            // Для кубов хватает пересчёта границ
-            subMesh.RecalculateBounds();
+            // Для кубов задаём границы напрямую при наличии данных
+            if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
+                subMesh.bounds = fastBounds;
+            else
+                subMesh.RecalculateBounds();
 
-            var colorMeshObject = GetPooledGameObject($"CombinedMesh_{color.ToString()}");
+            var colorMeshObject = GetPooledGameObject($"CombinedMesh_{ci}");
             colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
 
             var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
@@ -337,15 +488,16 @@ public class EntityMeshCombiner : MonoBehaviour
                 meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
             meshRenderer.sharedMaterial = _sourceMaterial;
 
-            _propertyBlock.SetColor("_BaseColor", color);
+            _propertyBlock.SetColor("_BaseColor", (Color)color);
             meshRenderer.SetPropertyBlock(_propertyBlock);
         }
 
         // Чистим устаревшие записи цветов из кэша, чтобы не собирать лишние меши в будущем
-        var toRemove = new System.Collections.Generic.List<Color>();
+        var toRemove = new System.Collections.Generic.List<Color32>();
         foreach (var kv in _instancesCache)
         {
-            if (!_colorCounts.ContainsKey(kv.Key))
+            // удаляем те цвета, которых нет в текущем наборе
+            if (!_colorToIndex.ContainsKey(kv.Key))
                 toRemove.Add(kv.Key);
         }
 
@@ -516,21 +668,21 @@ public class EntityMeshCombiner : MonoBehaviour
         }
 
         if (_cachedComponents == null || _cachedComponents.Length == 0) yield break;
+        if (_cachedComponents.Length <= 8) yield break;
 
         // Проверяем и разделяем кубы на отдельные Entity если необходимо
         if (_entity != null)
         {
             _entity.EnsureCacheValid();
 
-            if (!_entity.IsStructureDirty && _isCombined)
+            // Разделяем только если структура менялась
+            if (_entity.IsStructureDirty)
             {
-                yield break;
-            }
-
-            var newEntities = _entity.SplitIntoSeparateEntities();
-            if (newEntities.Length > 0)
-            {
-                yield break;
+                var newEntities = _entity.SplitIntoSeparateEntities();
+                if (newEntities.Length > 0)
+                {
+                    yield break;
+                }
             }
         }
 
@@ -543,15 +695,17 @@ public class EntityMeshCombiner : MonoBehaviour
         // Очищаем кэш и переиспользуем структуры
         _sourceMaterial = null;
 
-        // Первый проход: считаем количества по цветам и выключаем рендеры
-        _colorCounts.Clear();
+        // Первый проход: собираем цвета и выключаем рендеры (без Dictionary.set на каждый куб)
+        int validCount = 0;
+        if (_tempColors.Length < _cachedComponents.Length)
+            _tempColors = new Color32[_cachedComponents.Length];
         for (int i = 0; i < _cachedComponents.Length; i++)
         {
             var cached = _cachedComponents[i];
 
             if (cached.MeshFilter == null || cached.MeshFilter.sharedMesh == null) continue;
 
-            if (cached.MeshRenderer != null)
+            if (cached.MeshRenderer != null && cached.MeshRenderer.enabled)
             {
                 if (_sourceMaterial == null)
                 {
@@ -561,10 +715,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 cached.MeshRenderer.enabled = false;
             }
 
-            if (_colorCounts.TryGetValue(cached.Color, out int count))
-                _colorCounts[cached.Color] = count + 1;
-            else
-                _colorCounts[cached.Color] = 1;
+            _tempColors[validCount++] = cached.Color;
 
             // Yield каждые 10 кубов для предотвращения фризов
             if (i % 10 == 0)
@@ -573,23 +724,68 @@ public class EntityMeshCombiner : MonoBehaviour
             }
         }
 
-        // Обеспечиваем массивы точного размера в кэше
-        foreach (var kvp in _colorCounts)
+        // Считаем количества по цветам через сортировку и линейный проход
+        _uniqueColors.Clear();
+        _colorCountsList.Clear();
+        _colorToIndex.Clear();
+        if (validCount > 0)
         {
-            if (!_instancesCache.TryGetValue(kvp.Key, out var arr) || arr == null || arr.Length != kvp.Value)
+            System.Array.Sort(_tempColors, 0, validCount, Color32Comparer.Instance);
+
+            Color32 current = _tempColors[0];
+            int cnt = 1;
+            for (int i = 1; i < validCount; i++)
             {
-                _instancesCache[kvp.Key] = new CombineInstance[kvp.Value];
+                var c = _tempColors[i];
+                if (c.r == current.r && c.g == current.g && c.b == current.b && c.a == current.a)
+                {
+                    cnt++;
+                }
+                else
+                {
+                    int idx = _uniqueColors.Count;
+                    _uniqueColors.Add(current);
+                    _colorCountsList.Add(cnt);
+                    _colorToIndex[current] = idx;
+                    current = c;
+                    cnt = 1;
+                }
             }
+
+            int lastIdx = _uniqueColors.Count;
+            _uniqueColors.Add(current);
+            _colorCountsList.Add(cnt);
+            _colorToIndex[current] = lastIdx;
         }
 
-        // Подготовим индексы записи
-        _writeIndices.Clear();
-        foreach (var kvp in _colorCounts)
+        // Обеспечиваем массивы точного размера в кэше
+        _instancesByIndex.Clear();
+        if (_instancesByIndex.Capacity < _uniqueColors.Count) _instancesByIndex.Capacity = _uniqueColors.Count;
+        for (int i = 0; i < _uniqueColors.Count; i++)
         {
-            _writeIndices[kvp.Key] = 0;
+            var col = _uniqueColors[i];
+            int cnt = _colorCountsList[i];
+            if (!_instancesCache.TryGetValue(col, out var arr) || arr == null || arr.Length != cnt)
+            {
+                _instancesCache[col] = new CombineInstance[cnt];
+                arr = _instancesCache[col];
+            }
+            else
+            {
+                arr = _instancesCache[col];
+            }
+
+            _instancesByIndex.Add(arr);
         }
+
+        // Подготовим индексы записи (массив по индексам цветов)
+        if (_writeIndicesArray.Length < _uniqueColors.Count)
+            _writeIndicesArray = new int[_uniqueColors.Count];
+        else
+            System.Array.Clear(_writeIndicesArray, 0, _uniqueColors.Count);
 
         // Второй проход: заполняем массивы CombineInstance
+        var worldToLocal = transform.worldToLocalMatrix;
         for (int i = 0; i < _cachedComponents.Length; i++)
         {
             var cached = _cachedComponents[i];
@@ -598,12 +794,15 @@ public class EntityMeshCombiner : MonoBehaviour
             var ci = new CombineInstance
             {
                 mesh = cached.MeshFilter.sharedMesh,
-                transform = transform.worldToLocalMatrix * cached.MeshFilter.transform.localToWorldMatrix
+                transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
             };
 
-            int idx = _writeIndices[cached.Color];
-            _instancesCache[cached.Color][idx] = ci;
-            _writeIndices[cached.Color] = idx + 1;
+            if (_colorToIndex.TryGetValue(cached.Color, out int colorIdx))
+            {
+                int write = _writeIndicesArray[colorIdx];
+                _instancesByIndex[colorIdx][write] = ci;
+                _writeIndicesArray[colorIdx] = write + 1;
+            }
 
             // Yield каждые 10 кубов для предотвращения фризов
             if (i % 10 == 0)
@@ -628,17 +827,21 @@ public class EntityMeshCombiner : MonoBehaviour
 
         // Обходим только актуальные цвета; старые группы удаляем из кэша
         int colorIndex = 0;
-        var colorsToIterate = new System.Collections.Generic.List<Color>(_colorCounts.Keys);
-        for (int ci = 0; ci < colorsToIterate.Count; ci++)
+        _colorsToIterate.Clear();
+        for (int i = 0; i < _uniqueColors.Count; i++) _colorsToIterate.Add(_uniqueColors[i]);
+        for (int ci = 0; ci < _colorsToIterate.Count; ci++)
         {
-            var color = colorsToIterate[ci];
-            var instances = _instancesCache[color];
+            var color = _colorsToIterate[ci];
+            var instances = _instancesByIndex[ci];
 
             var subMesh = GetPooledMesh();
             subMesh.CombineMeshes(instances, true, true);
-            subMesh.RecalculateBounds();
+            if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
+                subMesh.bounds = fastBounds;
+            else
+                subMesh.RecalculateBounds();
 
-            var colorMeshObject = GetPooledGameObject($"CombinedMesh_{color.ToString()}");
+            var colorMeshObject = GetPooledGameObject($"CombinedMesh_{ci}");
             colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
 
             var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
@@ -651,7 +854,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
             meshRenderer.sharedMaterial = _sourceMaterial;
 
-            _propertyBlock.SetColor("_BaseColor", color);
+            _propertyBlock.SetColor("_BaseColor", (Color)color);
             meshRenderer.SetPropertyBlock(_propertyBlock);
 
             // Yield каждые 2 цвета для предотвращения фризов
@@ -664,10 +867,10 @@ public class EntityMeshCombiner : MonoBehaviour
         }
 
         // Чистим устаревшие записи цветов из кэша
-        var toRemove = new System.Collections.Generic.List<Color>();
+        var toRemove = new System.Collections.Generic.List<Color32>();
         foreach (var kv in _instancesCache)
         {
-            if (!_colorCounts.ContainsKey(kv.Key))
+            if (!_colorToIndex.ContainsKey(kv.Key))
                 toRemove.Add(kv.Key);
         }
 

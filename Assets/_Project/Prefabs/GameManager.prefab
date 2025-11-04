@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 7028885259804356611}
   - component: {fileID: 4273549421577484740}
   - component: {fileID: 4533551290381261078}
+  - component: {fileID: 7797916339333024861}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -81,6 +82,26 @@ MonoBehaviour:
     type: 3}
   cubePrefabsByType:
   - {fileID: 7642547984514944024, guid: d8586f1281c48f24fb08cd8a8a8348a0, type: 3}
+--- !u!114 &7797916339333024861
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3414956783536724133}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: daccb361505d46ba9419d6d2a06f4c1d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _screenshotCamera: {fileID: 0}
+  _cameraOffset: {x: 10, y: 2, z: -10}
+  _useObjectSpaceOffset: 1
+  _screenshotWidth: 75
+  _screenshotHeight: 75
+  _framingPadding: 1.1
+  _screenshotSubjectLayer: 30
+  _screenshotBackgroundColor: {r: 0, g: 0, b: 0, a: 0}
 --- !u!1 &3577486888156335234
 GameObject:
   m_ObjectHideFlags: 0
@@ -225,7 +246,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &5154365468878304538
 Transform:
   m_ObjectHideFlags: 0
