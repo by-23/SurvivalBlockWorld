@@ -45,6 +45,10 @@ namespace Assets._Project.Scripts.UI
         private Vector3 _lastSurfaceNormal;
         private bool _isActive;
         private bool _canPlace;
+        private Bounds _cachedEntityBounds;
+        private float _cachedEntityMaxSize;
+        private Vector3 _lastValidPosition;
+        private bool _hasLastValidPosition;
 
         public bool IsActive => _isActive;
 
@@ -108,6 +112,9 @@ namespace Assets._Project.Scripts.UI
             // Собираем только комбинированные рендереры (исключаем Cube)
             CollectCombinedRenderers();
 
+            // Кешируем размеры entity для правильного вычисления позиции
+            CacheEntityBounds();
+
             // Кешируем оригинальные материалы и применяем ghost-материалы только к комбинированным мешам
             CacheAndApplyGhostMaterials(false);
 
@@ -163,6 +170,10 @@ namespace Assets._Project.Scripts.UI
             _isActive = false;
             _canPlace = false;
             _originalMaterials.Clear();
+            _cachedEntityMaxSize = 0f;
+            _cachedEntityBounds = new Bounds();
+            _hasLastSurface = false;
+            _hasLastValidPosition = false;
         }
 
         private void UpdateGhostPosition()
@@ -177,11 +188,64 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
+            // Проверяем минимальное расстояние от камеры (используем только _minGhostDistance без учета размера)
+            Vector3 cameraPosition = _playerCamera.transform.position;
+            Vector3 toPosition = targetPosition - cameraPosition;
+            float distanceToCamera = toPosition.magnitude;
+
+            // Если позиция слишком близко к камере, используем предыдущую валидную позицию или ограничиваем расстояние
+            if (distanceToCamera < _minGhostDistance)
+            {
+                if (_hasLastValidPosition)
+                {
+                    // Проверяем, не слишком ли близко предыдущая позиция
+                    Vector3 toLastPosition = _lastValidPosition - cameraPosition;
+                    float distanceToLast = toLastPosition.magnitude;
+
+                    if (distanceToLast >= _minGhostDistance)
+                    {
+                        // Предыдущая позиция валидна — используем её (останавливаем движение к игроку)
+                        targetPosition = _lastValidPosition;
+                    }
+                    else
+                    {
+                        // Предыдущая позиция тоже слишком близко — отодвигаем на минимальное расстояние
+                        Vector3 direction = toLastPosition.normalized;
+                        if (direction.sqrMagnitude < 0.0001f)
+                        {
+                            direction = _playerCamera.transform.forward;
+                        }
+
+                        targetPosition = cameraPosition + direction * _minGhostDistance;
+                        _lastValidPosition = targetPosition;
+                    }
+                }
+                else
+                {
+                    // Нет предыдущей позиции — отодвигаем на минимальное расстояние
+                    Vector3 direction = toPosition.normalized;
+                    if (direction.sqrMagnitude < 0.0001f)
+                    {
+                        direction = _playerCamera.transform.forward;
+                    }
+
+                    targetPosition = cameraPosition + direction * _minGhostDistance;
+                    _lastValidPosition = targetPosition;
+                    _hasLastValidPosition = true;
+                }
+            }
+            else
+            {
+                // Позиция валидна — сохраняем её
+                _lastValidPosition = targetPosition;
+                _hasLastValidPosition = true;
+            }
+
             _ghostEntity.gameObject.SetActive(true);
             _ghostEntity.transform.position = targetPosition;
 
             // Поворачиваем к камере (только по оси Y)
-            Vector3 toCamera = _playerCamera.transform.position - targetPosition;
+            Vector3 toCamera = cameraPosition - targetPosition;
             toCamera.y = 0f;
             if (toCamera.sqrMagnitude > 0.000001f)
             {
@@ -211,27 +275,58 @@ namespace Assets._Project.Scripts.UI
             float normalizedAngle = (pitchAngle + 90f) / 180f;
 
             // Интерполируем расстояние: вниз (0) = min, вверх (1) = max
+            // Используем _minGhostDistance напрямую для интерполяции
             float targetDistance = Mathf.Lerp(_minGhostDistance, _maxGhostDistance, normalizedAngle);
             targetDistance *= _distanceMultiplier;
 
+            // Добавляем минимальное расстояние для больших объектов, чтобы они не перекрывали луч
+            // Но это влияет только на дальность raycast, а не на минимальное расстояние от игрока
+            if (_cachedEntityMaxSize > 0f)
+            {
+                float sizeOffset = _cachedEntityMaxSize * 0.5f;
+                targetDistance = Mathf.Max(targetDistance, _minGhostDistance + sizeOffset);
+            }
+
             Ray ray = new Ray(cameraPosition, cameraForward);
 
-            // Ищем поверхность по направлению взгляда с динамическим расстоянием
-            if (Physics.Raycast(ray, out RaycastHit hit, targetDistance, _surfaceLayerMask,
-                    QueryTriggerInteraction.Ignore))
+            // Ищем поверхность, исключая сам ghost entity
+            RaycastHit[] hits =
+                Physics.RaycastAll(ray, targetDistance, _surfaceLayerMask, QueryTriggerInteraction.Ignore);
+
+            // Фильтруем попадания: исключаем коллайдеры самого ghost entity
+            RaycastHit? validHit = null;
+            float closestHitDistance = float.MaxValue;
+
+            for (int i = 0; i < hits.Length; i++)
             {
+                var hit = hits[i];
+                // Пропускаем попадания в сам ghost entity
+                if (_ghostEntity != null && hit.collider.transform.root == _ghostEntity.transform.root)
+                    continue;
+
+                if (hit.distance < closestHitDistance)
+                {
+                    closestHitDistance = hit.distance;
+                    validHit = hit;
+                }
+            }
+
+            if (validHit.HasValue)
+            {
+                var hit = validHit.Value;
                 _hasLastSurface = true;
                 _lastSurfacePoint = hit.point;
                 _lastSurfaceNormal = hit.normal;
                 return hit.point + hit.normal * _surfaceOffset;
             }
 
-            // Луч ушёл в небо — используем последнюю валидную поверхность для плавного скольжения
+            // Луч ушёл в небо или попал только в ghost — используем последнюю валидную поверхность для плавного скольжения
             if (_hasLastSurface)
             {
                 Plane plane = new Plane(_lastSurfaceNormal, _lastSurfacePoint);
                 if (plane.Raycast(ray, out float planeDist))
                 {
+                    // Убеждаемся, что расстояние не меньше минимального
                     float d = Mathf.Clamp(planeDist, _minGhostDistance, _maxGhostDistance);
                     Vector3 onPlane = ray.GetPoint(d);
                     return onPlane + _lastSurfaceNormal * _surfaceOffset;
@@ -435,6 +530,37 @@ namespace Assets._Project.Scripts.UI
 
                 _combinedRenderers.Add(r);
             }
+        }
+
+        private void CacheEntityBounds()
+        {
+            _cachedEntityMaxSize = 0f;
+            _cachedEntityBounds = new Bounds();
+
+            if (_ghostEntity == null || _combinedRenderers.Count == 0)
+                return;
+
+            // Вычисляем общие границы entity
+            bool first = true;
+            for (int i = 0; i < _combinedRenderers.Count; i++)
+            {
+                var r = _combinedRenderers[i];
+                if (r == null) continue;
+
+                if (first)
+                {
+                    _cachedEntityBounds = r.bounds;
+                    first = false;
+                }
+                else
+                {
+                    _cachedEntityBounds.Encapsulate(r.bounds);
+                }
+            }
+
+            // Вычисляем максимальный размер (диагональ или максимальная сторона)
+            Vector3 size = _cachedEntityBounds.size;
+            _cachedEntityMaxSize = Mathf.Max(size.x, size.y, size.z);
         }
     }
 }

@@ -14,8 +14,7 @@ namespace Assets._Project.Scripts.UI
     /// </summary>
     public class ScreenshotManager : Singleton<ScreenshotManager>
     {
-        [Header("Screenshot Settings")] [SerializeField]
-        private Camera _screenshotCamera;
+        [Header("Screenshot Settings")] 
 
         [SerializeField] private Vector3 _cameraOffset = new Vector3(0f, 2f, -4f);
         [SerializeField] private bool _useObjectSpaceOffset = true;
@@ -83,10 +82,10 @@ namespace Assets._Project.Scripts.UI
             int w = Mathf.Max(1, width ?? _screenshotWidth);
             int h = Mathf.Max(1, height ?? _screenshotHeight);
 
-            bool prevActive = _screenshotCamera.gameObject.activeSelf;
-            int prevCullingMask = _screenshotCamera.cullingMask;
-            CameraClearFlags prevClearFlags = _screenshotCamera.clearFlags;
-            Color prevBackground = _screenshotCamera.backgroundColor;
+            bool prevActive = SaveSystem.Instance._screenshotCamera.gameObject.activeSelf;
+            int prevCullingMask = SaveSystem.Instance._screenshotCamera.cullingMask;
+            CameraClearFlags prevClearFlags = SaveSystem.Instance._screenshotCamera.clearFlags;
+            Color prevBackground = SaveSystem.Instance._screenshotCamera.backgroundColor;
 
             var originalLayers = new List<(Transform t, int layer)>();
             RenderTexture rt = null;
@@ -97,11 +96,11 @@ namespace Assets._Project.Scripts.UI
 
                 // Рендер
                 rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
-                _screenshotCamera.targetTexture = rt;
-                _screenshotCamera.clearFlags = CameraClearFlags.SolidColor;
-                _screenshotCamera.backgroundColor = _screenshotBackgroundColor;
-                _screenshotCamera.cullingMask = 1 << _screenshotSubjectLayer;
-                _screenshotCamera.gameObject.SetActive(true);
+                SaveSystem.Instance._screenshotCamera.targetTexture = rt;
+                SaveSystem.Instance._screenshotCamera.clearFlags = CameraClearFlags.SolidColor;
+                SaveSystem.Instance._screenshotCamera.backgroundColor = _screenshotBackgroundColor;
+                SaveSystem.Instance._screenshotCamera.cullingMask = 1 << _screenshotSubjectLayer;
+                SaveSystem.Instance._screenshotCamera.gameObject.SetActive(true);
 
                 // Расставляем камеру
                 var renderers = entity.GetComponentsInChildren<Renderer>();
@@ -123,17 +122,17 @@ namespace Assets._Project.Scripts.UI
                     Vector3 tiltAxis = Vector3.Cross(horizontal, Vector3.up).normalized;
                     Vector3 viewDir = Quaternion.AngleAxis(15f, tiltAxis) * horizontal;
                     float radius = bounds.extents.magnitude;
-                    float tanHalfFov = Mathf.Tan(0.5f * _screenshotCamera.fieldOfView * Mathf.Deg2Rad);
+                    float tanHalfFov = Mathf.Tan(0.5f * SaveSystem.Instance._screenshotCamera.fieldOfView * Mathf.Deg2Rad);
                     float aspect = (float)w / Mathf.Max(1, h);
                     float dVert = radius / Mathf.Max(1e-4f, tanHalfFov);
                     float dHorz = radius / Mathf.Max(1e-4f, tanHalfFov * aspect);
                     float distance = Mathf.Max(dVert, dHorz) * Mathf.Max(1.0f, _framingPadding);
                     Vector3 desiredPos = target + viewDir * distance;
-                    _screenshotCamera.transform.position = desiredPos;
-                    _screenshotCamera.transform.rotation =
+                    SaveSystem.Instance._screenshotCamera.transform.position = desiredPos;
+                    SaveSystem.Instance._screenshotCamera.transform.rotation =
                         Quaternion.LookRotation((target - desiredPos).normalized, Vector3.up);
 
-                    _screenshotCamera.Render();
+                    SaveSystem.Instance._screenshotCamera.Render();
 
 #if UNITY_2018_2_OR_NEWER
                     // Асинхронное считывание с GPU (через колбэк)
@@ -166,13 +165,13 @@ namespace Assets._Project.Scripts.UI
             finally
             {
                 // Восстанавливаем состояние камеры и слои сразу после постановки запроса
-                if (_screenshotCamera != null)
+                if (SaveSystem.Instance._screenshotCamera != null)
                 {
-                    _screenshotCamera.targetTexture = null;
-                    _screenshotCamera.cullingMask = prevCullingMask;
-                    _screenshotCamera.clearFlags = prevClearFlags;
-                    _screenshotCamera.backgroundColor = prevBackground;
-                    _screenshotCamera.gameObject.SetActive(prevActive);
+                    SaveSystem.Instance._screenshotCamera.targetTexture = null;
+                    SaveSystem.Instance._screenshotCamera.cullingMask = prevCullingMask;
+                    SaveSystem.Instance._screenshotCamera.clearFlags = prevClearFlags;
+                    SaveSystem.Instance._screenshotCamera.backgroundColor = prevBackground;
+                    SaveSystem.Instance._screenshotCamera.gameObject.SetActive(prevActive);
                 }
 
                 RestoreLayers(originalLayers);

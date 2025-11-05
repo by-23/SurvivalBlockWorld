@@ -150,6 +150,13 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
+            // Отменяем ghost entity при переключении инструмента
+            var entityManager = FindFirstObjectByType<EntityManager>();
+            if (entityManager != null)
+            {
+                entityManager.CancelGhost();
+            }
+
             // Отключаем визуализатор перед переключением инструментов
             if (_entityVisualizer != null)
             {

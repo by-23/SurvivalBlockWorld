@@ -591,6 +591,13 @@ public class EntityManager : MonoBehaviour
                 entity.FinalizeLoad();
             }
 
+            // Отменяем предыдущий ghost, если он существует
+            if (_ghostPlacer != null && _ghostPlacer.IsActive)
+            {
+                _ghostPlacer.Cancel();
+                _currentGhostEntity = null;
+            }
+
             // Переходим в ghost-режим вместо финального размещения
             if (_ghostPlacer != null)
             {
@@ -752,6 +759,14 @@ public class EntityManager : MonoBehaviour
             _currentGhostEntity = null;
             Debug.Log("Ghost entity отменён");
         }
+    }
+
+    /// <summary>
+    /// Проверяет, активен ли ghost entity в данный момент
+    /// </summary>
+    public bool IsGhostActive()
+    {
+        return _ghostPlacer != null && _ghostPlacer.IsActive;
     }
 }
 

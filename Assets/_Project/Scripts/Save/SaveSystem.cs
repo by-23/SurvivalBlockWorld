@@ -9,8 +9,8 @@ public class SaveSystem : Singleton<SaveSystem>
     [Header("Configuration")] [SerializeField]
     private SaveConfig _config;
 
-    [Header("Screenshot")] [SerializeField]
-    private Camera _screenshotCamera;
+    [Header("Screenshot")] 
+    public Camera _screenshotCamera;
 
     [SerializeField] private int _screenshotWidth = 1920;
     [SerializeField] private int _screenshotHeight = 1080;
@@ -41,7 +41,7 @@ public class SaveSystem : Singleton<SaveSystem>
                 return;
             }
         }
-
+       
         _chunkManager = new ChunkManager(_config);
         _fileManager = new FileManager(_config);
         _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
@@ -66,7 +66,6 @@ public class SaveSystem : Singleton<SaveSystem>
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        _screenshotCamera = null;
         FindScreenshotCamera();
         ValidateCubeSpawnerPrefabs();
     }
