@@ -224,7 +224,7 @@ public class EntityManager : MonoBehaviour
     }
 
 
-    private Entity GetTargetEntity()
+    public Entity GetTargetEntity()
     {
         // Сначала берём из EntitySelector, если он есть
         if (_selector != null)

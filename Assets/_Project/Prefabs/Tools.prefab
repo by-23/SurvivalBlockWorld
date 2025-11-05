@@ -74,7 +74,7 @@ GameObject:
   - component: {fileID: 2910710070985067754}
   - component: {fileID: 5796399195515678343}
   m_Layer: 0
-  m_Name: SaveSpawn
+  m_Name: EntityCreator
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -152,9 +152,8 @@ MonoBehaviour:
   _blockedLayerMask:
     serializedVersion: 2
     m_Bits: 67457
-  _surfaceOffset: 0
   _maxGhostDistance: 100
-  _minGhostDistance: 3
+  _minGhostDistance: 5
   _distanceMultiplier: 1
   _ghostMaterialGreen: {fileID: 2100000, guid: c2e5da4fa9f59e84096ab0ad2d4deff7, type: 2}
   _ghostMaterialRed: {fileID: 2100000, guid: 7f48292e9165348dfbe135eb468b0582, type: 2}
@@ -206,6 +205,54 @@ MonoBehaviour:
   _explosionRadius: 1.5
   _maxCubesPerFrame: 10
   _camera: {fileID: 0}
+--- !u!1 &4790049769583868008
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8592521082416309470}
+  - component: {fileID: 3885201095031460002}
+  m_Layer: 0
+  m_Name: MoveTool
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8592521082416309470
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4790049769583868008}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7427528661894488601}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &3885201095031460002
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4790049769583868008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: af877e0d675a24a68bdd0eb631d38cf2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _entityManager: {fileID: 2910710070985067754}
+  _ghostPlacer: {fileID: 5796399195515678343}
+  _playerCamera: {fileID: 0}
+  _moveButton: {fileID: 0}
 --- !u!1 &5586815943144874399
 GameObject:
   m_ObjectHideFlags: 0
@@ -239,6 +286,7 @@ Transform:
   - {fileID: 2606152367347785105}
   - {fileID: 6096220762621402411}
   - {fileID: 3684172478690442565}
+  - {fileID: 8592521082416309470}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5823710793783501992

@@ -387,10 +387,45 @@ namespace Assets._Project.Scripts.UI
                 return false;
 
             // Вычисляем bounds entity по комбинированным рендерам
-            Bounds combined = renderers[0].bounds;
-            for (int i = 1; i < renderers.Count; i++)
+            Renderer firstRenderer = null;
+            for (int i = 0; i < renderers.Count; i++)
             {
-                combined.Encapsulate(renderers[i].bounds);
+                if (renderers[i] != null)
+                {
+                    firstRenderer = renderers[i];
+                    break;
+                }
+            }
+
+            if (firstRenderer == null)
+                return false;
+
+            Bounds combined;
+            try
+            {
+                combined = firstRenderer.bounds;
+            }
+            catch (MissingReferenceException)
+            {
+                // Рендерер был уничтожен
+                return false;
+            }
+
+            for (int i = 0; i < renderers.Count; i++)
+            {
+                var r = renderers[i];
+                if (r != null && r != firstRenderer)
+                {
+                    try
+                    {
+                        combined.Encapsulate(r.bounds);
+                    }
+                    catch (MissingReferenceException)
+                    {
+                        // Рендерер был уничтожен - пропускаем
+                        continue;
+                    }
+                }
             }
 
             Vector3 currentCenter = combined.center;
@@ -584,14 +619,22 @@ namespace Assets._Project.Scripts.UI
                 var r = _combinedRenderers[i];
                 if (r == null) continue;
 
-                if (first)
+                try
                 {
-                    _cachedEntityBounds = r.bounds;
-                    first = false;
+                    if (first)
+                    {
+                        _cachedEntityBounds = r.bounds;
+                        first = false;
+                    }
+                    else
+                    {
+                        _cachedEntityBounds.Encapsulate(r.bounds);
+                    }
                 }
-                else
+                catch (MissingReferenceException)
                 {
-                    _cachedEntityBounds.Encapsulate(r.bounds);
+                    // Рендерер был уничтожен - пропускаем
+                    continue;
                 }
             }
 

@@ -223,8 +223,9 @@ namespace Assets._Project.Scripts.UI
                 selectedTool.SetActive(true);
                 _activeToolName = selectedTool.name;
 
-                // Активируем визуализатор если выбран инструмент "SaveSpawn"
-                if (_entityVisualizer != null && selectedTool.name.Contains("SaveSpawn"))
+                // Активируем визуализатор если выбран инструмент "SaveSpawn" или "Move"
+                if (_entityVisualizer != null &&
+                    (selectedTool.name.Contains("SaveSpawn") || selectedTool.name.Contains("Move")))
                 {
                     _entityVisualizer.ActivateForTool(_activeToolName);
                 }
