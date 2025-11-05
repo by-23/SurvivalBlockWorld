@@ -42,7 +42,6 @@ public class PlayerMovement : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
-
     }
 
     private void Update()
@@ -70,7 +69,6 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleMovement()
     {
-
         // Проверяем режим игрока
         if (Player.Instance != null && Player.Instance._playerMode != PlayerMode.PlayerControl)
             return;
@@ -169,15 +167,19 @@ public class PlayerMovement : MonoBehaviour
         _Grounded = physicsGrounded || _characterController.isGrounded;
 
         // Дополнительная проверка с помощью Raycast для определения угла поверхности
+        // Используем меньшую дистанцию и проверяем вертикальную скорость, чтобы избежать преждевременного определения приземления
         if (!_Grounded)
         {
             RaycastHit hit;
             Vector3 rayStart = transform.position + Vector3.up * 0.1f;
-            if (Physics.Raycast(rayStart, Vector3.down, out hit, 1.5f, _GroundLayers))
+            // Используем меньшую дистанцию, близкую к высоте CharacterController
+            float raycastDistance = 0.5f;
+            if (Physics.Raycast(rayStart, Vector3.down, out hit, raycastDistance, _GroundLayers))
             {
                 float angle = Vector3.Angle(hit.normal, Vector3.up);
-                // Если угол поверхности меньше лимита наклона, считаем что мы на земле
-                if (angle < _slopeLimit)
+                // Если угол поверхности меньше лимита наклона И вертикальная скорость не слишком большая (не падаем быстро)
+                // Считаем игрока на земле только если он медленно опускается или уже почти приземлился
+                if (angle < _slopeLimit && _velocity.y > -5f)
                 {
                     _Grounded = true;
                 }
@@ -197,7 +199,6 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleLaser()
     {
-
         // Проверяем режим игрока
         if (Player.Instance != null && Player.Instance._playerMode != PlayerMode.PlayerControl)
             return;
@@ -240,7 +241,7 @@ public class PlayerMovement : MonoBehaviour
         // Визуализация Raycast для проверки наклонов
         Gizmos.color = Color.red;
         Vector3 rayStart = transform.position + Vector3.up * 0.1f;
-        Gizmos.DrawRay(rayStart, Vector3.down * 1.5f);
+        Gizmos.DrawRay(rayStart, Vector3.down * 0.5f);
 
         // Показываем лимит наклона
         Gizmos.color = Color.green;
