@@ -13,8 +13,6 @@ namespace Assets._Project.Scripts.UI
 
         [SerializeField] private LayerMask _blockedLayerMask = ~0;
 
-        [SerializeField] private float _surfaceOffset = 0.5f;
-
         [SerializeField] private float _maxGhostDistance = 8f;
         [SerializeField] private float _minGhostDistance = 2f;
 
@@ -49,6 +47,11 @@ namespace Assets._Project.Scripts.UI
         private float _cachedEntityMaxSize;
         private Vector3 _lastValidPosition;
         private bool _hasLastValidPosition;
+
+        private float
+            _entityBottomExtent; // расстояние от центра bounds до нижней точки по оси Y в локальных координатах
+
+        private Vector3 _boundsCenterOffset; // offset от transform.position до центра bounds в локальных координатах
 
         public bool IsActive => _isActive;
 
@@ -180,6 +183,14 @@ namespace Assets._Project.Scripts.UI
         {
             if (_ghostEntity == null || _playerCamera == null)
                 return;
+
+            // Гарантируем, что ghost остается kinematic на протяжении всего ghost-режима
+            var rb = _ghostEntity.GetComponent<Rigidbody>();
+            if (rb != null && !rb.isKinematic)
+            {
+                rb.isKinematic = true;
+                rb.useGravity = false;
+            }
 
             Vector3 targetPosition = GetGhostPosition();
             if (targetPosition == Vector3.zero)
@@ -317,7 +328,8 @@ namespace Assets._Project.Scripts.UI
                 _hasLastSurface = true;
                 _lastSurfacePoint = hit.point;
                 _lastSurfaceNormal = hit.normal;
-                return hit.point + hit.normal * _surfaceOffset;
+
+                return GetSurfacePosition(hit.point, hit.normal);
             }
 
             // Луч ушёл в небо или попал только в ghost — используем последнюю валидную поверхность для плавного скольжения
@@ -329,17 +341,40 @@ namespace Assets._Project.Scripts.UI
                     // Убеждаемся, что расстояние не меньше минимального
                     float d = Mathf.Clamp(planeDist, _minGhostDistance, _maxGhostDistance);
                     Vector3 onPlane = ray.GetPoint(d);
-                    return onPlane + _lastSurfaceNormal * _surfaceOffset;
+                    return GetSurfacePosition(onPlane, _lastSurfaceNormal);
                 }
 
                 // Почти параллельно плоскости — двигаемся по касательной
                 Vector3 tangent = Vector3.ProjectOnPlane(cameraForward, _lastSurfaceNormal).normalized;
                 Vector3 slide = _lastSurfacePoint + tangent * targetDistance;
-                return slide + _lastSurfaceNormal * _surfaceOffset;
+                return GetSurfacePosition(slide, _lastSurfaceNormal);
             }
 
             // Нет предыдущей поверхности — ставим просто перед игроком на рассчитанном расстоянии
             return cameraPosition + cameraForward.normalized * targetDistance;
+        }
+
+        // Вычисляет позицию entity на поверхности так, чтобы нижняя точка bounds касалась поверхности
+        private Vector3 GetSurfacePosition(Vector3 surfacePoint, Vector3 surfaceNormal)
+        {
+            if (_ghostEntity == null)
+                return surfacePoint;
+
+            // Вычисляем центр bounds в мировых координатах относительно transform.position
+            Vector3 boundsCenterWorldOffset = _ghostEntity.transform.TransformVector(_boundsCenterOffset);
+
+            // Вычисляем направление вниз от центра bounds
+            Vector3 downVector = _ghostEntity.transform.TransformDirection(Vector3.down);
+
+            // Вычисляем offset от центра bounds до нижней точки bounds
+            Vector3 bottomPointOffsetFromCenter = downVector * _entityBottomExtent;
+
+            // Полный offset от transform.position до нижней точки bounds
+            Vector3 bottomPointOffset = boundsCenterWorldOffset + bottomPointOffsetFromCenter;
+
+            // Вычисляем, насколько нужно поднять/опустить entity, чтобы нижняя точка коснулась поверхности
+            float offsetOnNormal = Vector3.Dot(bottomPointOffset, surfaceNormal);
+            return surfacePoint - surfaceNormal * offsetOnNormal;
         }
 
         private bool IsPositionOccupied(Vector3 position)
@@ -383,7 +418,7 @@ namespace Assets._Project.Scripts.UI
         private bool IsGrounded(Vector3 position)
         {
             // луч немного выше точки касания, вниз на небольшой диапазон
-            float dist = Mathf.Max(_surfaceOffset * 1.2f, 0.05f);
+            float dist = 2;
             Vector3 origin = position + Vector3.up * 0.01f;
             return Physics.Raycast(origin, Vector3.down, dist, _surfaceLayerMask, QueryTriggerInteraction.Ignore);
         }
@@ -536,6 +571,8 @@ namespace Assets._Project.Scripts.UI
         {
             _cachedEntityMaxSize = 0f;
             _cachedEntityBounds = new Bounds();
+            _entityBottomExtent = 0f;
+            _boundsCenterOffset = Vector3.zero;
 
             if (_ghostEntity == null || _combinedRenderers.Count == 0)
                 return;
@@ -561,6 +598,14 @@ namespace Assets._Project.Scripts.UI
             // Вычисляем максимальный размер (диагональ или максимальная сторона)
             Vector3 size = _cachedEntityBounds.size;
             _cachedEntityMaxSize = Mathf.Max(size.x, size.y, size.z);
+
+            // Вычисляем offset от transform.position до центра bounds в локальных координатах
+            Vector3 boundsCenterWorldOffset = _cachedEntityBounds.center - _ghostEntity.transform.position;
+            _boundsCenterOffset = _ghostEntity.transform.InverseTransformVector(boundsCenterWorldOffset);
+
+            // Вычисляем расстояние от центра bounds до нижней точки bounds в локальных координатах
+            Vector3 localSize = _ghostEntity.transform.InverseTransformVector(_cachedEntityBounds.size);
+            _entityBottomExtent = localSize.y * 0.5f;
         }
     }
 }

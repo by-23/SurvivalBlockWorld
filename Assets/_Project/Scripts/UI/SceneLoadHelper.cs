@@ -59,13 +59,14 @@ namespace Assets._Project.Scripts.UI
         /// <returns>True если загрузка успешна, false если произошла ошибка</returns>
         public static async Task<bool> LoadWorldAsync(string mapName, System.Action<float> onProgress = null)
         {
-            if (SaveSystem.Instance == null)
+            SaveSystem saveSystem = Object.FindAnyObjectByType<SaveSystem>();
+            if (saveSystem == null)
             {
-                Debug.LogError("SaveSystem.Instance is null");
+                Debug.LogError("SaveSystem not found in scene");
                 return false;
             }
 
-            bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, onProgress);
+            bool loadSuccess = await saveSystem.LoadWorldAsync(mapName, onProgress);
 
             if (loadSuccess)
             {

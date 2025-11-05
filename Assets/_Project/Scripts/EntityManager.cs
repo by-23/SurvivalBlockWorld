@@ -270,7 +270,7 @@ public class EntityManager : MonoBehaviour
             // Делаем скриншот
             if (_screenshotManager == null)
             {
-                _screenshotManager = ScreenshotManager.Instance;
+                _screenshotManager = new ScreenshotManager();
             }
 
             string screenshotId = string.Empty;
@@ -374,7 +374,7 @@ public class EntityManager : MonoBehaviour
 
         if (_screenshotManager == null)
         {
-            _screenshotManager = ScreenshotManager.Instance;
+            _screenshotManager = new ScreenshotManager();
         }
 
         if (image != null && _screenshotManager != null && !string.IsNullOrEmpty(screenshotId))
@@ -664,7 +664,7 @@ public class EntityManager : MonoBehaviour
             if (!string.IsNullOrEmpty(screenshotId))
             {
                 if (_screenshotManager == null)
-                    _screenshotManager = ScreenshotManager.Instance;
+                    _screenshotManager = new ScreenshotManager();
 
                 if (_screenshotManager != null)
                 {
@@ -789,6 +789,12 @@ public class EntityManager : MonoBehaviour
         if (_cancelGhostButton != null)
         {
             _cancelGhostButton.gameObject.SetActive(isActive);
+        }
+
+        // Отключаем кнопку сохранения, когда ghost активен
+        if (_saveButton != null)
+        {
+            _saveButton.interactable = !isActive;
         }
     }
 }

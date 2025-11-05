@@ -7,21 +7,23 @@ using UnityEngine.UI;
 namespace Assets._Project.Scripts.UI.Editor
 {
 #if UNITY_EDITOR
-    [CustomEditor(typeof(ScreenshotManager))]
-    public class ScreenshotManagerEditor : UnityEditor.Editor
+    public class ScreenshotManagerEditor : EditorWindow
     {
         private Vector2 _scroll;
         private readonly Dictionary<string, Texture2D> _thumbCache = new Dictionary<string, Texture2D>();
+        private ScreenshotManager _manager;
 
-        public override void OnInspectorGUI()
+        [MenuItem("Tools/Screenshot Manager")]
+        public static void ShowWindow()
         {
-            DrawDefaultInspector();
+            GetWindow<ScreenshotManagerEditor>("Screenshot Manager");
+        }
 
-            var mgr = ScreenshotManager.Instance;
-            if (mgr == null)
+        private void OnGUI()
+        {
+            if (_manager == null)
             {
-                EditorGUILayout.HelpBox("ScreenshotManager instance not found.", MessageType.Warning);
-                return;
+                _manager = new ScreenshotManager();
             }
 
             EditorGUILayout.Space();
@@ -30,7 +32,7 @@ namespace Assets._Project.Scripts.UI.Editor
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Refresh Index"))
             {
-                RefreshIndexAsync(mgr);
+                RefreshIndexAsync(_manager);
             }
 
             if (GUILayout.Button("Open Folder"))
@@ -43,9 +45,9 @@ namespace Assets._Project.Scripts.UI.Editor
             EditorGUILayout.Space();
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll, GUILayout.Height(300));
-            foreach (var kv in mgr.GetAllScreenshots())
+            foreach (var kv in _manager.GetAllScreenshots())
             {
-                DrawEntry(mgr, kv.Key, kv.Value);
+                DrawEntry(_manager, kv.Key, kv.Value);
             }
 
             EditorGUILayout.EndScrollView();

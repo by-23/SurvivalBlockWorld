@@ -40,6 +40,9 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private MapListUI mapListUI;
         [SerializeField] private GameObject _loadingPanel;
 
+        [Header("Save System")] [SerializeField]
+        private SaveSystem _saveSystem;
+
         [Header("Tool Selection")] [SerializeField] [SerializedDictionary("Button", "Tool Object")]
         private SerializedDictionary<Button, GameObject> _tools;
 
@@ -247,7 +250,10 @@ namespace Assets._Project.Scripts.UI
             if (_saveNameInput != null && !string.IsNullOrEmpty(_saveNameInput.text))
             {
                 string worldName = _saveNameInput.text.Trim();
-                SaveSystem.Instance.SaveWorld(worldName);
+                if (_saveSystem == null)
+                    _saveSystem = FindAnyObjectByType<SaveSystem>();
+                if (_saveSystem != null)
+                    _saveSystem.SaveWorld(worldName);
 
                 if (GameManager.Instance != null)
                 {
@@ -340,9 +346,11 @@ namespace Assets._Project.Scripts.UI
             }
 
             // Сохраняем карту
-            if (SaveSystem.Instance != null)
+            if (_saveSystem == null)
+                _saveSystem = FindAnyObjectByType<SaveSystem>();
+            if (_saveSystem != null)
             {
-                bool success = await SaveSystem.Instance.SaveWorldAsync(worldName);
+                bool success = await _saveSystem.SaveWorldAsync(worldName);
                 if (!success)
                 {
                     Debug.LogError("Failed to save world.");
@@ -365,7 +373,7 @@ namespace Assets._Project.Scripts.UI
             }
             else
             {
-                Debug.LogError("SaveSystem.Instance is null!");
+                Debug.LogError("SaveSystem not found!");
                 if (_loadingPanel != null)
                 {
                     _loadingPanel.SetActive(false);

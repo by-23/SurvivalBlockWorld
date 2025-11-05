@@ -131,7 +131,7 @@ namespace Assets._Project.Scripts.UI
             {
                 ClearMapList();
                 if (_saveSystem == null)
-                    _saveSystem = SaveSystem.Instance;
+                    _saveSystem = FindAnyObjectByType<SaveSystem>();
                 if (_saveSystem == null)
                 {
                     Debug.LogError("SaveSystem not assigned to MapListUI!");
@@ -271,9 +271,11 @@ namespace Assets._Project.Scripts.UI
             {
                 await LoadMapSceneAsync();
 
-                if (SaveSystem.Instance != null)
+                if (_saveSystem == null)
+                    _saveSystem = FindAnyObjectByType<SaveSystem>();
+                if (_saveSystem != null)
                 {
-                    bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, OnWorldLoadProgress);
+                    bool loadSuccess = await _saveSystem.LoadWorldAsync(mapName, OnWorldLoadProgress);
 
                     if (loadSuccess)
                     {
@@ -314,9 +316,11 @@ namespace Assets._Project.Scripts.UI
             }
             else
             {
-                if (SaveSystem.Instance != null)
+                if (_saveSystem == null)
+                    _saveSystem = FindAnyObjectByType<SaveSystem>();
+                if (_saveSystem != null)
                 {
-                    bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
+                    bool loadSuccess = await _saveSystem.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
 
                     if (loadSuccess)
                     {
@@ -438,9 +442,13 @@ namespace Assets._Project.Scripts.UI
             }
 
             // Если указано имя карты, загружаем её
-            if (!string.IsNullOrEmpty(mapName) && SaveSystem.Instance != null)
+            if (!string.IsNullOrEmpty(mapName))
             {
-                bool loadSuccess = await SaveSystem.Instance.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
+                if (_saveSystem == null)
+                    _saveSystem = FindAnyObjectByType<SaveSystem>();
+                if (_saveSystem != null)
+            {
+                    bool loadSuccess = await _saveSystem.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
 
                 if (!loadSuccess)
                 {
@@ -459,6 +467,7 @@ namespace Assets._Project.Scripts.UI
                 if (GameManager.Instance != null)
                 {
                     GameManager.Instance.CurrentWorldName = mapName;
+                    }
                 }
             }
 

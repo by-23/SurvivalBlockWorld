@@ -4,7 +4,7 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-public class SaveSystem : Singleton<SaveSystem>
+public class SaveSystem : MonoBehaviour
 {
     [Header("Configuration")] [SerializeField]
     private SaveConfig _config;
@@ -23,7 +23,7 @@ public class SaveSystem : Singleton<SaveSystem>
     private bool _isLoading = false;
 
 
-    private new void Awake()
+    private void Awake()
     {
         Application.targetFrameRate = -1;
         QualitySettings.vSyncCount = 0;

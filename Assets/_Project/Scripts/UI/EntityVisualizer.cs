@@ -54,7 +54,7 @@ namespace Assets._Project.Scripts.UI
             {
                 Entity hitEntity = hit.collider.GetComponentInParent<Entity>();
 
-                if (hitEntity != null)
+                if (hitEntity != null && !hitEntity.IsGhost)
                 {
                     if (_currentlyHighlightedEntity != hitEntity)
                     {

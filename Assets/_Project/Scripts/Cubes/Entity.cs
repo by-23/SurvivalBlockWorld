@@ -1261,6 +1261,10 @@ public class Entity : MonoBehaviour
     // Вызывается когда к entity прикрепляется хук - включаем физику
     public void EnablePhysics()
     {
+        // Не включаем физику для ghost entity
+        if (_isGhost)
+            return;
+
         if (_rb != null)
         {
             _rb.isKinematic = false;

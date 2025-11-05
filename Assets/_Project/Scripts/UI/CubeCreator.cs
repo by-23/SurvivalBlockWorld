@@ -88,11 +88,6 @@ namespace Assets._Project.Scripts.UI
             {
                 button.onClick.AddListener(() => OnColorButtonClicked(button));
             }
-
-            if (colorButtons.Length > 0)
-            {
-                OnColorButtonClicked(colorButtons[0]);
-            }
         }
 
         private void OnColorButtonClicked(Button clickedButton)

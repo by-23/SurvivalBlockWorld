@@ -7578,12 +7578,12 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 416791754}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 072f44e02432ae04a998bf77aac75e43, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  CurrentWorldName: 333
+  CurrentWorldName: 
   PendingExitToMenu: 0
   _loadingScreenshotImage: {fileID: 358215421}
 --- !u!4 &416791756
@@ -34508,6 +34508,11 @@ PrefabInstance:
       propertyPath: _camera
       value: 
       objectReference: {fileID: 1844830215}
+    - target: {fileID: 2459096628326300435, guid: 3c289869ea479420fab9dba3343e5026,
+        type: 3}
+      propertyPath: m_Name
+      value: EntityCreator
+      objectReference: {fileID: 0}
     - target: {fileID: 2910710070985067754, guid: 3c289869ea479420fab9dba3343e5026,
         type: 3}
       propertyPath: _loadButton
@@ -35163,7 +35168,8 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: 7195468039577891291, guid: 4a0e2797e3c5d4cacaec399e69171abf, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents: []
