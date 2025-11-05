@@ -9,8 +9,7 @@ public class SaveSystem : Singleton<SaveSystem>
     [Header("Configuration")] [SerializeField]
     private SaveConfig _config;
 
-    [Header("Screenshot")] 
-    public Camera _screenshotCamera;
+    [Header("Screenshot")] public Camera _screenshotCamera;
 
     [SerializeField] private int _screenshotWidth = 1920;
     [SerializeField] private int _screenshotHeight = 1080;
@@ -24,7 +23,7 @@ public class SaveSystem : Singleton<SaveSystem>
     private bool _isLoading = false;
 
 
-    private void Awake()
+    private new void Awake()
     {
         Application.targetFrameRate = -1;
         QualitySettings.vSyncCount = 0;
@@ -40,14 +39,14 @@ public class SaveSystem : Singleton<SaveSystem>
                 return;
             }
         }
-       
+
         _chunkManager = new ChunkManager(_config);
         _fileManager = new FileManager(_config);
         _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
 
         if (_cubeSpawner == null)
             _cubeSpawner = FindAnyObjectByType<CubeSpawner>();
-        
+
 
         if (!_cubeSpawner.HasAvailablePrefabs())
         {

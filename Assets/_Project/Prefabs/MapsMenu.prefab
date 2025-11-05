@@ -243,7 +243,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2545764839931783955}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b18db97fc3f6142919508a8f49c922dc, type: 3}
   m_Name: 
@@ -720,7 +720,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: -467.02707}
+  m_AnchoredPosition: {x: 0, y: 0.000061035156}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1280934777969364096
@@ -738,7 +738,7 @@ MonoBehaviour:
   m_Padding:
     m_Left: 0
     m_Right: 0
-    m_Top: 0
+    m_Top: -400
     m_Bottom: 0
   m_ChildAlignment: 1
   m_Spacing: 70
@@ -1180,4 +1180,8 @@ MonoBehaviour:
   _saveSystem: {fileID: 0}
   _mapsMenu: {fileID: 7522302626090638246}
   _loadingPanel: {fileID: 0}
+  _newMapPanel: {fileID: 0}
+  _newMapNameInput: {fileID: 0}
+  _confirmNewMapButton: {fileID: 0}
+  _cancelNewMapButton: {fileID: 0}
   _mapSceneIndex: 1

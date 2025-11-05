@@ -19,7 +19,6 @@ public class CubeSpawner : MonoBehaviour
 
     private void Awake()
     {
-        // Автоматически загружаем префабы, если они не назначены
         LoadDefaultPrefabs();
 
         if (cubePrefabsByType != null)

@@ -1,14 +1,7 @@
 using UnityEngine;
 
-public class InputManager : MonoBehaviour
+public class InputManager : Singleton<InputManager>
 {
-    private static InputManager _instance;
-
-    public static InputManager Instance
-    {
-        get { return _instance; }
-    }
-
     public bool _TOUCH;
 
     public bool _Run, _Press, _Fire, _Build, _Props, _Laser;
@@ -22,17 +15,8 @@ public class InputManager : MonoBehaviour
 
     private void Awake()
     {
-        // Если уже есть экземпляр, уничтожаем этот
-        if (_instance != null && _instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
-        _instance = this;
         if (_Joystick == null)
             _Joystick = FindAnyObjectByType<bl_MovementJoystick>();
-        DontDestroyOnLoad(gameObject);
     }
 
     private void Start()

@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using System.Threading.Tasks;
+using TMPro;
 
 namespace Assets._Project.Scripts.UI
 {
@@ -25,6 +26,13 @@ namespace Assets._Project.Scripts.UI
         // [SerializeField] private GameObject _newGame;
         [SerializeField] private GameObject _loadingPanel;
 
+        [Header("New Map UI")] [SerializeField]
+        private GameObject _newMapPanel;
+
+        [SerializeField] private TMP_InputField _newMapNameInput;
+        [SerializeField] private Button _confirmNewMapButton;
+        [SerializeField] private Button _cancelNewMapButton;
+
         [Header("Scene Settings")] [SerializeField]
         private int _mapSceneIndex = 1; // Индекс сцены карты в Build Settings
 
@@ -45,7 +53,24 @@ namespace Assets._Project.Scripts.UI
             if (_startNewGameButton != null)
             {
                 _startNewGameButton.onClick.RemoveAllListeners();
-                _startNewGameButton.onClick.AddListener(() => StartNewGame());
+                _startNewGameButton.onClick.AddListener(PromptNewMapName);
+            }
+
+            if (_confirmNewMapButton != null)
+            {
+                _confirmNewMapButton.onClick.RemoveAllListeners();
+                _confirmNewMapButton.onClick.AddListener(OnConfirmNewMapName);
+            }
+
+            if (_cancelNewMapButton != null)
+            {
+                _cancelNewMapButton.onClick.RemoveAllListeners();
+                _cancelNewMapButton.onClick.AddListener(OnCancelNewMapName);
+            }
+
+            if (_newMapPanel != null)
+            {
+                _newMapPanel.SetActive(false);
             }
 
             if (SceneManager.GetActiveScene().buildIndex == 0)
@@ -252,6 +277,11 @@ namespace Assets._Project.Scripts.UI
 
                     if (loadSuccess)
                     {
+                        if (GameManager.Instance != null)
+                        {
+                            GameManager.Instance.CurrentWorldName = mapName;
+                        }
+
                         if (Player.Instance != null)
                         {
                             Player.Instance.ForcePlayerControlMode();
@@ -290,6 +320,11 @@ namespace Assets._Project.Scripts.UI
 
                     if (loadSuccess)
                     {
+                        if (GameManager.Instance != null)
+                        {
+                            GameManager.Instance.CurrentWorldName = mapName;
+                        }
+
                         if (Player.Instance != null)
                         {
                             Player.Instance.ForcePlayerControlMode();
@@ -385,7 +420,7 @@ namespace Assets._Project.Scripts.UI
                 _loadingPanel.SetActive(false);
             }
         }
-        
+
         public async void StartNewGame(string mapName = null)
         {
             gameObject.SetActive(false);
@@ -419,6 +454,11 @@ namespace Assets._Project.Scripts.UI
 
                     Time.timeScale = _originalTimeScale;
                     return;
+                }
+
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.CurrentWorldName = mapName;
                 }
             }
 
@@ -522,6 +562,77 @@ namespace Assets._Project.Scripts.UI
             catch (Exception e)
             {
                 Debug.LogError($"Failed to setup loading background: {e.Message}");
+            }
+        }
+
+        public void PromptNewMapName()
+        {
+            if (_newMapPanel != null)
+            {
+                _newMapPanel.SetActive(true);
+                if (_newMapNameInput != null)
+                {
+                    _newMapNameInput.text = "";
+                    _newMapNameInput.Select();
+                }
+            }
+        }
+
+        private async void OnConfirmNewMapName()
+        {
+            if (_newMapNameInput == null || string.IsNullOrWhiteSpace(_newMapNameInput.text))
+            {
+                Debug.LogError("Map name cannot be empty.");
+                return;
+            }
+
+            string worldName = _newMapNameInput.text.Trim();
+
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.CurrentWorldName = worldName;
+            }
+
+            if (_newMapPanel != null)
+            {
+                _newMapPanel.SetActive(false);
+            }
+
+            gameObject.SetActive(false);
+            ShowLoadingPanel();
+
+            _originalTimeScale = Time.timeScale;
+            Time.timeScale = 0f;
+
+            bool isInMenu = SceneManager.GetActiveScene().buildIndex == 0;
+
+            if (isInMenu)
+            {
+                await LoadMapSceneAsync();
+            }
+
+            ClearAllEntities();
+
+            if (Player.Instance != null)
+            {
+                Player.Instance.ForcePlayerControlMode();
+            }
+
+            HideLoadingPanel();
+
+            if (this != null)
+            {
+                CloseMapList();
+            }
+
+            Time.timeScale = _originalTimeScale;
+        }
+
+        private void OnCancelNewMapName()
+        {
+            if (_newMapPanel != null)
+            {
+                _newMapPanel.SetActive(false);
             }
         }
     }

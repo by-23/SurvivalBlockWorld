@@ -1,7 +1,9 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 using AYellowpaper.SerializedCollections;
+using System.Threading.Tasks;
 
 namespace Assets._Project.Scripts.UI
 {
@@ -17,18 +19,26 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private RopeGenerator _ropeGenerator;
         [SerializeField] private VehicleForce _vehicleForce;
         [SerializeField] private Bomb _raycastDetoucher;
-
-        [Header("Buttons")] [SerializeField] private Button _saveButton;
-        [SerializeField] private Button _mapsButton;
         [SerializeField] private Button _bombButton;
 
-        [Header("Save UI")] [SerializeField] private GameObject _savePanel;
+        [Header("Save UI")] [SerializeField] private Button _saveButton;
+        [SerializeField] private GameObject _savePanel;
         [SerializeField] private TMP_InputField _saveNameInput;
         [SerializeField] private Button _confirmSaveButton;
         [SerializeField] private Button _cancelSaveButton;
 
+        [Header("Menu Exit UI")] [SerializeField]
+        private Button _menuButton;
+
+        [SerializeField] private GameObject _exitMenuPanel;
+        [SerializeField] private TMP_InputField _exitMenuNameInput;
+        [SerializeField] private Button _exitAndSaveButton;
+        [SerializeField] private Button _exitWithoutSaveButton;
+        [SerializeField] private Button _cancelExitButton;
+
         [Header("Load UI")] [SerializeField] private Button _closeLoadPanelButton;
         [SerializeField] private MapListUI mapListUI;
+        [SerializeField] private GameObject _loadingPanel;
 
         [Header("Tool Selection")] [SerializeField] [SerializedDictionary("Button", "Tool Object")]
         private SerializedDictionary<Button, GameObject> _tools;
@@ -53,9 +63,9 @@ namespace Assets._Project.Scripts.UI
                 _saveButton.onClick.AddListener(OnSaveButtonPressed);
             }
 
-            if (_mapsButton != null)
+            if (_menuButton != null)
             {
-                _mapsButton.onClick.AddListener(OnMapsButtonPressed);
+                _menuButton.onClick.AddListener(RequestExitToMenu);
             }
 
             if (_confirmSaveButton != null)
@@ -66,6 +76,21 @@ namespace Assets._Project.Scripts.UI
             if (_cancelSaveButton != null)
             {
                 _cancelSaveButton.onClick.AddListener(OnCancelSaveButtonPressed);
+            }
+
+            if (_exitAndSaveButton != null)
+            {
+                _exitAndSaveButton.onClick.AddListener(OnExitAndSavePressed);
+            }
+
+            if (_exitWithoutSaveButton != null)
+            {
+                _exitWithoutSaveButton.onClick.AddListener(OnExitWithoutSavePressed);
+            }
+
+            if (_cancelExitButton != null)
+            {
+                _cancelExitButton.onClick.AddListener(OnCancelExitPressed);
             }
 
             if (_closeLoadPanelButton != null)
@@ -84,6 +109,16 @@ namespace Assets._Project.Scripts.UI
             if (_savePanel != null)
             {
                 _savePanel.SetActive(false);
+            }
+
+            if (_exitMenuPanel != null)
+            {
+                _exitMenuPanel.SetActive(false);
+            }
+
+            if (_loadingPanel != null)
+            {
+                _loadingPanel.SetActive(false);
             }
         }
 
@@ -199,23 +234,11 @@ namespace Assets._Project.Scripts.UI
             if (_savePanel != null)
             {
                 _savePanel.SetActive(true);
-                // Optionally clear previous input
                 if (_saveNameInput != null)
                 {
                     _saveNameInput.text = "";
+                    _saveNameInput.interactable = true;
                 }
-            }
-        }
-
-        private void OnMapsButtonPressed()
-        {
-            if (mapListUI != null)
-            {
-                mapListUI.OpenMapList();
-            }
-            else
-            {
-                Debug.LogError("UIManager: _mapListUIController is NULL!");
             }
         }
 
@@ -223,13 +246,17 @@ namespace Assets._Project.Scripts.UI
         {
             if (_saveNameInput != null && !string.IsNullOrEmpty(_saveNameInput.text))
             {
-                string worldName = _saveNameInput.text;
+                string worldName = _saveNameInput.text.Trim();
                 SaveSystem.Instance.SaveWorld(worldName);
+
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.CurrentWorldName = worldName;
+                }
             }
             else
             {
                 Debug.LogError("Save name cannot be empty.");
-                // Here you might want to show a message to the user
             }
 
             if (_savePanel != null)
@@ -243,6 +270,130 @@ namespace Assets._Project.Scripts.UI
             if (_savePanel != null)
             {
                 _savePanel.SetActive(false);
+            }
+        }
+
+        public void RequestExitToMenu()
+        {
+            if (_exitMenuPanel != null)
+            {
+                _exitMenuPanel.SetActive(true);
+
+                // Настраиваем поле ввода в зависимости от наличия названия
+                if (_exitMenuNameInput != null)
+                {
+                    if (GameManager.Instance != null && !string.IsNullOrEmpty(GameManager.Instance.CurrentWorldName))
+                    {
+                        // Название есть - показываем его, поле неактивно
+                        _exitMenuNameInput.text = GameManager.Instance.CurrentWorldName;
+                        _exitMenuNameInput.interactable = false;
+                    }
+                    else
+                    {
+                        // Названия нет - поле активно для ввода
+                        _exitMenuNameInput.text = "";
+                        _exitMenuNameInput.interactable = true;
+                        _exitMenuNameInput.Select();
+                    }
+                }
+            }
+        }
+
+        private async void OnExitAndSavePressed()
+        {
+            string worldName = null;
+
+            // Проверяем название из поля ввода в панели выхода
+            if (_exitMenuNameInput != null && !string.IsNullOrWhiteSpace(_exitMenuNameInput.text))
+            {
+                worldName = _exitMenuNameInput.text.Trim();
+            }
+            else if (GameManager.Instance != null && !string.IsNullOrEmpty(GameManager.Instance.CurrentWorldName))
+            {
+                // Если поле ввода пустое, но есть сохраненное название
+                worldName = GameManager.Instance.CurrentWorldName;
+            }
+
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Map name cannot be empty.");
+                return;
+            }
+
+            // Закрываем панель выхода
+            if (_exitMenuPanel != null)
+            {
+                _exitMenuPanel.SetActive(false);
+            }
+
+            // Показываем панель загрузки
+            if (_loadingPanel != null)
+            {
+                _loadingPanel.SetActive(true);
+            }
+
+            // Загружаем скриншот сразу при начале загрузки
+            if (GameManager.Instance != null)
+            {
+                string screenshotPath = System.IO.Path.Combine(Application.persistentDataPath, worldName + ".png");
+                GameManager.Instance.LoadScreenshotToImage(screenshotPath);
+            }
+
+            // Сохраняем карту
+            if (SaveSystem.Instance != null)
+            {
+                bool success = await SaveSystem.Instance.SaveWorldAsync(worldName);
+                if (!success)
+                {
+                    Debug.LogError("Failed to save world.");
+                    if (_loadingPanel != null)
+                    {
+                        _loadingPanel.SetActive(false);
+                    }
+
+                    return;
+                }
+
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.CurrentWorldName = worldName;
+
+                    // Обновляем скриншот после сохранения (на случай если он изменился)
+                    string screenshotPath = System.IO.Path.Combine(Application.persistentDataPath, worldName + ".png");
+                    GameManager.Instance.LoadScreenshotToImage(screenshotPath);
+                }
+            }
+            else
+            {
+                Debug.LogError("SaveSystem.Instance is null!");
+                if (_loadingPanel != null)
+                {
+                    _loadingPanel.SetActive(false);
+                }
+
+                return;
+            }
+
+            // Загружаем меню
+            SceneManager.LoadScene(0);
+        }
+
+
+        private void OnExitWithoutSavePressed()
+        {
+            if (_exitMenuPanel != null)
+            {
+                _exitMenuPanel.SetActive(false);
+            }
+
+            SceneManager.LoadScene(0);
+        }
+
+        private void OnCancelExitPressed()
+        {
+            if (_exitMenuPanel != null)
+            {
+                _exitMenuPanel.SetActive(false);
             }
         }
 
