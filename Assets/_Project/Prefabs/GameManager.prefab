@@ -11,8 +11,7 @@ GameObject:
   - component: {fileID: 7281610746403396074}
   - component: {fileID: 7028885259804356611}
   - component: {fileID: 4273549421577484740}
-  - component: {fileID: 4533551290381261078}
-  - component: {fileID: 7797916339333024861}
+  - component: {fileID: 7195468039577891291}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -64,24 +63,8 @@ MonoBehaviour:
   _screenshotCamera: {fileID: 5984267874141223955}
   _screenshotWidth: 500
   _screenshotHeight: 300
-  _cubeSpawner: {fileID: 4533551290381261078}
---- !u!114 &4533551290381261078
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 3414956783536724133}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b2ffbd75af917e640b47b0aa202d26a1, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  defaultCubePrefab: {fileID: 7642547984514944024, guid: d8586f1281c48f24fb08cd8a8a8348a0,
-    type: 3}
-  cubePrefabsByType:
-  - {fileID: 7642547984514944024, guid: d8586f1281c48f24fb08cd8a8a8348a0, type: 3}
---- !u!114 &7797916339333024861
+  _cubeSpawner: {fileID: 0}
+--- !u!114 &7195468039577891291
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -93,7 +76,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: daccb361505d46ba9419d6d2a06f4c1d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _screenshotCamera: {fileID: 0}
   _cameraOffset: {x: 10, y: 2, z: -10}
   _useObjectSpaceOffset: 1
   _screenshotWidth: 75

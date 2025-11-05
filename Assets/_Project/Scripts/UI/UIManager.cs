@@ -157,6 +157,13 @@ namespace Assets._Project.Scripts.UI
                 entityManager.CancelGhost();
             }
 
+            // Скрываем ghost куба при переключении инструмента
+            var cubeCreator = FindFirstObjectByType<CubeCreator>();
+            if (cubeCreator != null)
+            {
+                cubeCreator.HideGhostCube();
+            }
+
             // Отключаем визуализатор перед переключением инструментов
             if (_entityVisualizer != null)
             {

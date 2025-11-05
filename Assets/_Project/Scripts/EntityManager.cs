@@ -95,6 +95,7 @@ public class EntityManager : MonoBehaviour
         }
 
         RefreshSavedList();
+        UpdateGhostButtonsState();
     }
 
     private void OnDisable()
@@ -596,6 +597,7 @@ public class EntityManager : MonoBehaviour
             {
                 _ghostPlacer.Cancel();
                 _currentGhostEntity = null;
+                UpdateGhostButtonsState();
             }
 
             // Переходим в ghost-режим вместо финального размещения
@@ -603,6 +605,7 @@ public class EntityManager : MonoBehaviour
             {
                 _currentGhostEntity = entity;
                 _ghostPlacer.Begin(entity, _playerCamera);
+                UpdateGhostButtonsState();
                 Debug.Log("Entity загружен в ghost-режиме");
             }
             else
@@ -743,6 +746,7 @@ public class EntityManager : MonoBehaviour
         if (_ghostPlacer != null && _ghostPlacer.TryConfirm())
         {
             _currentGhostEntity = null;
+            UpdateGhostButtonsState();
             Debug.Log("Ghost entity подтверждён и размещён");
         }
         else
@@ -757,6 +761,7 @@ public class EntityManager : MonoBehaviour
         {
             _ghostPlacer.Cancel();
             _currentGhostEntity = null;
+            UpdateGhostButtonsState();
             Debug.Log("Ghost entity отменён");
         }
     }
@@ -767,6 +772,24 @@ public class EntityManager : MonoBehaviour
     public bool IsGhostActive()
     {
         return _ghostPlacer != null && _ghostPlacer.IsActive;
+    }
+
+    /// <summary>
+    /// Обновляет состояние кнопок отмены в зависимости от активности ghost
+    /// </summary>
+    private void UpdateGhostButtonsState()
+    {
+        bool isActive = IsGhostActive();
+
+        if (_confirmGhostButton != null)
+        {
+            _confirmGhostButton.gameObject.SetActive(isActive);
+        }
+
+        if (_cancelGhostButton != null)
+        {
+            _cancelGhostButton.gameObject.SetActive(isActive);
+        }
     }
 }
 

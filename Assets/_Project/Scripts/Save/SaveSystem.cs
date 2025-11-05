@@ -29,7 +29,6 @@ public class SaveSystem : Singleton<SaveSystem>
         Application.targetFrameRate = -1;
         QualitySettings.vSyncCount = 0;
         FindScreenshotCamera();
-        DontDestroyOnLoad(gameObject);
 
         if (_config == null)
         {
@@ -47,9 +46,8 @@ public class SaveSystem : Singleton<SaveSystem>
         _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
 
         if (_cubeSpawner == null)
-        {
-            _cubeSpawner = gameObject.AddComponent<CubeSpawner>();
-        }
+            _cubeSpawner = FindAnyObjectByType<CubeSpawner>();
+        
 
         if (!_cubeSpawner.HasAvailablePrefabs())
         {
@@ -68,6 +66,8 @@ public class SaveSystem : Singleton<SaveSystem>
     {
         FindScreenshotCamera();
         ValidateCubeSpawnerPrefabs();
+        if (_cubeSpawner == null)
+            _cubeSpawner = FindAnyObjectByType<CubeSpawner>();
     }
 
     private void FindScreenshotCamera()
