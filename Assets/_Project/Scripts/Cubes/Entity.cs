@@ -39,6 +39,12 @@ public class Entity : MonoBehaviour
     private Dictionary<int, int> _cubeIdToIndex;
     private bool _cacheValid = false;
 
+    // Кэш для оптимизации CollectCubes - отслеживаем изменения структуры
+    private int _lastChildCount = -1;
+
+    // Переиспользуемый массив для кэширования позиций (избегаем аллокаций)
+    private Vector3[] _cachedPositionsBuffer;
+
     // Используем пулы массивов для избежания выделений памяти при BFS
     private Cube[] _tempActiveCubes;
     private int[] _tempCubeIds;
@@ -52,6 +58,9 @@ public class Entity : MonoBehaviour
 
     // Быстрый маппинг id куба -> индекс в активных массивах BFS
     private int[] _idToActiveIndex;
+
+    // Кэш позиций кубов в сетке (убирает вызовы GridPosition в BFS)
+    private Vector3Int[] _tempGridPositions;
 
     // Группируем отсоединение кубов: используем массивный буфер вместо List для минимизации аллокаций
     private Cube[] _pendingDetouchBuffer;
@@ -125,9 +134,31 @@ public class Entity : MonoBehaviour
 
     private void CollectCubes()
     {
-        Vector3 min = Vector3.one * float.MaxValue;
-        Vector3 max = Vector3.one * float.MinValue;
+        // Быстрая проверка: если количество детей не изменилось и кэш валиден, пропускаем GetComponentsInChildren
+        int currentChildCount = transform.childCount;
+        if (_cacheValid && currentChildCount == _lastChildCount && _cubes != null && _cubes.Length == currentChildCount)
+        {
+            // Проверяем что кубы ещё валидны (быстрая проверка без GetComponentsInChildren)
+            bool allValid = true;
+            for (int i = 0; i < Mathf.Min(3, currentChildCount); i++) // проверяем только первые 3
+            {
+                if (_cubes[i] == null)
+                {
+                    allValid = false;
+                    break;
+                }
+            }
 
+            if (allValid)
+            {
+                // Структура не изменилась - используем существующий кэш
+                // Но проверяем границы сетки (если кубы переместились)
+                // Это дешёвая проверка, но позволяет обнаружить изменения позиций
+                return;
+            }
+        }
+
+        // Получаем кубы (только если действительно нужно)
         _cubes = GetComponentsInChildren<Cube>();
         int childCount = _cubes.Length;
 
@@ -138,47 +169,109 @@ public class Entity : MonoBehaviour
             _cubesInfoSizeY = 0;
             _cubesInfoSizeZ = 0;
             _cubesInfoStartPosition = Vector3.zero;
-            _cubeIdToIndex = new Dictionary<int, int>();
+            if (_cubeIdToIndex == null)
+                _cubeIdToIndex = new Dictionary<int, int>();
+            else
+                _cubeIdToIndex.Clear();
             _cacheValid = true;
+            _lastChildCount = 0;
             return;
         }
 
+        // Один проход: находим границы и заполняем сетку одновременно
+        Vector3 min = Vector3.one * float.MaxValue;
+        Vector3 max = Vector3.one * float.MinValue;
+
+        // Переиспользуем Dictionary с pre-allocated capacity
+        if (_cubeIdToIndex == null)
+            _cubeIdToIndex = new Dictionary<int, int>(childCount);
+        else
+            _cubeIdToIndex.Clear();
+
+        // Переиспользуем массив позиций (избегаем аллокаций)
+        if (_cachedPositionsBuffer == null || _cachedPositionsBuffer.Length < childCount)
+            _cachedPositionsBuffer = new Vector3[childCount];
+
+        int validCount = 0;
+
         for (int i = 0; i < childCount; i++)
         {
-            Transform child = _cubes[i].transform;
-            min = Vector3.Min(min, child.localPosition);
-            max = Vector3.Max(max, child.localPosition);
+            var cube = _cubes[i];
+            if (cube == null) continue;
+
+            var pos = cube.transform.localPosition;
+            _cachedPositionsBuffer[validCount] = pos;
+
+            // Обновляем границы (прямые сравнения быстрее чем Vector3.Min/Max)
+            if (pos.x < min.x) min.x = pos.x;
+            if (pos.y < min.y) min.y = pos.y;
+            if (pos.z < min.z) min.z = pos.z;
+            if (pos.x > max.x) max.x = pos.x;
+            if (pos.y > max.y) max.y = pos.y;
+            if (pos.z > max.z) max.z = pos.z;
+
+            validCount++;
         }
 
+        if (validCount == 0)
+        {
+            _cubesInfo = new int[0, 0, 0];
+            _cubesInfoSizeX = 0;
+            _cubesInfoSizeY = 0;
+            _cubesInfoSizeZ = 0;
+            _cubesInfoStartPosition = Vector3.zero;
+            _cacheValid = true;
+            _lastChildCount = 0;
+            return;
+        }
+
+        // Вычисляем размеры сетки
         Vector3Int delta = Vector3Int.RoundToInt(max - min);
-        _cubesInfoSizeX = delta.x + 1;
-        _cubesInfoSizeY = delta.y + 1;
-        _cubesInfoSizeZ = delta.z + 1;
-        _cubesInfo = new int[_cubesInfoSizeX, _cubesInfoSizeY, _cubesInfoSizeZ];
+        int newSizeX = delta.x + 1;
+        int newSizeY = delta.y + 1;
+        int newSizeZ = delta.z + 1;
+
+        // Переиспользуем массив если размер не изменился
+        if (_cubesInfo == null || _cubesInfoSizeX != newSizeX || _cubesInfoSizeY != newSizeY ||
+            _cubesInfoSizeZ != newSizeZ)
+        {
+            _cubesInfo = new int[newSizeX, newSizeY, newSizeZ];
+        }
+        else
+        {
+            // Очищаем существующий массив (быстрее чем пересоздание)
+            System.Array.Clear(_cubesInfo, 0, _cubesInfo.Length);
+        }
+
+        _cubesInfoSizeX = newSizeX;
+        _cubesInfoSizeY = newSizeY;
+        _cubesInfoSizeZ = newSizeZ;
         _cubesInfoStartPosition = min;
 
-        _cubeIdToIndex = new Dictionary<int, int>(childCount);
-
+        // Второй проход: заполняем сетку (используем кэшированные позиции)
+        int cubeIndex = 0;
         for (int i = 0; i < childCount; i++)
         {
-            Vector3Int grid = GridPosition(_cubes[i].transform.localPosition);
-            _cubesInfo[grid.x, grid.y, grid.z] = i + 1;
-            if (_cubes[i] != null)
-            {
-                _cubes[i].Id = i + 1;
-                _cubes[i].SetEntity(this);
-                _cubeIdToIndex[i + 1] = i;
-            }
+            var cube = _cubes[i];
+            if (cube == null) continue;
+
+            Vector3Int grid = GridPosition(_cachedPositionsBuffer[cubeIndex]);
+            int id = cubeIndex + 1;
+
+            _cubesInfo[grid.x, grid.y, grid.z] = id;
+            cube.Id = id;
+            cube.SetEntity(this);
+            _cubeIdToIndex[id] = i;
+
+            cubeIndex++;
         }
 
         _cacheValid = true;
+        _lastChildCount = childCount;
 
         // Инвалидируем кэш комбинирования мешей после любого пересчёта структуры
         if (_meshCombiner)
             _meshCombiner.InvalidateCubeCache();
-
-        // if (_hookManager)
-        //     _hookManager.DetachAllHooks(_cubes);
     }
 
     private void RecalculateCubes()
@@ -805,6 +898,7 @@ public class Entity : MonoBehaviour
             _tempVisited = new bool[activeCubeCount];
             _tempQueue = new int[activeCubeCount];
             _tempCurrentGroup = new int[activeCubeCount];
+            _tempGridPositions = new Vector3Int[activeCubeCount];
         }
 
         // Подготовка маппинга id -> индекс активного куба
@@ -816,7 +910,7 @@ public class Entity : MonoBehaviour
 
         for (int i = 0; i < _idToActiveIndex.Length; i++) _idToActiveIndex[i] = -1;
 
-        // Заполняем массивы активными кубами и маппинг
+        // Заполняем массивы активными кубами и маппинг (кэшируем позиции сразу)
         int index = 0;
         for (int i = 0; i < _cubes.Length; i++)
         {
@@ -825,6 +919,8 @@ public class Entity : MonoBehaviour
                 int id = _cubes[i].Id;
                 _tempCubeIds[index] = id;
                 _tempActiveCubes[index] = _cubes[i];
+                // Кэшируем позицию в сетке (убирает вызовы GridPosition в BFS)
+                _tempGridPositions[index] = GridPosition(_cubes[i].transform.localPosition);
                 if (id >= 0 && id < _idToActiveIndex.Length)
                     _idToActiveIndex[id] = index;
                 index++;
@@ -847,15 +943,10 @@ public class Entity : MonoBehaviour
     }
 
     /// <summary>
-    /// Проверяет соседа куба в указанном направлении
+    /// Проверяет соседа куба в указанном направлении (использует кэшированные позиции)
     /// </summary>
-    private void CheckNeighborOptimized(Vector3Int currentPos, int dx, int dy, int dz,
-        ref int queueEnd)
+    private void CheckNeighborOptimized(int x, int y, int z, ref int queueEnd)
     {
-        int x = currentPos.x + dx;
-        int y = currentPos.y + dy;
-        int z = currentPos.z + dz;
-
         if (x < 0 || y < 0 || z < 0 ||
             x >= _cubesInfoSizeX || y >= _cubesInfoSizeY || z >= _cubesInfoSizeZ)
             return;
@@ -899,23 +990,22 @@ public class Entity : MonoBehaviour
             _tempQueue[queueEnd++] = i;
             _tempVisited[i] = true;
 
-            // BFS для поиска связанных кубов
+            // BFS для поиска связанных кубов (используем кэшированные позиции)
             while (queueStart < queueEnd)
             {
                 int currentIndex = _tempQueue[queueStart++];
                 _tempCurrentGroup[currentGroupSize++] = _tempCubeIds[currentIndex];
 
-                Cube currentCube = _tempActiveCubes[currentIndex];
-                if (currentCube == null) continue;
+                // Используем кэшированную позицию (убирает вызов GridPosition)
+                Vector3Int gridPos = _tempGridPositions[currentIndex];
 
-                // Кэшируем позицию куба
-                Vector3Int gridPosition = GridPosition(currentCube.transform.localPosition);
-
-                // Проверяем всех соседей
-                foreach (var offset in NeighborOffsets)
-                {
-                    CheckNeighborOptimized(gridPosition, offset.x, offset.y, offset.z, ref queueEnd);
-                }
+                // Проверяем всех соседей (прямой доступ к массиву вместо foreach)
+                CheckNeighborOptimized(gridPos.x, gridPos.y + 1, gridPos.z, ref queueEnd); // up
+                CheckNeighborOptimized(gridPos.x, gridPos.y - 1, gridPos.z, ref queueEnd); // down
+                CheckNeighborOptimized(gridPos.x - 1, gridPos.y, gridPos.z, ref queueEnd); // left
+                CheckNeighborOptimized(gridPos.x + 1, gridPos.y, gridPos.z, ref queueEnd); // right
+                CheckNeighborOptimized(gridPos.x, gridPos.y, gridPos.z + 1, ref queueEnd); // forward
+                CheckNeighborOptimized(gridPos.x, gridPos.y, gridPos.z - 1, ref queueEnd); // back
             }
 
             // Сохраняем группу

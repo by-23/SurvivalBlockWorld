@@ -27,6 +27,13 @@ public class ColorCube : MonoBehaviour
             ApplyColor(_color);
         }
 
+        // Обновляем кэш в Cube после установки цвета
+        var cube = GetComponent<Cube>();
+        if (cube != null)
+        {
+            cube.RefreshCache();
+        }
+
         if (_remove)
             Destroy(this);
     }

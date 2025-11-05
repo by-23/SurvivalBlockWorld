@@ -30,8 +30,8 @@ public class InputManager : MonoBehaviour
         }
 
         _instance = this;
-
-        // Делаем InputManager постоянным между сценами
+        if (_Joystick == null)
+            _Joystick = FindAnyObjectByType<bl_MovementJoystick>();
         DontDestroyOnLoad(gameObject);
     }
 
