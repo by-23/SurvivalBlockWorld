@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,6 +24,20 @@ namespace Assets._Project.Scripts.UI
         private Button createButton;
 
         [SerializeField] private Transform colorButtonsParent;
+
+        [SerializeField] private Button addColorButton;
+        [SerializeField] private Button colorButtonPrefab;
+
+        [Header("Color Picker")] [SerializeField]
+        private GameObject colorPickerPanel;
+
+        [SerializeField] private Image paletteImage; // изображение-палитра для выбора цвета
+        [SerializeField] private Image previewImage; // превью текущего цвета
+
+        // внутреннее состояние выбора цвета с удержанием
+        private bool _isColorPicking;
+        private bool _hasHoverColor;
+        private Color _hoverPickedColor;
 
         [Header("Spawn Settings")] [SerializeField]
         private float _cubeSize = 1f;
@@ -53,6 +68,16 @@ namespace Assets._Project.Scripts.UI
             if (createButton != null)
             {
                 createButton.onClick.AddListener(OnCreateButtonClicked);
+            }
+
+            if (addColorButton != null)
+            {
+                addColorButton.onClick.AddListener(OpenColorPicker);
+            }
+
+            if (colorPickerPanel != null)
+            {
+                colorPickerPanel.SetActive(false);
             }
 
             SetupColorButtons();
@@ -88,6 +113,207 @@ namespace Assets._Project.Scripts.UI
             {
                 button.onClick.AddListener(() => OnColorButtonClicked(button));
             }
+        }
+
+        private void OpenColorPicker()
+        {
+            if (colorPickerPanel == null) return;
+
+            // обновляем превью текущего цвета
+            UpdatePickerPreview(_selectedColor);
+
+            _isColorPicking = false;
+            _hasHoverColor = false;
+
+            colorPickerPanel.SetActive(true);
+        }
+
+        private void CancelColorPick()
+        {
+            if (colorPickerPanel != null)
+            {
+                colorPickerPanel.SetActive(false);
+            }
+        }
+
+        private void UpdatePickerPreview(Color color)
+        {
+            if (previewImage != null)
+            {
+                previewImage.color = color;
+            }
+        }
+
+        // Начало удержания на палитре — начинаем выбор
+        public void OnPalettePointerDown(BaseEventData eventData)
+        {
+            if (paletteImage == null || colorPickerPanel == null) return;
+            var ped = eventData as PointerEventData;
+            if (ped == null) return;
+
+            _isColorPicking = true;
+            _hasHoverColor = false;
+
+            if (TrySampleColorFromImage(paletteImage, ped.position, ped.pressEventCamera, out var picked))
+            {
+                _hoverPickedColor = picked;
+                _hasHoverColor = true;
+                UpdatePickerPreview(_hoverPickedColor);
+            }
+        }
+
+        // Движение при удержании — обновляем превью
+        public void OnPaletteDrag(BaseEventData eventData)
+        {
+            if (!_isColorPicking || paletteImage == null) return;
+            var ped = eventData as PointerEventData;
+            if (ped == null) return;
+
+            if (TrySampleColorFromImage(paletteImage, ped.position, ped.pressEventCamera, out var picked))
+            {
+                _hoverPickedColor = picked;
+                _hasHoverColor = true;
+                UpdatePickerPreview(_hoverPickedColor);
+            }
+        }
+
+        // Завершение удержания — применяем последний цвет и закрываем панель
+        public void OnPalettePointerUp(BaseEventData eventData)
+        {
+            if (paletteImage == null || colorPickerPanel == null) return;
+            var ped = eventData as PointerEventData;
+            if (ped == null) return;
+
+            // Применяем только если отпускание произошло над палитрой
+            if (!RectTransformUtility.RectangleContainsScreenPoint(paletteImage.rectTransform, ped.position,
+                    ped.pressEventCamera))
+            {
+                _isColorPicking = false;
+                _hasHoverColor = false;
+                colorPickerPanel.SetActive(false);
+                return;
+            }
+
+            Color picked;
+            if (TrySampleColorFromImage(paletteImage, ped.position, ped.pressEventCamera, out picked))
+            {
+                CreateColorButton(picked);
+            }
+
+            _isColorPicking = false;
+            _hasHoverColor = false;
+            colorPickerPanel.SetActive(false);
+        }
+
+        // Обработчик клика по фону панели (клик вне изображения закрывает панель)
+        public void OnPickerBackgroundClicked()
+        {
+            CancelColorPick();
+        }
+
+        private static bool TrySampleColorFromImage(Image image, Vector2 screenPos, Camera eventCamera, out Color color)
+        {
+            color = Color.white;
+            if (image == null || image.sprite == null || image.sprite.texture == null)
+                return false;
+
+            RectTransform rectTransform = image.rectTransform;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rectTransform, screenPos, eventCamera,
+                    out var local))
+                return false;
+
+            Rect r = rectTransform.rect;
+            float u = Mathf.InverseLerp(r.xMin, r.xMax, local.x);
+            float v = Mathf.InverseLerp(r.yMin, r.yMax, local.y);
+
+            if (u < 0f || u > 1f || v < 0f || v > 1f)
+                return false;
+
+            var sprite = image.sprite;
+            var tex = sprite.texture;
+            if (tex == null) return false;
+
+            // преобразуем UV на спрайте в UV текстуры с учетом вырезанного прямоугольника
+            Rect tr = sprite.textureRect;
+            float texU = Mathf.Lerp(tr.xMin / tex.width, tr.xMax / tex.width, u);
+            float texV = Mathf.Lerp(tr.yMin / tex.height, tr.yMax / tex.height, v);
+
+            // Пытаемся прочитать цвет из текстуры, учитывая, что она может быть не readable
+            int px = Mathf.Clamp(Mathf.RoundToInt(texU * tex.width), 0, tex.width - 1);
+            int py = Mathf.Clamp(Mathf.RoundToInt(texV * tex.height), 0, tex.height - 1);
+
+            if (tex.isReadable)
+            {
+                color = tex.GetPixel(px, py);
+                return true;
+            }
+
+            // Фоллбэк: копируем в временный RenderTexture и читаем 1 пиксель
+            RenderTexture rt = null;
+            Texture2D onePx = null;
+            RenderTexture prev = RenderTexture.active;
+            try
+            {
+                rt = RenderTexture.GetTemporary(tex.width, tex.height, 0, RenderTextureFormat.ARGB32,
+                    RenderTextureReadWrite.sRGB);
+                Graphics.Blit(tex, rt);
+                RenderTexture.active = rt;
+
+                onePx = new Texture2D(1, 1, TextureFormat.RGBA32, false, false);
+                // координаты в ReadPixels считаются от левого нижнего угла активного RT
+                onePx.ReadPixels(new Rect(px, py, 1, 1), 0, 0);
+                onePx.Apply(false, false);
+                color = onePx.GetPixel(0, 0);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                if (rt != null) RenderTexture.ReleaseTemporary(rt);
+                if (onePx != null) Object.Destroy(onePx);
+            }
+        }
+
+        private void CreateColorButton(Color c)
+        {
+            if (colorButtonsParent == null || colorButtonPrefab == null) return;
+
+            var btn = Instantiate(colorButtonPrefab, colorButtonsParent);
+
+            // окрашиваем Image
+            var img = btn.GetComponent<Image>();
+            if (img != null)
+            {
+                img.color = c;
+            }
+
+            // настраиваем ColorBlock для корректного выбора
+            var cb = btn.colors;
+            cb.normalColor = c;
+            // слегка ярче при наведении
+            Color highlighted = new Color(
+                Mathf.Clamp01(c.r * 1.1f),
+                Mathf.Clamp01(c.g * 1.1f),
+                Mathf.Clamp01(c.b * 1.1f),
+                c.a);
+            cb.highlightedColor = highlighted;
+            // слегка темнее при нажатии
+            Color pressed = new Color(
+                Mathf.Clamp01(c.r * 0.9f),
+                Mathf.Clamp01(c.g * 0.9f),
+                Mathf.Clamp01(c.b * 0.9f),
+                c.a);
+            cb.pressedColor = pressed;
+            btn.colors = cb;
+
+            btn.onClick.AddListener(() => OnColorButtonClicked(btn));
+
+            // сразу выбрать новый цвет
+            OnColorButtonClicked(btn);
         }
 
         private void OnColorButtonClicked(Button clickedButton)
