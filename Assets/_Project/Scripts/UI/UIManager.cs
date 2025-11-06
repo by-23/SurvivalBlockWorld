@@ -50,6 +50,11 @@ namespace Assets._Project.Scripts.UI
         private EntityVisualizer _entityVisualizer;
 
         [SerializeField] private string _activeToolName = "";
+        
+        [Header("Build Mode UI")] [SerializeField]
+        private Button _buildModeButton;
+
+        [SerializeField] private GameObject _levitateButtonsPanel; 
 
         private void Start()
         {
@@ -57,6 +62,7 @@ namespace Assets._Project.Scripts.UI
             SetupPanels();
             SetupToolButtons();
             InitializeVisualizer();
+            InitializeBuildModeUI();
         }
 
         private void SetupButtons()
@@ -105,6 +111,56 @@ namespace Assets._Project.Scripts.UI
             {
                 _bombButton.onClick.AddListener(OnBombButtonPressed);
             }
+
+            if (_buildModeButton != null)
+            {
+                _buildModeButton.onClick.AddListener(OnBuildModeTogglePressed);
+            }
+        }
+        private void OnBuildModeTogglePressed()
+        {
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.ToggleBuildMode();
+                UpdateBuildModeUI(GameManager.Instance.BuildModeActive);
+                if (!GameManager.Instance.BuildModeActive)
+                {
+                    GameManager.Instance.LevitateUp(false);
+                    GameManager.Instance.LevitateDown(false);
+                }
+            }
+        }
+
+        // Удобные методы для EventTrigger (PointerDown/Up/Exit не передают bool)
+        public void OnLevitateUpPointerDown()
+        {
+            if (GameManager.Instance != null) GameManager.Instance.LevitateUp(true);
+        }
+
+        public void OnLevitateUpPointerUp()
+        {
+            if (GameManager.Instance != null) GameManager.Instance.LevitateUp(false);
+        }
+
+        public void OnLevitateDownPointerDown()
+        {
+            if (GameManager.Instance != null) GameManager.Instance.LevitateDown(true);
+        }
+
+        public void OnLevitateDownPointerUp()
+        {
+            if (GameManager.Instance != null) GameManager.Instance.LevitateDown(false);
+        }
+
+        private void InitializeBuildModeUI()
+        {
+            bool active = GameManager.Instance != null && GameManager.Instance.BuildModeActive;
+            UpdateBuildModeUI(active);
+        }
+
+        private void UpdateBuildModeUI(bool buildActive)
+        {
+            _levitateButtonsPanel.gameObject.SetActive(buildActive);
         }
 
         private void SetupPanels()

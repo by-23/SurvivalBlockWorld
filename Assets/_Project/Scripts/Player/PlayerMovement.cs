@@ -23,6 +23,12 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 _velocity;
     private float _speed;
 
+    // Режим левитации для строительства
+    private bool _levitateMode;
+    private bool _levitateUp;
+    private bool _levitateDown;
+    [SerializeField] float _levitateSpeed = 4f;
+
     void Awake()
     {
         // Получаем CharacterController или создаем его
@@ -42,14 +48,28 @@ public class PlayerMovement : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+
+        // Регистрируемся в GameManager для кеша ссылки
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.RegisterPlayerMovement(this);
+        }
     }
 
     private void Update()
     {
         GroundedCheck();
         HandleMovement();
-        HandleGravity();
-        HandleJump();
+        if (_levitateMode)
+        {
+            HandleLevitation();
+        }
+        else
+        {
+            HandleGravity();
+            HandleJump();
+        }
+
         HandleLaser();
 
         if (Input.GetKeyDown(KeyCode.RightBracket))
@@ -111,7 +131,7 @@ public class PlayerMovement : MonoBehaviour
         Vector3 movement = moveDirection * (_speed * Time.deltaTime);
 
         // Добавляем небольшую силу вниз для лучшего контакта с наклонными поверхностями
-        if (_Grounded && movement.magnitude > 0.1f)
+        if (!_levitateMode && _Grounded && movement.magnitude > 0.1f)
         {
             movement.y -= 0.1f; // Небольшая сила вниз для прижатия к поверхности
         }
@@ -137,6 +157,43 @@ public class PlayerMovement : MonoBehaviour
 
         // Применяем вертикальное движение
         _characterController.Move(_velocity * Time.deltaTime);
+    }
+
+    private void HandleLevitation()
+    {
+        // в режиме левитации отключаем гравитацию и управляем по Y кнопками
+        float y = 0f;
+        if (_levitateUp) y += 1f;
+        if (_levitateDown) y -= 1f;
+
+        // гасим вертикальную скорость из гравитации
+        _velocity.y = 0f;
+        Vector3 vertical = new Vector3(0f, y * _levitateSpeed, 0f) * Time.deltaTime;
+
+        _characterController.Move(vertical);
+    }
+
+    public void SetLevitateMode(bool active)
+    {
+        _levitateMode = active;
+        _levitateUp = false;
+        _levitateDown = false;
+        if (active)
+        {
+            _velocity.y = 0f;
+        }
+    }
+
+    public void SetLevitateUp(bool isPressed)
+    {
+        _levitateUp = isPressed;
+        Debug.Log($"[PlayerMovement] SetLevitateUp: {isPressed}, _levitateMode: {_levitateMode}");
+    }
+
+    public void SetLevitateDown(bool isPressed)
+    {
+        _levitateDown = isPressed;
+        Debug.Log($"[PlayerMovement] SetLevitateDown: {isPressed}, _levitateMode: {_levitateMode}");
     }
 
     private void HandleJump()

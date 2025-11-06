@@ -41,6 +41,39 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    [Header("Build Mode")] public bool BuildModeActive = false;
+    [SerializeField] private PlayerMovement _playerMovement; // кеш ссылки на движение игрока
+
+    public void RegisterPlayerMovement(PlayerMovement pm)
+    {
+        if (pm != null)
+            _playerMovement = pm;
+    }
+
+    public void ToggleBuildMode()
+    {
+        SetBuildMode(!BuildModeActive);
+    }
+
+    public void SetBuildMode(bool active)
+    {
+        BuildModeActive = active;
+        if (_playerMovement != null)
+            _playerMovement.SetLevitateMode(active);
+    }
+
+    public void LevitateUp(bool isPressed)
+    {
+        if (_playerMovement != null)
+            _playerMovement.SetLevitateUp(isPressed);
+    }
+
+    public void LevitateDown(bool isPressed)
+    {
+        if (_playerMovement != null)
+            _playerMovement.SetLevitateDown(isPressed);
+    }
+
     public void LoadScreenshotToImage(string screenshotPath)
     {
         if (_loadingScreenshotImage == null || string.IsNullOrEmpty(screenshotPath))

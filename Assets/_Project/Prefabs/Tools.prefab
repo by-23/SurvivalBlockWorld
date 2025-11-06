@@ -51,6 +51,12 @@ MonoBehaviour:
   _ghostMaterial: {fileID: 2100000, guid: 20cc37f763c9cd9408d53a693242b78f, type: 2}
   createButton: {fileID: 0}
   colorButtonsParent: {fileID: 0}
+  addColorButton: {fileID: 0}
+  colorButtonPrefab: {fileID: 2539358945995382460, guid: 47157ec1d57384f0090cf386de2c480d,
+    type: 3}
+  colorPickerPanel: {fileID: 0}
+  paletteImage: {fileID: 0}
+  previewImage: {fileID: 0}
   _cubeSize: 1
   _magneticDistance: 1.5
   _allowVerticalSnapping: 1
@@ -253,6 +259,7 @@ MonoBehaviour:
   _ghostPlacer: {fileID: 5796399195515678343}
   _playerCamera: {fileID: 0}
   _moveButton: {fileID: 0}
+  _entityVisualizer: {fileID: 0}
 --- !u!1 &5586815943144874399
 GameObject:
   m_ObjectHideFlags: 0

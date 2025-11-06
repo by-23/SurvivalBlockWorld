@@ -250,7 +250,6 @@ MonoBehaviour:
   character: {fileID: 121130216740988453}
   sensitivity: 2
   smoothing: 1.5
-  _optimizeVolumeSystem: 1
 --- !u!1 &119038426097401229
 GameObject:
   m_ObjectHideFlags: 0
@@ -381,3 +380,4 @@ MonoBehaviour:
   _GroundLayers:
     serializedVersion: 2
     m_Bits: 1033
+  _levitateSpeed: 8
