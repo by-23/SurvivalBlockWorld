@@ -16,11 +16,12 @@ public class EntityManager : MonoBehaviour
     [SerializeField] private Camera _playerCamera;
     [SerializeField] private EntitySelector _selector;
 
-    [Header("UI")] [SerializeField] private Button _saveButton;
-    [SerializeField] private Button _loadButton;
+    [Header("UI")] [SerializeField] private Button _savePlaceButton; // объединённая кнопка сохранения/размещения
+    [SerializeField] private TMPro.TMP_Text _savePlaceButtonText; // текст кнопки
+    [SerializeField] private string _saveButtonText = "Сохранить"; // текст для режима сохранения
+    [SerializeField] private string _placeButtonText = "Разместить"; // текст для режима размещения
     [SerializeField] private Button _saveItemButtonPrefab; // префаб кнопки сохранённого объекта
     [SerializeField] private Transform _saveListContainer; // контейнер для кнопок
-    [SerializeField] private Button _confirmGhostButton;
     [SerializeField] private Button _cancelGhostButton;
 
     [SerializeField] private CubeSpawner _cubeSpawner;
@@ -65,22 +66,16 @@ public class EntityManager : MonoBehaviour
     private void OnEnable()
     {
         // Привязка UI-кнопок, если заданы в инспекторе
-        if (_saveButton != null)
+        if (_savePlaceButton != null)
         {
-            _saveButton.onClick.RemoveAllListeners();
-            _saveButton.onClick.AddListener(SaveLookedEntity);
-        }
+            _savePlaceButton.onClick.RemoveAllListeners();
+            _savePlaceButton.onClick.AddListener(OnSavePlaceButtonPressed);
 
-        if (_loadButton != null)
-        {
-            _loadButton.onClick.RemoveAllListeners();
-            _loadButton.onClick.AddListener(LoadSavedEntity);
-        }
-
-        if (_confirmGhostButton != null)
-        {
-            _confirmGhostButton.onClick.RemoveAllListeners();
-            _confirmGhostButton.onClick.AddListener(ConfirmGhost);
+            // Получаем компонент текста, если не назначен
+            if (_savePlaceButtonText == null)
+            {
+                _savePlaceButtonText = _savePlaceButton.GetComponentInChildren<TMPro.TMP_Text>();
+            }
         }
 
         if (_cancelGhostButton != null)
@@ -100,14 +95,23 @@ public class EntityManager : MonoBehaviour
 
     private void OnDisable()
     {
-        if (_saveButton != null)
+        if (_savePlaceButton != null)
         {
-            _saveButton.onClick.RemoveListener(SaveLookedEntity);
+            _savePlaceButton.onClick.RemoveListener(OnSavePlaceButtonPressed);
         }
+    }
 
-        if (_loadButton != null)
+    private void OnSavePlaceButtonPressed()
+    {
+        if (IsGhostActive())
         {
-            _loadButton.onClick.RemoveListener(LoadSavedEntity);
+            // Если ghost активен - размещаем entity
+            ConfirmGhost();
+        }
+        else
+        {
+            // Если ghost не активен - сохраняем entity
+            SaveLookedEntity();
         }
     }
 
@@ -762,7 +766,6 @@ public class EntityManager : MonoBehaviour
             _ghostPlacer.Cancel();
             _currentGhostEntity = null;
             UpdateGhostButtonsState();
-            Debug.Log("Ghost entity отменён");
         }
     }
 
@@ -775,26 +778,27 @@ public class EntityManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Обновляет состояние кнопок отмены в зависимости от активности ghost
+    /// Обновляет состояние кнопок в зависимости от активности ghost
     /// </summary>
     private void UpdateGhostButtonsState()
     {
         bool isActive = IsGhostActive();
-
-        if (_confirmGhostButton != null)
-        {
-            _confirmGhostButton.gameObject.SetActive(isActive);
-        }
 
         if (_cancelGhostButton != null)
         {
             _cancelGhostButton.gameObject.SetActive(isActive);
         }
 
-        // Отключаем кнопку сохранения, когда ghost активен
-        if (_saveButton != null)
+        // Обновляем объединённую кнопку сохранения/размещения
+        if (_savePlaceButton != null)
         {
-            _saveButton.interactable = !isActive;
+            _savePlaceButton.interactable = true; // кнопка всегда активна
+
+            // Обновляем текст в зависимости от режима
+            if (_savePlaceButtonText != null)
+            {
+                _savePlaceButtonText.text = isActive ? _placeButtonText : _saveButtonText;
+            }
         }
     }
 }

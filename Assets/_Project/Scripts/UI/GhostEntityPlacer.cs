@@ -34,10 +34,9 @@ namespace Assets._Project.Scripts.UI
             new Dictionary<Renderer, MaterialPropertyBlock>();
 
         private readonly List<Renderer> _combinedRenderers = new List<Renderer>();
+        private readonly Dictionary<Collider, bool> _originalColliderTriggers = new Dictionary<Collider, bool>();
 
         private MaterialPropertyBlock _mpb;
-
-        // Память о последней валидной поверхности под прицелом, чтобы не дёргаться, когда луч уходит в небо
         private bool _hasLastSurface;
         private Vector3 _lastSurfacePoint;
         private Vector3 _lastSurfaceNormal;
@@ -47,11 +46,9 @@ namespace Assets._Project.Scripts.UI
         private float _cachedEntityMaxSize;
         private Vector3 _lastValidPosition;
         private bool _hasLastValidPosition;
-
-        private float
-            _entityBottomExtent; // расстояние от центра bounds до нижней точки по оси Y в локальных координатах
-
-        private Vector3 _boundsCenterOffset; // offset от transform.position до центра bounds в локальных координатах
+        private float _entityBottomExtent;
+        private Vector3 _boundsCenterOffset;
+        private float _cachedLowestCubeLocalBottomY = float.MaxValue;
 
         public bool IsActive => _isActive;
 
@@ -86,7 +83,6 @@ namespace Assets._Project.Scripts.UI
 
             _ghostEntity = entity;
 
-            // Выключаем кубы, включаем комбинированный меш
             var meshCombiner = _ghostEntity.GetComponent<EntityMeshCombiner>();
             if (meshCombiner != null)
             {
@@ -97,7 +93,6 @@ namespace Assets._Project.Scripts.UI
             }
             else
             {
-                // Fallback: выключаем renderers кубов вручную
                 var cubes = _ghostEntity.Cubes;
                 if (cubes != null)
                 {
@@ -112,16 +107,12 @@ namespace Assets._Project.Scripts.UI
                 }
             }
 
-            // Собираем только комбинированные рендереры (исключаем Cube)
             CollectCombinedRenderers();
-
-            // Кешируем размеры entity для правильного вычисления позиции
             CacheEntityBounds();
+            CacheLowestCubeLocalBottomY();
+            SetCubesTriggers(true);
+            CacheAndApplyGhostMaterials();
 
-            // Кешируем оригинальные материалы и применяем ghost-материалы только к комбинированным мешам
-            CacheAndApplyGhostMaterials(false);
-
-            // Делаем kinematic и помечаем как ghost
             var rb = _ghostEntity.GetComponent<Rigidbody>();
             if (rb != null)
             {
@@ -140,12 +131,10 @@ namespace Assets._Project.Scripts.UI
             if (!_isActive || !_canPlace || _ghostEntity == null)
                 return false;
 
-            // Восстанавливаем оригинальные материалы
             RestoreOriginalMaterials();
-
-            // Убираем ghost-режим
+            RestoreCubesTriggers();
             _ghostEntity.SetGhostMode(false);
-            // Включаем физику после фиксации
+
             var rb = _ghostEntity.GetComponent<Rigidbody>();
             if (rb != null)
             {
@@ -165,6 +154,7 @@ namespace Assets._Project.Scripts.UI
             if (_ghostEntity != null)
             {
                 RestoreOriginalMaterials();
+                RestoreCubesTriggers();
                 _ghostEntity.SetGhostMode(false);
                 Destroy(_ghostEntity.gameObject);
             }
@@ -173,10 +163,12 @@ namespace Assets._Project.Scripts.UI
             _isActive = false;
             _canPlace = false;
             _originalMaterials.Clear();
+            _originalColliderTriggers.Clear();
             _cachedEntityMaxSize = 0f;
             _cachedEntityBounds = new Bounds();
             _hasLastSurface = false;
             _hasLastValidPosition = false;
+            _cachedLowestCubeLocalBottomY = float.MaxValue;
         }
 
         private void UpdateGhostPosition()
@@ -184,7 +176,6 @@ namespace Assets._Project.Scripts.UI
             if (_ghostEntity == null || _playerCamera == null)
                 return;
 
-            // Гарантируем, что ghost остается kinematic на протяжении всего ghost-режима
             var rb = _ghostEntity.GetComponent<Rigidbody>();
             if (rb != null && !rb.isKinematic)
             {
@@ -199,28 +190,23 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
-            // Проверяем минимальное расстояние от камеры (используем только _minGhostDistance без учета размера)
             Vector3 cameraPosition = _playerCamera.transform.position;
             Vector3 toPosition = targetPosition - cameraPosition;
             float distanceToCamera = toPosition.magnitude;
 
-            // Если позиция слишком близко к камере, используем предыдущую валидную позицию или ограничиваем расстояние
             if (distanceToCamera < _minGhostDistance)
             {
                 if (_hasLastValidPosition)
                 {
-                    // Проверяем, не слишком ли близко предыдущая позиция
                     Vector3 toLastPosition = _lastValidPosition - cameraPosition;
                     float distanceToLast = toLastPosition.magnitude;
 
                     if (distanceToLast >= _minGhostDistance)
                     {
-                        // Предыдущая позиция валидна — используем её (останавливаем движение к игроку)
                         targetPosition = _lastValidPosition;
                     }
                     else
                     {
-                        // Предыдущая позиция тоже слишком близко — отодвигаем на минимальное расстояние
                         Vector3 direction = toLastPosition.normalized;
                         if (direction.sqrMagnitude < 0.0001f)
                         {
@@ -233,7 +219,6 @@ namespace Assets._Project.Scripts.UI
                 }
                 else
                 {
-                    // Нет предыдущей позиции — отодвигаем на минимальное расстояние
                     Vector3 direction = toPosition.normalized;
                     if (direction.sqrMagnitude < 0.0001f)
                     {
@@ -247,15 +232,12 @@ namespace Assets._Project.Scripts.UI
             }
             else
             {
-                // Позиция валидна — сохраняем её
                 _lastValidPosition = targetPosition;
                 _hasLastValidPosition = true;
             }
 
             _ghostEntity.gameObject.SetActive(true);
-            _ghostEntity.transform.position = targetPosition;
 
-            // Поворачиваем к камере (только по оси Y)
             Vector3 toCamera = cameraPosition - targetPosition;
             toCamera.y = 0f;
             if (toCamera.sqrMagnitude > 0.000001f)
@@ -263,8 +245,13 @@ namespace Assets._Project.Scripts.UI
                 _ghostEntity.transform.rotation = Quaternion.LookRotation(-toCamera.normalized, Vector3.up);
             }
 
-            // Должен стоять на поверхности и не пересекаться
-            _canPlace = IsGrounded(targetPosition) && !IsPositionOccupied(targetPosition);
+            if (_hasLastSurface)
+            {
+                targetPosition = GetSurfacePosition(_lastSurfacePoint, _lastSurfaceNormal);
+            }
+
+            _ghostEntity.transform.position = targetPosition;
+            _canPlace = IsGrounded(targetPosition) && !IsPositionOccupied(targetPosition) && !HasCollisionWithObjects();
             UpdateGhostMaterial(_canPlace);
         }
 
@@ -276,22 +263,14 @@ namespace Assets._Project.Scripts.UI
             Vector3 cameraPosition = _playerCamera.transform.position;
             Vector3 cameraForward = _playerCamera.transform.forward;
 
-            // Вычисляем расстояние на основе угла наклона камеры (pitch)
             float pitchAngle = _playerCamera.transform.eulerAngles.x;
-            // Нормализуем угол от 0-360 к -90 до 90
             if (pitchAngle > 180f) pitchAngle -= 360f;
-            pitchAngle = -pitchAngle; // Инвертируем: вверх = отрицательный угол
+            pitchAngle = -pitchAngle;
 
-            // Нормализуем угол от -90 до 90 к 0-1
             float normalizedAngle = (pitchAngle + 90f) / 180f;
-
-            // Интерполируем расстояние: вниз (0) = min, вверх (1) = max
-            // Используем _minGhostDistance напрямую для интерполяции
             float targetDistance = Mathf.Lerp(_minGhostDistance, _maxGhostDistance, normalizedAngle);
             targetDistance *= _distanceMultiplier;
 
-            // Добавляем минимальное расстояние для больших объектов, чтобы они не перекрывали луч
-            // Но это влияет только на дальность raycast, а не на минимальное расстояние от игрока
             if (_cachedEntityMaxSize > 0f)
             {
                 float sizeOffset = _cachedEntityMaxSize * 0.5f;
@@ -299,19 +278,15 @@ namespace Assets._Project.Scripts.UI
             }
 
             Ray ray = new Ray(cameraPosition, cameraForward);
-
-            // Ищем поверхность, исключая сам ghost entity
             RaycastHit[] hits =
                 Physics.RaycastAll(ray, targetDistance, _surfaceLayerMask, QueryTriggerInteraction.Ignore);
 
-            // Фильтруем попадания: исключаем коллайдеры самого ghost entity
             RaycastHit? validHit = null;
             float closestHitDistance = float.MaxValue;
 
             for (int i = 0; i < hits.Length; i++)
             {
                 var hit = hits[i];
-                // Пропускаем попадания в сам ghost entity
                 if (_ghostEntity != null && hit.collider.transform.root == _ghostEntity.transform.root)
                     continue;
 
@@ -332,50 +307,99 @@ namespace Assets._Project.Scripts.UI
                 return GetSurfacePosition(hit.point, hit.normal);
             }
 
-            // Луч ушёл в небо или попал только в ghost — используем последнюю валидную поверхность для плавного скольжения
             if (_hasLastSurface)
             {
                 Plane plane = new Plane(_lastSurfaceNormal, _lastSurfacePoint);
                 if (plane.Raycast(ray, out float planeDist))
                 {
-                    // Убеждаемся, что расстояние не меньше минимального
                     float d = Mathf.Clamp(planeDist, _minGhostDistance, _maxGhostDistance);
                     Vector3 onPlane = ray.GetPoint(d);
                     return GetSurfacePosition(onPlane, _lastSurfaceNormal);
                 }
 
-                // Почти параллельно плоскости — двигаемся по касательной
                 Vector3 tangent = Vector3.ProjectOnPlane(cameraForward, _lastSurfaceNormal).normalized;
                 Vector3 slide = _lastSurfacePoint + tangent * targetDistance;
                 return GetSurfacePosition(slide, _lastSurfaceNormal);
             }
 
-            // Нет предыдущей поверхности — ставим просто перед игроком на рассчитанном расстоянии
             return cameraPosition + cameraForward.normalized * targetDistance;
         }
 
-        // Вычисляет позицию entity на поверхности так, чтобы нижняя точка bounds касалась поверхности
         private Vector3 GetSurfacePosition(Vector3 surfacePoint, Vector3 surfaceNormal)
         {
             if (_ghostEntity == null)
                 return surfacePoint;
 
-            // Вычисляем центр bounds в мировых координатах относительно transform.position
-            Vector3 boundsCenterWorldOffset = _ghostEntity.transform.TransformVector(_boundsCenterOffset);
+            if (_cachedLowestCubeLocalBottomY == float.MaxValue)
+            {
+                CacheLowestCubeLocalBottomY();
+            }
 
-            // Вычисляем направление вниз от центра bounds
-            Vector3 downVector = _ghostEntity.transform.TransformDirection(Vector3.down);
+            float lowestCubeLocalBottomY = _cachedLowestCubeLocalBottomY;
+            if (lowestCubeLocalBottomY == float.MaxValue)
+            {
+                return surfacePoint;
+            }
 
-            // Вычисляем offset от центра bounds до нижней точки bounds
-            Vector3 bottomPointOffsetFromCenter = downVector * _entityBottomExtent;
+            float raycastDistance = 10f;
+            Vector3 rayOrigin = surfacePoint + Vector3.up * 0.1f;
+            Vector3 rayDirection = Vector3.down;
 
-            // Полный offset от transform.position до нижней точки bounds
-            Vector3 bottomPointOffset = boundsCenterWorldOffset + bottomPointOffsetFromCenter;
+            if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit, raycastDistance,
+                    _surfaceLayerMask, QueryTriggerInteraction.Ignore))
+            {
+                if (_ghostEntity != null && hit.collider.transform.root == _ghostEntity.transform.root)
+                {
+                    return surfacePoint;
+                }
 
-            // Вычисляем, насколько нужно поднять/опустить entity, чтобы нижняя точка коснулась поверхности
-            float offsetOnNormal = Vector3.Dot(bottomPointOffset, surfaceNormal);
-            return surfacePoint - surfaceNormal * offsetOnNormal;
+                float surfaceY = hit.point.y;
+                if (float.IsNaN(surfaceY) || float.IsInfinity(surfaceY))
+                {
+                    return _ghostEntity.transform.position;
+                }
+
+                float entityScaleY = _ghostEntity.transform.lossyScale.y;
+                if (float.IsNaN(entityScaleY) || float.IsInfinity(entityScaleY) || entityScaleY <= 0f)
+                {
+                    entityScaleY = 1f;
+                }
+
+                if (float.IsNaN(lowestCubeLocalBottomY) || float.IsInfinity(lowestCubeLocalBottomY))
+                {
+                    return _ghostEntity.transform.position;
+                }
+
+                float surfaceOffset = 0.1f;
+                float entityY = surfaceY - (lowestCubeLocalBottomY * entityScaleY) + surfaceOffset;
+
+                if (float.IsNaN(entityY) || float.IsInfinity(entityY))
+                {
+                    return _ghostEntity.transform.position;
+                }
+
+                const float maxCoordinate = 10000f;
+                if (Mathf.Abs(entityY) > maxCoordinate || Mathf.Abs(surfacePoint.x) > maxCoordinate ||
+                    Mathf.Abs(surfacePoint.z) > maxCoordinate)
+                {
+                    return _ghostEntity.transform.position;
+                }
+
+                Vector3 currentPosition = _ghostEntity.transform.position;
+                float maxPositionChange = 10f;
+                float positionDelta = entityY - currentPosition.y;
+
+                if (Mathf.Abs(positionDelta) > maxPositionChange)
+                {
+                    entityY = currentPosition.y + Mathf.Sign(positionDelta) * maxPositionChange;
+                }
+
+                return new Vector3(surfacePoint.x, entityY, surfacePoint.z);
+            }
+
+            return surfacePoint;
         }
+
 
         private bool IsPositionOccupied(Vector3 position)
         {
@@ -452,24 +476,120 @@ namespace Assets._Project.Scripts.UI
 
         private bool IsGrounded(Vector3 position)
         {
-            // луч немного выше точки касания, вниз на небольшой диапазон
             float dist = 2;
             Vector3 origin = position + Vector3.up * 0.01f;
             return Physics.Raycast(origin, Vector3.down, dist, _surfaceLayerMask, QueryTriggerInteraction.Ignore);
         }
 
-        private void CacheAndApplyGhostMaterials(bool isBlocked)
+        private void SetCubesTriggers(bool isTrigger)
         {
+            _originalColliderTriggers.Clear();
+
             if (_ghostEntity == null)
                 return;
 
-            Material targetMaterial = isBlocked ? _ghostMaterialRed : _ghostMaterialGreen;
+            Cube[] cubes = _ghostEntity.Cubes;
+            if (cubes == null || cubes.Length == 0)
+                return;
 
-            // Если материалов нет, создаём временные
-            if (targetMaterial == null)
+            foreach (Cube cube in cubes)
             {
-                targetMaterial = CreateGhostMaterial(isBlocked);
+                if (cube == null) continue;
+
+                Collider cubeCollider = cube.GetComponent<Collider>();
+                if (cubeCollider != null)
+                {
+                    _originalColliderTriggers[cubeCollider] = cubeCollider.isTrigger;
+                    cubeCollider.isTrigger = isTrigger;
+                }
             }
+        }
+
+        private void RestoreCubesTriggers()
+        {
+            foreach (var kvp in _originalColliderTriggers)
+            {
+                if (kvp.Key != null)
+                {
+                    kvp.Key.isTrigger = kvp.Value;
+                }
+            }
+
+            _originalColliderTriggers.Clear();
+        }
+
+        private bool HasCollisionWithObjects()
+        {
+            if (_ghostEntity == null)
+                return false;
+
+            Cube[] cubes = _ghostEntity.Cubes;
+            if (cubes == null || cubes.Length == 0)
+                return false;
+
+            foreach (Cube cube in cubes)
+            {
+                if (cube == null) continue;
+
+                Collider cubeCollider = cube.GetComponent<Collider>();
+                if (cubeCollider == null || !cubeCollider.enabled)
+                    continue;
+
+                bool wasTrigger = cubeCollider.isTrigger;
+                cubeCollider.isTrigger = false;
+
+                Bounds cubeBounds = cubeCollider.bounds;
+
+                Collider[] nearbyColliders = Physics.OverlapBox(
+                    cubeBounds.center,
+                    cubeBounds.extents,
+                    cube.transform.rotation,
+                    ~0,
+                    QueryTriggerInteraction.Ignore
+                );
+
+                for (int i = 0; i < nearbyColliders.Length; i++)
+                {
+                    Collider otherCollider = nearbyColliders[i];
+                    if (otherCollider == null)
+                        continue;
+
+                    if (_ghostEntity != null && otherCollider.transform.root == _ghostEntity.transform.root)
+                        continue;
+
+                    int otherLayer = otherCollider.gameObject.layer;
+                    if ((_surfaceLayerMask & (1 << otherLayer)) != 0)
+                        continue;
+
+                    if (cubeBounds.Intersects(otherCollider.bounds))
+                    {
+                        bool hasPenetration = Physics.ComputePenetration(
+                            cubeCollider,
+                            cubeCollider.transform.position,
+                            cubeCollider.transform.rotation,
+                            otherCollider,
+                            otherCollider.transform.position,
+                            otherCollider.transform.rotation,
+                            out _,
+                            out _);
+
+                        cubeCollider.isTrigger = wasTrigger;
+
+                        if (hasPenetration)
+                            return true;
+                    }
+                }
+
+                cubeCollider.isTrigger = wasTrigger;
+            }
+
+            return false;
+        }
+
+        private void CacheAndApplyGhostMaterials()
+        {
+            if (_ghostEntity == null)
+                return;
 
             _originalMaterials.Clear();
             _originalPropertyBlocks.Clear();
@@ -479,63 +599,65 @@ namespace Assets._Project.Scripts.UI
                 var r = _combinedRenderers[i];
                 if (r == null) continue;
 
-                // Кешируем оригинальные материалы
                 _originalMaterials[r] = new Material[r.sharedMaterials.Length];
                 for (int j = 0; j < r.sharedMaterials.Length; j++)
                 {
                     _originalMaterials[r][j] = r.sharedMaterials[j];
                 }
 
-                // Сохраняем исходный property block (если использовался оригинальным комбинированным мешем)
                 var savedBlock = new MaterialPropertyBlock();
                 r.GetPropertyBlock(savedBlock);
                 _originalPropertyBlocks[r] = savedBlock;
-
-                // Применяем ghost-материал ко всем слотам
-                Material[] ghostMats = new Material[r.sharedMaterials.Length];
-                for (int j = 0; j < ghostMats.Length; j++)
-                {
-                    ghostMats[j] = targetMaterial;
-                }
-
-                r.sharedMaterials = ghostMats;
-
-                // Сбрасываем PropertyBlock, чтобы цвет из материала применился
-                _mpb.Clear();
-                r.SetPropertyBlock(_mpb);
             }
         }
 
         private void UpdateGhostMaterial(bool canPlace)
         {
-            Material targetMaterial = canPlace ? _ghostMaterialGreen : _ghostMaterialRed;
-
-            if (targetMaterial == null)
-            {
-                targetMaterial = CreateGhostMaterial(!canPlace);
-            }
-
             for (int i = 0; i < _combinedRenderers.Count; i++)
             {
                 var r = _combinedRenderers[i];
                 if (r == null) continue;
 
-                Material[] ghostMats = new Material[r.sharedMaterials.Length];
-                for (int j = 0; j < ghostMats.Length; j++)
+                if (canPlace)
                 {
-                    ghostMats[j] = targetMaterial;
+                    if (_originalMaterials.TryGetValue(r, out var originalMats))
+                    {
+                        r.sharedMaterials = originalMats;
+                    }
+
+                    if (_originalPropertyBlocks.TryGetValue(r, out var originalBlock))
+                    {
+                        r.SetPropertyBlock(originalBlock);
+                    }
+                    else
+                    {
+                        _mpb.Clear();
+                        r.SetPropertyBlock(_mpb);
+                    }
                 }
+                else
+                {
+                    Material targetMaterial = _ghostMaterialRed;
 
-                r.sharedMaterials = ghostMats;
+                    if (targetMaterial == null)
+                    {
+                        targetMaterial = CreateGhostMaterial(true);
+                    }
 
-                // Учитываем URP: некоторые рендеры используют MaterialPropertyBlock
-                Color c = canPlace
-                    ? new Color(0f, 1f, 0f, _ghostTransparency)
-                    : new Color(1f, 0f, 0f, _ghostTransparency);
-                _mpb.Clear();
-                _mpb.SetColor("_BaseColor", c); // URP Lit/Unlit
-                _mpb.SetColor("_Color", c); // Fallback для Standard
-                r.SetPropertyBlock(_mpb);
+                    Material[] ghostMats = new Material[r.sharedMaterials.Length];
+                    for (int j = 0; j < ghostMats.Length; j++)
+                    {
+                        ghostMats[j] = targetMaterial;
+                    }
+
+                    r.sharedMaterials = ghostMats;
+
+                    Color c = new Color(1f, 0f, 0f, _ghostTransparency);
+                    _mpb.Clear();
+                    _mpb.SetColor("_BaseColor", c);
+                    _mpb.SetColor("_Color", c);
+                    r.SetPropertyBlock(_mpb);
+                }
             }
         }
 
@@ -599,6 +721,95 @@ namespace Assets._Project.Scripts.UI
                 if (r.GetComponent<Cube>() != null) continue;
 
                 _combinedRenderers.Add(r);
+            }
+        }
+
+        private void CacheLowestCubeLocalBottomY()
+        {
+            _cachedLowestCubeLocalBottomY = float.MaxValue;
+
+            if (_ghostEntity == null)
+                return;
+
+            Cube[] cubes = _ghostEntity.Cubes;
+            if (cubes == null || cubes.Length == 0)
+                return;
+
+            float lowestLocalY = float.MaxValue;
+
+            foreach (Cube cube in cubes)
+            {
+                if (cube == null) continue;
+
+                try
+                {
+                    if (cube.transform.parent != _ghostEntity.transform)
+                        continue;
+
+                    Vector3 localPos = cube.transform.localPosition;
+
+                    if (float.IsNaN(localPos.y) || float.IsInfinity(localPos.y))
+                        continue;
+
+                    Collider cubeCollider = cube.GetComponent<Collider>();
+                    if (cubeCollider != null && cubeCollider.enabled)
+                    {
+                        float colliderBottomLocalY;
+
+                        BoxCollider boxCollider = cubeCollider as BoxCollider;
+                        if (boxCollider != null)
+                        {
+                            Vector3 colliderCenterOffset = boxCollider.center;
+                            colliderCenterOffset.Scale(cube.transform.localScale);
+                            Vector3 colliderCenterLocal = localPos + colliderCenterOffset;
+
+                            float colliderHalfHeight = boxCollider.size.y * 0.5f * cube.transform.localScale.y;
+                            colliderBottomLocalY = colliderCenterLocal.y - colliderHalfHeight;
+                        }
+                        else
+                        {
+                            Vector3 colliderBottomWorld = new Vector3(
+                                cubeCollider.bounds.center.x,
+                                cubeCollider.bounds.min.y,
+                                cubeCollider.bounds.center.z
+                            );
+
+                            Vector3 colliderBottomLocal =
+                                _ghostEntity.transform.InverseTransformPoint(colliderBottomWorld);
+                            colliderBottomLocalY = colliderBottomLocal.y;
+                        }
+
+                        if (float.IsNaN(colliderBottomLocalY) || float.IsInfinity(colliderBottomLocalY))
+                            continue;
+
+                        if (Mathf.Abs(colliderBottomLocalY) > 1000f)
+                            continue;
+
+                        if (colliderBottomLocalY < lowestLocalY)
+                        {
+                            lowestLocalY = colliderBottomLocalY;
+                        }
+                    }
+                    else
+                    {
+                        if (Mathf.Abs(localPos.y) > 1000f)
+                            continue;
+
+                        if (localPos.y < lowestLocalY)
+                        {
+                            lowestLocalY = localPos.y;
+                        }
+                    }
+                }
+                catch (System.Exception)
+                {
+                    continue;
+                }
+            }
+
+            if (lowestLocalY != float.MaxValue)
+            {
+                _cachedLowestCubeLocalBottomY = lowestLocalY;
             }
         }
 

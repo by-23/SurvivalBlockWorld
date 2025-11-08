@@ -20,6 +20,10 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private VehicleForce _vehicleForce;
         [SerializeField] private Bomb _raycastDetoucher;
         [SerializeField] private Button _bombButton;
+        [SerializeField] private Button _jumpButton;
+
+        [SerializeField] private Button _moverButton;
+
 
         [Header("Save UI")] [SerializeField] private Button _saveButton;
         [SerializeField] private GameObject _savePanel;
@@ -50,11 +54,10 @@ namespace Assets._Project.Scripts.UI
         private EntityVisualizer _entityVisualizer;
 
         [SerializeField] private string _activeToolName = "";
-        
-        [Header("Build Mode UI")] [SerializeField]
-        private Button _buildModeButton;
 
-        [SerializeField] private GameObject _levitateButtonsPanel; 
+        [Header("Build Mode UI")] [SerializeField]
+        private GameObject _levitateButtonsPanel;
+
 
         private void Start()
         {
@@ -112,24 +115,12 @@ namespace Assets._Project.Scripts.UI
                 _bombButton.onClick.AddListener(OnBombButtonPressed);
             }
 
-            if (_buildModeButton != null)
+            if (_jumpButton != null)
             {
-                _buildModeButton.onClick.AddListener(OnBuildModeTogglePressed);
+                _jumpButton.onClick.AddListener(OnJumpButtonPressed);
             }
         }
-        private void OnBuildModeTogglePressed()
-        {
-            if (GameManager.Instance != null)
-            {
-                GameManager.Instance.ToggleBuildMode();
-                UpdateBuildModeUI(GameManager.Instance.BuildModeActive);
-                if (!GameManager.Instance.BuildModeActive)
-                {
-                    GameManager.Instance.LevitateUp(false);
-                    GameManager.Instance.LevitateDown(false);
-                }
-            }
-        }
+
 
         // Удобные методы для EventTrigger (PointerDown/Up/Exit не передают bool)
         public void OnLevitateUpPointerDown()
@@ -161,6 +152,18 @@ namespace Assets._Project.Scripts.UI
         private void UpdateBuildModeUI(bool buildActive)
         {
             _levitateButtonsPanel.gameObject.SetActive(buildActive);
+
+            // Скрываем кнопку прыжка в режиме строительства
+            if (_jumpButton != null)
+            {
+                _jumpButton.gameObject.SetActive(!buildActive);
+            }
+
+            // Отключаем кнопку поднятия объектов в режиме строительства
+            if (_moverButton != null)
+            {
+                _moverButton.interactable = !buildActive;
+            }
         }
 
         private void SetupPanels()
@@ -203,7 +206,7 @@ namespace Assets._Project.Scripts.UI
             // Initialize visualizer if not assigned
             if (_entityVisualizer == null)
             {
-                _entityVisualizer = FindObjectOfType<EntityVisualizer>();
+                _entityVisualizer = FindFirstObjectByType<EntityVisualizer>();
 
                 // If still null, create a new one
                 if (_entityVisualizer == null)
@@ -278,6 +281,36 @@ namespace Assets._Project.Scripts.UI
             {
                 selectedTool.SetActive(true);
                 _activeToolName = selectedTool.name;
+
+                // Автоматически включаем building mode при выборе инструмента строительства кубов
+                bool isCubeBuildingTool = selectedTool.name.Contains("CubeCreator");
+                if (GameManager.Instance != null)
+                {
+                    if (isCubeBuildingTool)
+                    {
+                        if (!GameManager.Instance.BuildModeActive)
+                        {
+                            GameManager.Instance.SetBuildMode(true);
+                            UpdateBuildModeUI(true);
+                        }
+                    }
+                    else
+                    {
+                        // Выключаем building mode при выборе других инструментов
+                        if (GameManager.Instance.BuildModeActive)
+                        {
+                            GameManager.Instance.SetBuildMode(false);
+                            GameManager.Instance.LevitateUp(false);
+                            GameManager.Instance.LevitateDown(false);
+                            UpdateBuildModeUI(false);
+                        }
+                        else
+                        {
+                            // Включаем кнопку поднятия объектов при смене инструмента (если режим строительства не активен)
+                            UpdateBuildModeUI(false);
+                        }
+                    }
+                }
 
                 // Активируем визуализатор если выбран инструмент "SaveSpawn" или "Move"
                 if (_entityVisualizer != null &&
@@ -480,6 +513,12 @@ namespace Assets._Project.Scripts.UI
 
         public void OnJumpButtonPressed()
         {
+            // Не выполняем прыжок в режиме строительства
+            if (GameManager.Instance != null && GameManager.Instance.BuildModeActive)
+            {
+                return;
+            }
+
             if (_playerMovement != null)
             {
                 _playerMovement.Jump();

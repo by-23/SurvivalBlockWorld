@@ -27,6 +27,7 @@ namespace Assets._Project.Scripts.UI
 
         [SerializeField] private Button addColorButton;
         [SerializeField] private Button colorButtonPrefab;
+        [SerializeField] private Button applyColorButton;
 
         [Header("Color Picker")] [SerializeField]
         private GameObject colorPickerPanel;
@@ -57,6 +58,7 @@ namespace Assets._Project.Scripts.UI
         private float _groupingTimerDuration = 2f;
 
         private Color _selectedColor = Color.white;
+        private Color _pendingColor = Color.white;
         private Button _selectedColorButton;
 
         private List<Cube> _placedCubes = new List<Cube>();
@@ -75,6 +77,11 @@ namespace Assets._Project.Scripts.UI
                 addColorButton.onClick.AddListener(OpenColorPicker);
             }
 
+            if (applyColorButton != null)
+            {
+                applyColorButton.onClick.AddListener(OnApplyColorButtonClicked);
+            }
+
             if (colorPickerPanel != null)
             {
                 colorPickerPanel.SetActive(false);
@@ -83,6 +90,8 @@ namespace Assets._Project.Scripts.UI
             SetupColorButtons();
             CreateGhostCube();
             CacheCamera();
+
+            _pendingColor = _selectedColor;
         }
 
         private void CacheCamera()
@@ -119,8 +128,8 @@ namespace Assets._Project.Scripts.UI
         {
             if (colorPickerPanel == null) return;
 
-            // обновляем превью текущего цвета
-            UpdatePickerPreview(_selectedColor);
+            // обновляем превью текущего предварительно выбранного цвета
+            UpdatePickerPreview(_pendingColor);
 
             _isColorPicking = false;
             _hasHoverColor = false;
@@ -177,7 +186,7 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        // Завершение удержания — применяем последний цвет и закрываем панель
+        // Завершение удержания — применяем цвет к превью, но не создаем куб
         public void OnPalettePointerUp(BaseEventData eventData)
         {
             if (paletteImage == null || colorPickerPanel == null) return;
@@ -190,19 +199,19 @@ namespace Assets._Project.Scripts.UI
             {
                 _isColorPicking = false;
                 _hasHoverColor = false;
-                colorPickerPanel.SetActive(false);
                 return;
             }
 
             Color picked;
             if (TrySampleColorFromImage(paletteImage, ped.position, ped.pressEventCamera, out picked))
             {
-                CreateColorButton(picked);
+                // Устанавливаем цвет как предварительно выбранный и обновляем превью
+                _pendingColor = picked;
+                UpdatePickerPreview(_pendingColor);
             }
 
             _isColorPicking = false;
             _hasHoverColor = false;
-            colorPickerPanel.SetActive(false);
         }
 
         // Обработчик клика по фону панели (клик вне изображения закрывает панель)
@@ -278,7 +287,7 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        private void CreateColorButton(Color c)
+        private void CreateColorButton(Color c, bool selectImmediately = true)
         {
             if (colorButtonsParent == null || colorButtonPrefab == null) return;
 
@@ -312,8 +321,11 @@ namespace Assets._Project.Scripts.UI
 
             btn.onClick.AddListener(() => OnColorButtonClicked(btn));
 
-            // сразу выбрать новый цвет
-            OnColorButtonClicked(btn);
+            // Выбираем кнопку только если нужно
+            if (selectImmediately)
+            {
+                OnColorButtonClicked(btn);
+            }
         }
 
         private void OnColorButtonClicked(Button clickedButton)
@@ -330,10 +342,106 @@ namespace Assets._Project.Scripts.UI
             if (buttonImage != null)
             {
                 ColorBlock colorBlock = clickedButton.colors;
-                _selectedColor = colorBlock.normalColor;
+                _pendingColor = colorBlock.normalColor;
+                _selectedColor = _pendingColor;
             }
 
+            // Убеждаемся, что ghost куб создан
+            if (_ghostRoot == null)
+            {
+                CreateGhostCube();
+            }
+
+            SetupGhostCubeMaterial();
             ShowGhostCube();
+        }
+
+        private void OnApplyColorButtonClicked()
+        {
+            _selectedColor = _pendingColor;
+
+            // Создаем кнопку цвета, если её еще нет
+            if (!ColorButtonExists(_selectedColor))
+            {
+                // Создаем кнопку без немедленного выбора, так как цвет уже применен
+                CreateColorButton(_selectedColor, selectImmediately: false);
+                // Выбираем созданную кнопку вручную
+                SelectColorButtonByColor(_selectedColor);
+            }
+            else
+            {
+                // Если кнопка уже существует, обновляем выбор
+                SelectColorButtonByColor(_selectedColor);
+            }
+
+            // Убеждаемся, что ghost куб создан
+            if (_ghostRoot == null)
+            {
+                CreateGhostCube();
+            }
+
+            SetupGhostCubeMaterial();
+            ShowGhostCube();
+
+            // Закрываем палитру после применения цвета
+            if (colorPickerPanel != null)
+            {
+                colorPickerPanel.SetActive(false);
+            }
+        }
+
+        private bool ColorButtonExists(Color color)
+        {
+            if (colorButtonsParent == null) return false;
+
+            Button[] colorButtons = colorButtonsParent.GetComponentsInChildren<Button>();
+            foreach (Button button in colorButtons)
+            {
+                if (button == addColorButton || button == applyColorButton) continue;
+
+                Image buttonImage = button.GetComponent<Image>();
+                if (buttonImage != null)
+                {
+                    Color buttonColor = buttonImage.color;
+                    // Сравниваем цвета с небольшой погрешностью
+                    if (ColorApproximatelyEqual(buttonColor, color))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private bool ColorApproximatelyEqual(Color a, Color b, float threshold = 0.01f)
+        {
+            return Mathf.Abs(a.r - b.r) < threshold &&
+                   Mathf.Abs(a.g - b.g) < threshold &&
+                   Mathf.Abs(a.b - b.b) < threshold &&
+                   Mathf.Abs(a.a - b.a) < threshold;
+        }
+
+        private void SelectColorButtonByColor(Color color)
+        {
+            if (colorButtonsParent == null) return;
+
+            Button[] colorButtons = colorButtonsParent.GetComponentsInChildren<Button>();
+            foreach (Button button in colorButtons)
+            {
+                if (button == addColorButton || button == applyColorButton) continue;
+
+                Image buttonImage = button.GetComponent<Image>();
+                if (buttonImage != null)
+                {
+                    Color buttonColor = buttonImage.color;
+                    if (ColorApproximatelyEqual(buttonColor, color))
+                    {
+                        OnColorButtonClicked(button);
+                        break;
+                    }
+                }
+            }
         }
 
         private void OnCreateButtonClicked()

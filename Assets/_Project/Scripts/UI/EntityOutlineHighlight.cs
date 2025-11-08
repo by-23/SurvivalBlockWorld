@@ -19,6 +19,9 @@ namespace Assets._Project.Scripts.UI
 
         // Holder for unified combined mesh with outline
         private GameObject _unifiedOutlineObject;
+        private Outline _outlineComponent;
+        private Mesh _combinedMesh;
+        private List<CombineInstance> _combineListCache = new List<CombineInstance>();
 
         /// <summary>
         /// Shows the outline effect on the entity
@@ -26,11 +29,21 @@ namespace Assets._Project.Scripts.UI
         public void ShowOutline(Color? color = null, float? width = null, Outline.Mode mode = Outline.Mode.OutlineAll)
         {
             if (_isOutlineActive)
+            {
+                // Обновляем параметры существующего outline без пересоздания
+                if (_outlineComponent != null)
+                {
+                    _outlineComponent.OutlineMode = mode;
+                    _outlineComponent.OutlineColor = color.HasValue ? color.Value : _defaultOutlineColor;
+                    _outlineComponent.OutlineWidth = width.HasValue ? width.Value : _defaultOutlineWidth;
+                }
+
                 return;
+            }
 
             _isOutlineActive = true;
 
-            // Collect all child mesh filters and combine into one mesh (originals untouched)
+            // Собираем все mesh filters и объединяем в один mesh
             MeshFilter[] meshFilters = GetComponentsInChildren<MeshFilter>();
             if (meshFilters == null || meshFilters.Length == 0)
             {
@@ -38,7 +51,7 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
-            var combine = new List<CombineInstance>();
+            _combineListCache.Clear();
             foreach (var mf in meshFilters)
             {
                 if (mf == null || mf.sharedMesh == null) continue;
@@ -51,41 +64,69 @@ namespace Assets._Project.Scripts.UI
                     mesh = mf.sharedMesh,
                     transform = transform.worldToLocalMatrix * mf.transform.localToWorldMatrix
                 };
-                combine.Add(ci);
+                _combineListCache.Add(ci);
             }
 
-            if (combine.Count == 0)
+            if (_combineListCache.Count == 0)
             {
                 _isOutlineActive = false;
                 return;
             }
 
-            var combinedMesh = new Mesh { name = "UnifiedOutlineMesh" };
-            combinedMesh.CombineMeshes(combine.ToArray(), true, true);
+            // Переиспользуем существующий mesh или создаем новый
+            if (_combinedMesh == null)
+            {
+                _combinedMesh = new Mesh { name = "UnifiedOutlineMesh" };
+            }
 
-            _unifiedOutlineObject = new GameObject("UnifiedOutline");
-            _unifiedOutlineObject.transform.SetParent(transform, false);
-            _unifiedOutlineObject.transform.localPosition = Vector3.zero;
-            _unifiedOutlineObject.transform.localRotation = Quaternion.identity;
-            _unifiedOutlineObject.transform.localScale = Vector3.one;
+            _combinedMesh.CombineMeshes(_combineListCache.ToArray(), true, true);
 
-            var outlineMf = _unifiedOutlineObject.AddComponent<MeshFilter>();
-            outlineMf.sharedMesh = combinedMesh;
+            // Переиспользуем существующий GameObject или создаем новый
+            if (_unifiedOutlineObject == null)
+            {
+                _unifiedOutlineObject = new GameObject("UnifiedOutline");
+                _unifiedOutlineObject.transform.SetParent(transform, false);
+                _unifiedOutlineObject.transform.localPosition = Vector3.zero;
+                _unifiedOutlineObject.transform.localRotation = Quaternion.identity;
+                _unifiedOutlineObject.transform.localScale = Vector3.one;
 
-            var outlineMr = _unifiedOutlineObject.AddComponent<MeshRenderer>();
-            outlineMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            outlineMr.receiveShadows = false;
-            outlineMr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-            outlineMr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            // Ensure there is no default empty material slot which would result in a pink texture
-            // QuickOutline will append its own two materials on enable
-            outlineMr.sharedMaterials = new Material[0];
+                var outlineMf = _unifiedOutlineObject.AddComponent<MeshFilter>();
+                outlineMf.sharedMesh = _combinedMesh;
 
-            // Add QuickOutline Outline component with parameters
-            var outline = _unifiedOutlineObject.AddComponent<Outline>();
-            outline.OutlineMode = mode;
-            outline.OutlineColor = color.HasValue ? color.Value : _defaultOutlineColor;
-            outline.OutlineWidth = width.HasValue ? width.Value : _defaultOutlineWidth;
+                var outlineMr = _unifiedOutlineObject.AddComponent<MeshRenderer>();
+                outlineMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                outlineMr.receiveShadows = false;
+                outlineMr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                outlineMr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                outlineMr.sharedMaterials = new Material[0];
+
+                // Создаем Outline компонент только один раз
+                _outlineComponent = _unifiedOutlineObject.AddComponent<Outline>();
+            }
+            else
+            {
+                // Активируем объект и обновляем mesh
+                _unifiedOutlineObject.SetActive(true);
+                var outlineMf = _unifiedOutlineObject.GetComponent<MeshFilter>();
+                if (outlineMf != null)
+                {
+                    outlineMf.sharedMesh = _combinedMesh;
+                }
+
+                // Получаем компонент если он еще не кэширован
+                if (_outlineComponent == null)
+                {
+                    _outlineComponent = _unifiedOutlineObject.GetComponent<Outline>();
+                }
+            }
+
+            // Обновляем параметры outline
+            if (_outlineComponent != null)
+            {
+                _outlineComponent.OutlineMode = mode;
+                _outlineComponent.OutlineColor = color.HasValue ? color.Value : _defaultOutlineColor;
+                _outlineComponent.OutlineWidth = width.HasValue ? width.Value : _defaultOutlineWidth;
+            }
         }
 
         // No custom material needed; QuickOutline handles mask/fill passes internally
@@ -100,16 +141,29 @@ namespace Assets._Project.Scripts.UI
 
             _isOutlineActive = false;
 
+            // Отключаем объект вместо уничтожения для переиспользования
             if (_unifiedOutlineObject != null)
             {
-                Destroy(_unifiedOutlineObject);
-                _unifiedOutlineObject = null;
+                _unifiedOutlineObject.SetActive(false);
             }
         }
 
         private void OnDestroy()
         {
-            HideOutline();
+            // Освобождаем ресурсы при уничтожении компонента
+            if (_unifiedOutlineObject != null)
+            {
+                Destroy(_unifiedOutlineObject);
+                _unifiedOutlineObject = null;
+            }
+
+            if (_combinedMesh != null)
+            {
+                Destroy(_combinedMesh);
+                _combinedMesh = null;
+            }
+
+            _outlineComponent = null;
         }
     }
 }

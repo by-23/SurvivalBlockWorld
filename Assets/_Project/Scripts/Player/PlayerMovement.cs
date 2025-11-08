@@ -187,25 +187,20 @@ public class PlayerMovement : MonoBehaviour
     public void SetLevitateUp(bool isPressed)
     {
         _levitateUp = isPressed;
-        Debug.Log($"[PlayerMovement] SetLevitateUp: {isPressed}, _levitateMode: {_levitateMode}");
     }
 
     public void SetLevitateDown(bool isPressed)
     {
         _levitateDown = isPressed;
-        Debug.Log($"[PlayerMovement] SetLevitateDown: {isPressed}, _levitateMode: {_levitateMode}");
     }
 
     private void HandleJump()
     {
-        // Проверяем ввод прыжка (пробел или клик на экране)
-        // Работает и от клавиатуры, и от сенсорных кнопок
-        bool jumpInput = Input.GetKeyDown(KeyCode.Space) ||
-                         (InputManager.Instance._TOUCH && InputManager.Instance._Press);
-
-        if (jumpInput && _Grounded)
+        // Проверяем ввод прыжка с клавиатуры (пробел)
+        // Используем тот же метод Jump(), что и для кнопки UI
+        if (Input.GetKeyDown(KeyCode.Space))
         {
-            _velocity.y = Mathf.Sqrt(_jumpHeight * -2f * -_gravity);
+            Jump();
         }
     }
 

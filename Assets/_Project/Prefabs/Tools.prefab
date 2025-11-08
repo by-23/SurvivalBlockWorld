@@ -46,7 +46,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _groundLayerMask:
     serializedVersion: 2
-    m_Bits: 66569
+    m_Bits: 65545
   _ghostTransparency: 0.5
   _ghostMaterial: {fileID: 2100000, guid: 20cc37f763c9cd9408d53a693242b78f, type: 2}
   createButton: {fileID: 0}
@@ -54,6 +54,7 @@ MonoBehaviour:
   addColorButton: {fileID: 0}
   colorButtonPrefab: {fileID: 2539358945995382460, guid: 47157ec1d57384f0090cf386de2c480d,
     type: 3}
+  applyColorButton: {fileID: 0}
   colorPickerPanel: {fileID: 0}
   paletteImage: {fileID: 0}
   previewImage: {fileID: 0}
@@ -131,12 +132,13 @@ MonoBehaviour:
   _config: {fileID: 11400000, guid: 67f32b67cc5cd9049a2d12a1c5616619, type: 2}
   _playerCamera: {fileID: 0}
   _selector: {fileID: 1842845971211095527}
-  _saveButton: {fileID: 0}
-  _loadButton: {fileID: 0}
+  _savePlaceButton: {fileID: 0}
+  _savePlaceButtonText: {fileID: 0}
+  _saveButtonText: Save
+  _placeButtonText: Place
   _saveItemButtonPrefab: {fileID: 411221214996393682, guid: 65d26ba2018ac42e3a1138cd374f1fac,
     type: 3}
   _saveListContainer: {fileID: 0}
-  _confirmGhostButton: {fileID: 0}
   _cancelGhostButton: {fileID: 0}
   _cubeSpawner: {fileID: 0}
   _ghostPlacer: {fileID: 5796399195515678343}
@@ -154,7 +156,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _surfaceLayerMask:
     serializedVersion: 2
-    m_Bits: 66569
+    m_Bits: 65545
   _blockedLayerMask:
     serializedVersion: 2
     m_Bits: 67457
@@ -220,7 +222,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8592521082416309470}
-  - component: {fileID: 3885201095031460002}
+  - component: {fileID: 1101061359678595684}
   m_Layer: 0
   m_Name: MoveTool
   m_TagString: Untagged
@@ -243,7 +245,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 7427528661894488601}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &3885201095031460002
+--- !u!114 &1101061359678595684
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -252,14 +254,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 4790049769583868008}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: af877e0d675a24a68bdd0eb631d38cf2, type: 3}
+  m_Script: {fileID: 11500000, guid: 324e0672ff0794ceba889842fe94fce8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _entityManager: {fileID: 2910710070985067754}
-  _ghostPlacer: {fileID: 5796399195515678343}
-  _playerCamera: {fileID: 0}
+  _holdDistance: 10
+  _dropForce: 0
+  _collisionLayerMask:
+    serializedVersion: 2
+    m_Bits: 66569
   _moveButton: {fileID: 0}
+  _entityManager: {fileID: 2910710070985067754}
   _entityVisualizer: {fileID: 0}
+  _playerCamera: {fileID: 0}
 --- !u!1 &5586815943144874399
 GameObject:
   m_ObjectHideFlags: 0

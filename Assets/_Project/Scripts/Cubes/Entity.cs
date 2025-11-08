@@ -1202,6 +1202,68 @@ public class Entity : MonoBehaviour
 
             if (group.Length == 0) continue;
 
+            // Если группа маленькая (<= 3 кубов), удаляем кубы вместо создания entity
+            if (group.Length <= 3)
+            {
+                // Отсоединяем и удаляем кубы из малой группы
+                for (int j = 0; j < group.Length; j++)
+                {
+                    if (_cubeIdToIndex.TryGetValue(group[j], out int cubeIndex))
+                    {
+                        Cube cubeToDestroy = _cubes[cubeIndex];
+                        if (cubeToDestroy != null)
+                        {
+                            // Обновляем сетку кубов
+                            Vector3 localPos = cubeToDestroy.transform.localPosition;
+                            int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
+                            int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
+                            int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
+
+                            if (x >= 0 && y >= 0 && z >= 0 &&
+                                x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
+                            {
+                                _cubesInfo[x, y, z] = 0;
+                            }
+
+                            // Очищаем массив кубов
+                            int cubeArrayIndex = cubeToDestroy.Id - 1;
+                            if (cubeArrayIndex >= 0 && cubeArrayIndex < _cubes.Length)
+                            {
+                                _cubes[cubeArrayIndex] = null;
+                            }
+
+                            // Удаляем из кэша
+                            if (_cubeIdToIndex != null)
+                            {
+                                _cubeIdToIndex.Remove(cubeToDestroy.Id);
+                            }
+
+                            // Отсоединяем куб от entity
+                            cubeToDestroy.transform.parent = null;
+
+                            // Отсоединяем хук если есть
+                            if (_hookManager)
+                                _hookManager.DetachHookFromCube(cubeToDestroy);
+
+                            // Создаем Rigidbody для куба
+                            var rb = cubeToDestroy.gameObject.GetComponent<Rigidbody>();
+                            if (rb == null)
+                            {
+                                rb = cubeToDestroy.gameObject.AddComponent<Rigidbody>();
+                                rb.mass = 1f;
+                                rb.drag = 0.5f;
+                                rb.angularDrag = 0.5f;
+                            }
+
+                            // Уменьшаем и удаляем куб
+                            StartCoroutine(ScaleDownAndDestroyOptimized(cubeToDestroy.transform, 2f));
+                        }
+                    }
+                }
+
+                continue;
+            }
+
             // Используем кэш для быстрого поиска первого куба
             if (_cubeIdToIndex.TryGetValue(group[0], out int firstCubeIndex))
             {
@@ -1239,6 +1301,81 @@ public class Entity : MonoBehaviour
                     }
                 }
             }
+        }
+
+        // Проверяем основную группу (самую большую, которая остается в текущем entity)
+        int mainGroupIndex = groupIndices[0];
+        int[] mainGroup = groups[mainGroupIndex];
+
+        // Если основная группа стала маленькой (<= 3 кубов), удаляем её кубы
+        if (mainGroup.Length <= 3)
+        {
+            // Отсоединяем и удаляем кубы из основной группы
+            for (int j = 0; j < mainGroup.Length; j++)
+            {
+                if (_cubeIdToIndex.TryGetValue(mainGroup[j], out int cubeIndex))
+                {
+                    Cube cubeToDestroy = _cubes[cubeIndex];
+                    if (cubeToDestroy != null)
+                    {
+                        // Обновляем сетку кубов
+                        Vector3 localPos = cubeToDestroy.transform.localPosition;
+                        int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
+                        int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
+                        int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
+
+                        if (x >= 0 && y >= 0 && z >= 0 &&
+                            x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
+                        {
+                            _cubesInfo[x, y, z] = 0;
+                        }
+
+                        // Очищаем массив кубов
+                        int cubeArrayIndex = cubeToDestroy.Id - 1;
+                        if (cubeArrayIndex >= 0 && cubeArrayIndex < _cubes.Length)
+                        {
+                            _cubes[cubeArrayIndex] = null;
+                        }
+
+                        // Удаляем из кэша
+                        if (_cubeIdToIndex != null)
+                        {
+                            _cubeIdToIndex.Remove(cubeToDestroy.Id);
+                        }
+
+                        // Отсоединяем куб от entity
+                        cubeToDestroy.transform.parent = null;
+
+                        // Отсоединяем хук если есть
+                        if (_hookManager)
+                            _hookManager.DetachHookFromCube(cubeToDestroy);
+
+                        // Создаем Rigidbody для куба
+                        var rb = cubeToDestroy.gameObject.GetComponent<Rigidbody>();
+                        if (rb == null)
+                        {
+                            rb = cubeToDestroy.gameObject.AddComponent<Rigidbody>();
+                            rb.mass = 1f;
+                            rb.drag = 0.5f;
+                            rb.angularDrag = 0.5f;
+                        }
+
+                        // Уменьшаем и удаляем куб
+                        StartCoroutine(ScaleDownAndDestroyOptimized(cubeToDestroy.transform, 2f));
+                    }
+                }
+            }
+
+            // Уничтожаем entity, так как все кубы удалены
+            Destroy(gameObject);
+
+            // Возвращаем только созданные entity (без текущего, так как он уничтожен)
+            if (writeIndex == 0)
+                return System.Array.Empty<Entity>();
+
+            var result = new Entity[writeIndex];
+            System.Array.Copy(newEntities, 0, result, 0, writeIndex);
+            return result;
         }
 
         // Обновляем данные текущего Entity (остается только самая большая группа)

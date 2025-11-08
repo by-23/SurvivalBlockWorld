@@ -25,6 +25,7 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Outline.Mode _outlineMode = Outline.Mode.OutlineAll;
 
         private Entity _currentlyHighlightedEntity;
+        private EntityOutlineHighlight _cachedOutlineComponent;
         private bool _isVisualizerActive = false;
 
         private void Awake()
@@ -90,6 +91,7 @@ namespace Assets._Project.Scripts.UI
             {
                 RemoveHighlight(_currentlyHighlightedEntity);
                 _currentlyHighlightedEntity = null;
+                _cachedOutlineComponent = null;
             }
         }
 
@@ -97,14 +99,17 @@ namespace Assets._Project.Scripts.UI
         {
             if (entity == null) return;
 
-            EntityOutlineHighlight outline = entity.GetComponent<EntityOutlineHighlight>();
-
-            if (outline == null)
+            // Кэшируем компонент для избежания повторных GetComponent вызовов
+            if (_cachedOutlineComponent == null || _cachedOutlineComponent.gameObject != entity.gameObject)
             {
-                outline = entity.gameObject.AddComponent<EntityOutlineHighlight>();
+                _cachedOutlineComponent = entity.GetComponent<EntityOutlineHighlight>();
+                if (_cachedOutlineComponent == null)
+                {
+                    _cachedOutlineComponent = entity.gameObject.AddComponent<EntityOutlineHighlight>();
+                }
             }
 
-            outline.ShowOutline(_outlineColor, _outlineWidth, _outlineMode);
+            _cachedOutlineComponent.ShowOutline(_outlineColor, _outlineWidth, _outlineMode);
         }
 
         private void RemoveHighlight(Entity entity)
@@ -140,6 +145,7 @@ namespace Assets._Project.Scripts.UI
             {
                 RemoveHighlight(_currentlyHighlightedEntity);
                 _currentlyHighlightedEntity = null;
+                _cachedOutlineComponent = null;
             }
         }
 

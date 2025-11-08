@@ -13,6 +13,7 @@ public class EntityMeshCombiner : MonoBehaviour
     private Rigidbody _rb;
     private bool _isKinematicOriginalState;
     private bool _isCombined;
+    private bool _isCombining; // Флаг для предотвращения одновременных вызовов
 
     // Публичное свойство для проверки состояния объединения из Entity
     public bool IsCombined => _isCombined;
@@ -211,153 +212,201 @@ public class EntityMeshCombiner : MonoBehaviour
 
     public void CombineMeshes()
     {
-        if (_isCombined) return;
+        if (_isCombined || _isCombining) return;
 
-        // Перестраиваем кэш только при необходимости (надежно и без лишней работы)
-        var entityCubes = _entity != null ? _entity.Cubes : GetComponentsInChildren<Cube>();
-        if (_cachedComponents == null || entityCubes == null || _cachedComponents.Length != entityCubes.Length)
+        _isCombining = true;
+
+        try
         {
-            CacheCubeComponents();
-        }
-
-        if (_cachedComponents == null || _cachedComponents.Length == 0) return;
-
-        // Мало кубов — выгоды от Combine нет
-        if (_cachedComponents.Length <= 8) return;
-
-        // Гарантируем валидность кэша кубов в Entity (один раз)
-        if (_entity != null)
-        {
-            _entity.EnsureCacheValid();
-
-            // Разделяем только если структура менялась
-            if (_entity.IsStructureDirty)
+            // Перестраиваем кэш только при необходимости (надежно и без лишней работы)
+            var entityCubes = _entity != null ? _entity.Cubes : GetComponentsInChildren<Cube>();
+            if (_cachedComponents == null || entityCubes == null || _cachedComponents.Length != entityCubes.Length)
             {
-                var newEntities = _entity.SplitIntoSeparateEntities();
-                if (newEntities.Length > 0)
+                CacheCubeComponents();
+            }
+
+            if (_cachedComponents == null || _cachedComponents.Length == 0)
+            {
+                _isCombining = false;
+                return;
+            }
+
+            // Мало кубов — выгоды от Combine нет
+            if (_cachedComponents.Length <= 2)
+            {
+                _isCombining = false;
+                return;
+            }
+
+            // Гарантируем валидность кэша кубов в Entity (один раз)
+            if (_entity != null)
+            {
+                _entity.EnsureCacheValid();
+
+                // Разделяем только если структура менялась
+                if (_entity.IsStructureDirty)
                 {
-                    return;
+                    var newEntities = _entity.SplitIntoSeparateEntities();
+                    if (newEntities.Length > 0)
+                    {
+                        _isCombining = false;
+                        return;
+                    }
                 }
             }
-        }
 
-        if (_rb != null)
-        {
-            _isKinematicOriginalState = _rb.isKinematic;
-            _rb.isKinematic = true;
-        }
-
-        // Очищаем кэш и переиспользуем структуры
-        _sourceMaterial = null;
-
-        // Очищаем группы цветов (переиспользуем списки)
-        foreach (var list in _colorGroups.Values)
-            list.Clear();
-        _colorGroups.Clear();
-        _colorKeys.Clear();
-
-        // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
-        var worldToLocal = transform.worldToLocalMatrix;
-        for (int i = 0; i < _cachedComponents.Length; i++)
-        {
-            var cached = _cachedComponents[i];
-            if (!cached.IsValid || cached.Mesh == null) continue;
-
-            // Выключаем рендеры
-            if (cached.MeshRenderer.enabled)
+            if (_rb != null)
             {
-                if (_sourceMaterial == null)
-                    _sourceMaterial = cached.MeshRenderer.sharedMaterial;
-                cached.MeshRenderer.enabled = false;
+                _isKinematicOriginalState = _rb.isKinematic;
+                _rb.isKinematic = true;
             }
 
-            // Создаём CombineInstance сразу
-            var ci = new CombineInstance
-            {
-                mesh = cached.Mesh,
-                transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
-            };
+            // Очищаем кэш и переиспользуем структуры
+            _sourceMaterial = null;
 
-            // Группируем по цвету напрямую (Dictionary с pre-allocated capacity)
-            if (!_colorGroups.TryGetValue(cached.Color, out var list))
+            // Очищаем группы цветов (переиспользуем списки)
+            foreach (var list in _colorGroups.Values)
+                list.Clear();
+            _colorGroups.Clear();
+            _colorKeys.Clear();
+
+            // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
+            var worldToLocal = transform.worldToLocalMatrix;
+            for (int i = 0; i < _cachedComponents.Length; i++)
             {
-                list = new System.Collections.Generic.List<CombineInstance>(
-                    32); // pre-allocate для типичного количества кубов одного цвета
-                _colorGroups[cached.Color] = list;
-                _colorKeys.Add(cached.Color);
+                var cached = _cachedComponents[i];
+                if (!cached.IsValid || cached.Mesh == null) continue;
+
+                // Выключаем рендеры
+                if (cached.MeshRenderer.enabled)
+                {
+                    if (_sourceMaterial == null)
+                        _sourceMaterial = cached.MeshRenderer.sharedMaterial;
+                    cached.MeshRenderer.enabled = false;
+                }
+
+                // Создаём CombineInstance сразу
+                var ci = new CombineInstance
+                {
+                    mesh = cached.Mesh,
+                    transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
+                };
+
+                // Группируем по цвету напрямую (Dictionary с pre-allocated capacity)
+                if (!_colorGroups.TryGetValue(cached.Color, out var list))
+                {
+                    list = new System.Collections.Generic.List<CombineInstance>(
+                        32); // pre-allocate для типичного количества кубов одного цвета
+                    _colorGroups[cached.Color] = list;
+                    _colorKeys.Add(cached.Color);
+                }
+
+                list.Add(ci);
             }
 
-            list.Add(ci);
-        }
+            if (_sourceMaterial == null)
+            {
+                ShowCubes();
+                if (_rb != null) _rb.isKinematic = false;
+                _isCombined = false;
+                return;
+            }
 
-        if (_sourceMaterial == null)
-        {
-            ShowCubes();
-            if (_rb != null) _rb.isKinematic = _isKinematicOriginalState;
-            _isCombined = false;
-            return;
-        }
+            _combinedMeshObject = GetPooledGameObject("CombinedMesh");
+            _combinedMeshObject.transform.SetParent(transform, false);
 
-        _combinedMeshObject = GetPooledGameObject("CombinedMesh");
-        _combinedMeshObject.transform.SetParent(transform, false);
-
-        // Очищаем MaterialPropertyBlock для переиспользования
-        _propertyBlock.Clear();
-
-        // Обходим группы цветов и создаём объединённые меши
-        for (int i = 0; i < _colorKeys.Count; i++)
-        {
-            var color = _colorKeys[i];
-            var instances = _colorGroups[color];
-
-            if (instances.Count == 0) continue;
-
-            var subMesh = GetPooledMesh();
-            subMesh.CombineMeshes(instances.ToArray(), true, true);
-
-            // Для кубов задаём границы напрямую при наличии данных
-            if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
-                subMesh.bounds = fastBounds;
-            else
-                subMesh.RecalculateBounds();
-
-            var colorMeshObject = GetPooledGameObject($"CombinedMesh_{i}");
-            colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
-
-            var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
-            if (meshFilter == null)
-                meshFilter = colorMeshObject.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = subMesh;
-
-            var meshRenderer = colorMeshObject.GetComponent<MeshRenderer>();
-            if (meshRenderer == null)
-                meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
-            meshRenderer.sharedMaterial = _sourceMaterial;
-
-            // Очищаем PropertyBlock перед установкой цвета для каждого объекта
+            // Очищаем MaterialPropertyBlock для переиспользования
             _propertyBlock.Clear();
-            _propertyBlock.SetColor("_BaseColor", (Color)color);
-            _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
-            meshRenderer.SetPropertyBlock(_propertyBlock);
+
+            // Обходим группы цветов и создаём объединённые меши
+            for (int i = 0; i < _colorKeys.Count; i++)
+            {
+                var color = _colorKeys[i];
+                var instances = _colorGroups[color];
+
+                if (instances.Count == 0) continue;
+
+                var subMesh = GetPooledMesh();
+                subMesh.CombineMeshes(instances.ToArray(), true, true);
+
+                // Для кубов задаём границы напрямую при наличии данных
+                if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
+                    subMesh.bounds = fastBounds;
+                else
+                    subMesh.RecalculateBounds();
+
+                var colorMeshObject = GetPooledGameObject($"CombinedMesh_{i}");
+                colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
+
+                var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
+                if (meshFilter == null)
+                    meshFilter = colorMeshObject.AddComponent<MeshFilter>();
+                meshFilter.sharedMesh = subMesh;
+
+                var meshRenderer = colorMeshObject.GetComponent<MeshRenderer>();
+                if (meshRenderer == null)
+                    meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
+                meshRenderer.sharedMaterial = _sourceMaterial;
+
+                // Очищаем PropertyBlock перед установкой цвета для каждого объекта
+                _propertyBlock.Clear();
+                _propertyBlock.SetColor("_BaseColor", (Color)color);
+                _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
+                meshRenderer.SetPropertyBlock(_propertyBlock);
+            }
+
+            // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
+            CacheChildObjects();
+
+            _isCombined = true;
+
+            // Сбрасываем флаг грязности после успешной сборки
+            if (_entity != null)
+                _entity.ClearStructureDirty();
+
+            // Устанавливаем isKinematic в false после объединения
+            if (_rb != null)
+            {
+                _rb.isKinematic = false;
+            }
         }
-
-        // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
-        CacheChildObjects();
-
-        _isCombined = true;
-
-        // Сбрасываем флаг грязности после успешной сборки
-        if (_entity != null)
-            _entity.ClearStructureDirty();
+        finally
+        {
+            _isCombining = false;
+        }
     }
 
     public void ShowCubes()
     {
         if (!_isCombined) return;
 
-        // Используем кэшированные компоненты для быстрого восстановления
-        if (_cachedComponents != null)
+        // Получаем актуальный список кубов из Entity для гарантии корректности
+        // (кэш может быть устаревшим после добавления новых кубов)
+        if (_entity != null)
         {
+            _entity.EnsureCacheValid();
+        }
+
+        // Используем актуальный список кубов вместо кэша
+        var currentCubes = (_entity != null && _entity.Cubes != null) ? _entity.Cubes : GetComponentsInChildren<Cube>();
+        
+        if (currentCubes != null)
+        {
+            for (int i = 0; i < currentCubes.Length; i++)
+            {
+                var cube = currentCubes[i];
+                if (cube == null || cube.Detouched) continue;
+
+                var meshRenderer = cube.DirectMeshRenderer;
+                if (meshRenderer != null)
+                {
+                    meshRenderer.enabled = true;
+                }
+            }
+        }
+        else if (_cachedComponents != null)
+        {
+            // Fallback на кэш если актуальный список недоступен
             for (int i = 0; i < _cachedComponents.Length; i++)
             {
                 var cached = _cachedComponents[i];
@@ -397,7 +446,7 @@ public class EntityMeshCombiner : MonoBehaviour
 
         if (_rb != null)
         {
-            _rb.isKinematic = _isKinematicOriginalState;
+            _rb.isKinematic = false;
         }
 
         _isCombined = false;
@@ -415,9 +464,38 @@ public class EntityMeshCombiner : MonoBehaviour
     {
         if (!_isCombined) yield break;
 
-        // Используем кэшированные компоненты для быстрого восстановления
-        if (_cachedComponents != null)
+        // Получаем актуальный список кубов из Entity для гарантии корректности
+        if (_entity != null)
         {
+            _entity.EnsureCacheValid();
+        }
+
+        // Используем актуальный список кубов вместо кэша
+        var currentCubes = (_entity != null && _entity.Cubes != null) ? _entity.Cubes : GetComponentsInChildren<Cube>();
+        
+        if (currentCubes != null)
+        {
+            for (int i = 0; i < currentCubes.Length; i++)
+            {
+                var cube = currentCubes[i];
+                if (cube == null || cube.Detouched) continue;
+
+                var meshRenderer = cube.DirectMeshRenderer;
+                if (meshRenderer != null)
+                {
+                    meshRenderer.enabled = true;
+                }
+
+                // Yield каждые 20 кубов для предотвращения фризов
+                if (i % 20 == 0)
+                {
+                    yield return null;
+                }
+            }
+        }
+        else if (_cachedComponents != null)
+        {
+            // Fallback на кэш если актуальный список недоступен
             for (int i = 0; i < _cachedComponents.Length; i++)
             {
                 var cached = _cachedComponents[i];
@@ -475,7 +553,7 @@ public class EntityMeshCombiner : MonoBehaviour
 
         if (_rb != null)
         {
-            _rb.isKinematic = _isKinematicOriginalState;
+            _rb.isKinematic = false;
         }
 
         _isCombined = false;
@@ -491,153 +569,178 @@ public class EntityMeshCombiner : MonoBehaviour
 
     private IEnumerator CombineMeshesCoroutine()
     {
-        if (_isCombined) yield break;
+        if (_isCombined || _isCombining) yield break;
 
-        // Гарантируем валидность кэша кубов в Entity
-        if (_entity != null)
-            _entity.EnsureCacheValid();
+        _isCombining = true;
 
-        // Перестраиваем кэш только при необходимости
-        var entityCubes = _entity != null ? _entity.Cubes : GetComponentsInChildren<Cube>();
-        if (_cachedComponents == null || entityCubes == null || _cachedComponents.Length != entityCubes.Length)
+        try
         {
-            CacheCubeComponents();
-        }
+            // Гарантируем валидность кэша кубов в Entity
+            if (_entity != null)
+                _entity.EnsureCacheValid();
 
-        if (_cachedComponents == null || _cachedComponents.Length == 0) yield break;
-        if (_cachedComponents.Length <= 8) yield break;
-
-        // Проверяем и разделяем кубы на отдельные Entity если необходимо
-        if (_entity != null)
-        {
-            _entity.EnsureCacheValid();
-
-            // Разделяем только если структура менялась
-            if (_entity.IsStructureDirty)
+            // Перестраиваем кэш только при необходимости
+            var entityCubes = _entity != null ? _entity.Cubes : GetComponentsInChildren<Cube>();
+            if (_cachedComponents == null || entityCubes == null || _cachedComponents.Length != entityCubes.Length)
             {
-                var newEntities = _entity.SplitIntoSeparateEntities();
-                if (newEntities.Length > 0)
+                CacheCubeComponents();
+            }
+
+            if (_cachedComponents == null || _cachedComponents.Length == 0)
+            {
+                _isCombining = false;
+                yield break;
+            }
+
+            if (_cachedComponents.Length <= 2)
+            {
+                _isCombining = false;
+                yield break;
+            }
+
+            // Проверяем и разделяем кубы на отдельные Entity если необходимо
+            if (_entity != null)
+            {
+                _entity.EnsureCacheValid();
+
+                // Разделяем только если структура менялась
+                if (_entity.IsStructureDirty)
                 {
-                    yield break;
+                    var newEntities = _entity.SplitIntoSeparateEntities();
+                    if (newEntities.Length > 0)
+                    {
+                        _isCombining = false;
+                        yield break;
+                    }
                 }
             }
-        }
 
-        if (_rb != null)
-        {
-            _isKinematicOriginalState = _rb.isKinematic;
-            _rb.isKinematic = true;
-        }
-
-        // Очищаем кэш и переиспользуем структуры
-        _sourceMaterial = null;
-
-        // Очищаем группы цветов (переиспользуем списки)
-        foreach (var list in _colorGroups.Values)
-            list.Clear();
-        _colorGroups.Clear();
-        _colorKeys.Clear();
-
-        // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
-        var worldToLocal = transform.worldToLocalMatrix;
-        for (int i = 0; i < _cachedComponents.Length; i++)
-        {
-            var cached = _cachedComponents[i];
-            if (!cached.IsValid || cached.Mesh == null) continue;
-
-            // Выключаем рендеры
-            if (cached.MeshRenderer.enabled)
+            if (_rb != null)
             {
-                if (_sourceMaterial == null)
-                    _sourceMaterial = cached.MeshRenderer.sharedMaterial;
-                cached.MeshRenderer.enabled = false;
+                _isKinematicOriginalState = _rb.isKinematic;
+                _rb.isKinematic = true;
             }
 
-            // Создаём CombineInstance сразу
-            var ci = new CombineInstance
-            {
-                mesh = cached.Mesh,
-                transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
-            };
+            // Очищаем кэш и переиспользуем структуры
+            _sourceMaterial = null;
 
-            // Группируем по цвету напрямую
-            if (!_colorGroups.TryGetValue(cached.Color, out var list))
+            // Очищаем группы цветов (переиспользуем списки)
+            foreach (var list in _colorGroups.Values)
+                list.Clear();
+            _colorGroups.Clear();
+            _colorKeys.Clear();
+
+            // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
+            var worldToLocal = transform.worldToLocalMatrix;
+            for (int i = 0; i < _cachedComponents.Length; i++)
             {
-                list = new System.Collections.Generic.List<CombineInstance>(32);
-                _colorGroups[cached.Color] = list;
-                _colorKeys.Add(cached.Color);
+                var cached = _cachedComponents[i];
+                if (!cached.IsValid || cached.Mesh == null) continue;
+
+                // Выключаем рендеры
+                if (cached.MeshRenderer.enabled)
+                {
+                    if (_sourceMaterial == null)
+                        _sourceMaterial = cached.MeshRenderer.sharedMaterial;
+                    cached.MeshRenderer.enabled = false;
+                }
+
+                // Создаём CombineInstance сразу
+                var ci = new CombineInstance
+                {
+                    mesh = cached.Mesh,
+                    transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
+                };
+
+                // Группируем по цвету напрямую
+                if (!_colorGroups.TryGetValue(cached.Color, out var list))
+                {
+                    list = new System.Collections.Generic.List<CombineInstance>(32);
+                    _colorGroups[cached.Color] = list;
+                    _colorKeys.Add(cached.Color);
+                }
+
+                list.Add(ci);
+
+                // Yield каждые 10 кубов для предотвращения фризов
+                if (i % 10 == 0)
+                {
+                    yield return null;
+                }
             }
 
-            list.Add(ci);
-
-            // Yield каждые 10 кубов для предотвращения фризов
-            if (i % 10 == 0)
+            if (_sourceMaterial == null)
             {
-                yield return null;
+                ShowCubes();
+                if (_rb != null) _rb.isKinematic = false;
+                _isCombined = false;
+                yield break;
             }
-        }
 
-        if (_sourceMaterial == null)
-        {
-            ShowCubes();
-            if (_rb != null) _rb.isKinematic = _isKinematicOriginalState;
-            _isCombined = false;
-            yield break;
-        }
+            _combinedMeshObject = GetPooledGameObject("CombinedMesh");
+            _combinedMeshObject.transform.SetParent(transform, false);
 
-        _combinedMeshObject = GetPooledGameObject("CombinedMesh");
-        _combinedMeshObject.transform.SetParent(transform, false);
-
-        // Очищаем MaterialPropertyBlock для переиспользования
-        _propertyBlock.Clear();
-
-        // Обходим группы цветов и создаём объединённые меши
-        for (int i = 0; i < _colorKeys.Count; i++)
-        {
-            var color = _colorKeys[i];
-            var instances = _colorGroups[color];
-
-            if (instances.Count == 0) continue;
-
-            var subMesh = GetPooledMesh();
-            subMesh.CombineMeshes(instances.ToArray(), true, true);
-            if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
-                subMesh.bounds = fastBounds;
-            else
-                subMesh.RecalculateBounds();
-
-            var colorMeshObject = GetPooledGameObject($"CombinedMesh_{i}");
-            colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
-
-            var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
-            if (meshFilter == null)
-                meshFilter = colorMeshObject.AddComponent<MeshFilter>();
-            meshFilter.sharedMesh = subMesh;
-
-            var meshRenderer = colorMeshObject.GetComponent<MeshRenderer>();
-            if (meshRenderer == null)
-                meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
-            meshRenderer.sharedMaterial = _sourceMaterial;
-
-            // Очищаем PropertyBlock перед установкой цвета для каждого объекта
+            // Очищаем MaterialPropertyBlock для переиспользования
             _propertyBlock.Clear();
-            _propertyBlock.SetColor("_BaseColor", (Color)color);
-            _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
-            meshRenderer.SetPropertyBlock(_propertyBlock);
 
-            // Yield каждые 2 цвета для предотвращения фризов
-            if (i % 2 == 0)
+            // Обходим группы цветов и создаём объединённые меши
+            for (int i = 0; i < _colorKeys.Count; i++)
             {
-                yield return null;
+                var color = _colorKeys[i];
+                var instances = _colorGroups[color];
+
+                if (instances.Count == 0) continue;
+
+                var subMesh = GetPooledMesh();
+                subMesh.CombineMeshes(instances.ToArray(), true, true);
+                if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
+                    subMesh.bounds = fastBounds;
+                else
+                    subMesh.RecalculateBounds();
+
+                var colorMeshObject = GetPooledGameObject($"CombinedMesh_{i}");
+                colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
+
+                var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
+                if (meshFilter == null)
+                    meshFilter = colorMeshObject.AddComponent<MeshFilter>();
+                meshFilter.sharedMesh = subMesh;
+
+                var meshRenderer = colorMeshObject.GetComponent<MeshRenderer>();
+                if (meshRenderer == null)
+                    meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
+                meshRenderer.sharedMaterial = _sourceMaterial;
+
+                // Очищаем PropertyBlock перед установкой цвета для каждого объекта
+                _propertyBlock.Clear();
+                _propertyBlock.SetColor("_BaseColor", (Color)color);
+                _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
+                meshRenderer.SetPropertyBlock(_propertyBlock);
+
+                // Yield каждые 2 цвета для предотвращения фризов
+                if (i % 2 == 0)
+                {
+                    yield return null;
+                }
+            }
+
+            // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
+            CacheChildObjects();
+
+            _isCombined = true;
+
+            if (_entity != null)
+                _entity.ClearStructureDirty();
+
+            // Устанавливаем isKinematic в false после объединения
+            if (_rb != null)
+            {
+                _rb.isKinematic = false;
             }
         }
-
-        // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
-        CacheChildObjects();
-
-        _isCombined = true;
-
-        if (_entity != null)
-            _entity.ClearStructureDirty();
+        finally
+        {
+            _isCombining = false;
+        }
     }
 }
