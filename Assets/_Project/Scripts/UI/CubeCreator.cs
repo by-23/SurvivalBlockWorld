@@ -23,6 +23,8 @@ namespace Assets._Project.Scripts.UI
         [Header("UI References")] [SerializeField]
         private Button createButton;
 
+        [SerializeField] private Button deleteButton;
+
         [SerializeField] private Transform colorButtonsParent;
 
         [SerializeField] private Button addColorButton;
@@ -70,6 +72,11 @@ namespace Assets._Project.Scripts.UI
             if (createButton != null)
             {
                 createButton.onClick.AddListener(OnCreateButtonClicked);
+            }
+
+            if (deleteButton != null)
+            {
+                deleteButton.onClick.AddListener(OnDeleteButtonClicked);
             }
 
             if (addColorButton != null)
@@ -449,6 +456,33 @@ namespace Assets._Project.Scripts.UI
             CreateCube();
         }
 
+        private void OnDeleteButtonClicked()
+        {
+            if (_cachedCamera == null)
+            {
+                CacheCamera();
+                if (_cachedCamera == null)
+                    return;
+            }
+
+            Vector3 cameraPosition = _cachedCamera.transform.position;
+            Vector3 cameraForward = _cachedCamera.transform.forward;
+            Ray ray = new Ray(cameraPosition, cameraForward);
+
+            if (Physics.Raycast(ray, out RaycastHit hit, 50f))
+            {
+                // Пропускаем ghost куб
+                if (_ghostRoot != null && hit.collider.gameObject == _ghostRoot)
+                    return;
+
+                Cube cube = hit.collider.GetComponent<Cube>();
+                if (cube != null)
+                {
+                    cube.Destroy();
+                }
+            }
+        }
+
         private void CreateGhostCube()
         {
             if (_ghostCubePrefab != null)
@@ -531,6 +565,31 @@ namespace Assets._Project.Scripts.UI
             UpdateGhostMaterial(isOccupied);
         }
 
+        private bool IsCubeTilted(Transform cubeTransform)
+        {
+            if (cubeTransform == null) return false;
+
+            Vector3 eulerAngles = cubeTransform.rotation.eulerAngles;
+
+            // В Unity eulerAngles всегда в диапазоне 0-360
+            float angleX = eulerAngles.x;
+            float angleZ = eulerAngles.z;
+
+            // Проверяем, наклонен ли куб по осям x или z
+            // Куб считается наклоненным, если угол не близок к 0, 180 или 360
+            float tolerance = 1f;
+
+            // Нормализуем углы для проверки (приводим к диапазону 0-180)
+            float normalizedX = angleX > 180f ? 360f - angleX : angleX;
+            float normalizedZ = angleZ > 180f ? 360f - angleZ : angleZ;
+
+            // Куб наклонен, если угол не близок к 0 или 180
+            bool tiltedX = normalizedX > tolerance && normalizedX < 180f - tolerance;
+            bool tiltedZ = normalizedZ > tolerance && normalizedZ < 180f - tolerance;
+
+            return tiltedX || tiltedZ;
+        }
+
         private Vector3 ApplyMagneticSnapping(Vector3 position)
         {
             if (_cachedCamera == null)
@@ -556,6 +615,10 @@ namespace Assets._Project.Scripts.UI
                 Cube cube = hit.collider.GetComponent<Cube>();
                 if (cube != null)
                 {
+                    // Пропускаем наклоненные кубы
+                    if (IsCubeTilted(cube.transform))
+                        continue;
+
                     Vector3 cubePosition = hit.collider.transform.position;
                     Vector3 directionToCube = (cubePosition - _cachedCamera.transform.position).normalized;
                     float dotProduct = Vector3.Dot(lookDirection.normalized, directionToCube);
@@ -761,7 +824,11 @@ namespace Assets._Project.Scripts.UI
 
                 if (hitCube != null)
                 {
-                    return SnapToNearestSideFromPlayer(cameraPosition, hitObject.transform.position);
+                    // Пропускаем наклоненные кубы
+                    if (!IsCubeTilted(hitCube.transform))
+                    {
+                        return SnapToNearestSideFromPlayer(cameraPosition, hitObject.transform.position);
+                    }
                 }
             }
 
@@ -801,6 +868,10 @@ namespace Assets._Project.Scripts.UI
                 Cube cube = hit.collider.GetComponent<Cube>();
                 if (cube != null)
                 {
+                    // Пропускаем наклоненные кубы
+                    if (IsCubeTilted(cube.transform))
+                        continue;
+
                     cubeHits.Add(hit);
                 }
             }
@@ -945,6 +1016,10 @@ namespace Assets._Project.Scripts.UI
                 Cube cube = nearbyCollider.GetComponent<Cube>();
                 if (cube != null)
                 {
+                    // Пропускаем наклоненные кубы
+                    if (IsCubeTilted(cube.transform))
+                        continue;
+
                     Vector3 cubePosition = nearbyCollider.transform.position;
                     Vector3 facingSidePosition = SnapToFacingSide(cameraForward, cubePosition);
 
