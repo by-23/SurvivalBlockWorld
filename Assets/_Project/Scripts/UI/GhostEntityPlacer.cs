@@ -26,6 +26,12 @@ namespace Assets._Project.Scripts.UI
 
         [SerializeField] private float _ghostTransparency = 0.5f;
 
+        [Header("Snap Settings")]
+        [SerializeField]
+        [Tooltip(
+            "Если включено — привидение прижимается к поверхности. Если выключено — центр фиксируется по взгляду без прилипания.")]
+        private bool _snapToSurface = true;
+
         private Entity _ghostEntity;
         private Camera _playerCamera;
         private readonly Dictionary<Renderer, Material[]> _originalMaterials = new Dictionary<Renderer, Material[]>();
@@ -116,7 +122,7 @@ namespace Assets._Project.Scripts.UI
             var rb = _ghostEntity.GetComponent<Rigidbody>();
             if (rb != null)
             {
-                rb.isKinematic = true;
+                _ghostEntity.SetKinematicState(true, true);
                 rb.useGravity = false;
             }
 
@@ -138,7 +144,7 @@ namespace Assets._Project.Scripts.UI
             var rb = _ghostEntity.GetComponent<Rigidbody>();
             if (rb != null)
             {
-                rb.isKinematic = false;
+                _ghostEntity.SetKinematicState(false);
                 rb.useGravity = true;
             }
 
@@ -177,9 +183,9 @@ namespace Assets._Project.Scripts.UI
                 return;
 
             var rb = _ghostEntity.GetComponent<Rigidbody>();
-            if (rb != null && !rb.isKinematic)
+            if (rb != null && !_ghostEntity.IsKinematic)
             {
-                rb.isKinematic = true;
+                _ghostEntity.SetKinematicState(true, true);
                 rb.useGravity = false;
             }
 
@@ -245,13 +251,21 @@ namespace Assets._Project.Scripts.UI
                 _ghostEntity.transform.rotation = Quaternion.LookRotation(-toCamera.normalized, Vector3.up);
             }
 
-            if (_hasLastSurface)
+            if (_snapToSurface && _hasLastSurface)
             {
                 targetPosition = GetSurfacePosition(_lastSurfacePoint, _lastSurfaceNormal);
             }
 
+            Vector3 centeringOffset = GetWorldCenterOffset();
+            if (centeringOffset.sqrMagnitude > 0.000001f)
+            {
+                // Смещаем pivot так, чтобы центр объекта совпадал по горизонтали с точкой обзора
+                targetPosition -= new Vector3(centeringOffset.x, 0f, centeringOffset.z);
+            }
+
             _ghostEntity.transform.position = targetPosition;
-            _canPlace = IsGrounded(targetPosition) && !IsPositionOccupied(targetPosition) && !HasCollisionWithObjects();
+            bool groundedOk = !_snapToSurface || IsGrounded(targetPosition);
+            _canPlace = groundedOk && !IsPositionOccupied(targetPosition) && !HasCollisionWithObjects();
             UpdateGhostMaterial(_canPlace);
         }
 
@@ -275,6 +289,11 @@ namespace Assets._Project.Scripts.UI
             {
                 float sizeOffset = _cachedEntityMaxSize * 0.5f;
                 targetDistance = Mathf.Max(targetDistance, _minGhostDistance + sizeOffset);
+            }
+
+            if (!_snapToSurface)
+            {
+                return cameraPosition + cameraForward.normalized * targetDistance;
             }
 
             Ray ray = new Ray(cameraPosition, cameraForward);
@@ -860,6 +879,15 @@ namespace Assets._Project.Scripts.UI
             // Вычисляем расстояние от центра bounds до нижней точки bounds в локальных координатах
             Vector3 localSize = _ghostEntity.transform.InverseTransformVector(_cachedEntityBounds.size);
             _entityBottomExtent = localSize.y * 0.5f;
+        }
+
+        private Vector3 GetWorldCenterOffset()
+        {
+            if (_ghostEntity == null)
+                return Vector3.zero;
+
+            // Обновляем смещение центра в мировые координаты с учётом текущего вращения и масштаба
+            return _ghostEntity.transform.TransformVector(_boundsCenterOffset);
         }
     }
 }

@@ -129,11 +129,9 @@ public static class EntityFactory
         if (!Mathf.Approximately(rb.drag, 0f)) rb.drag = 0f;
         if (!Mathf.Approximately(rb.angularDrag, 0.05f)) rb.angularDrag = 0.05f;
         if (!rb.useGravity) rb.useGravity = true;
-        if (rb.isKinematic != isKinematic) rb.isKinematic = isKinematic;
-
         // Обязательные компоненты — на префабе уже есть; добавляем только в фоллбэке
-        if (!entityObject.TryGetComponent<Entity>(out _))
-            entityObject.AddComponent<Entity>();
+        if (!entityObject.TryGetComponent<Entity>(out var entity))
+            entity = entityObject.AddComponent<Entity>();
 
         // Вспомогательные компоненты — аналогично
         if (!entityObject.TryGetComponent<EntityMeshCombiner>(out _))
@@ -141,5 +139,7 @@ public static class EntityFactory
 
         if (!entityObject.TryGetComponent<EntityHookManager>(out _))
             entityObject.AddComponent<EntityHookManager>();
+
+        entity.SetKinematicState(isKinematic, true);
     }
 }

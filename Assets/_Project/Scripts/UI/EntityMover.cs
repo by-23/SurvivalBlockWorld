@@ -215,7 +215,7 @@ namespace Assets._Project.Scripts.UI
             _currentHoldDistance = Vector3.Distance(cameraPosition, closestPoint);
 
             // Выключаем физику
-            _heldRigidbody.isKinematic = true;
+            _heldEntity.SetKinematicState(true, true);
             _heldRigidbody.useGravity = false;
 
             // Делаем коллайдеры триггерами для проверки пересечений
@@ -244,7 +244,7 @@ namespace Assets._Project.Scripts.UI
             // Включаем физику обратно
             if (_heldRigidbody != null)
             {
-                _heldRigidbody.isKinematic = false;
+                _heldEntity.SetKinematicState(false);
                 _heldRigidbody.useGravity = true;
 
                 // Применяем силу для броска
@@ -279,7 +279,7 @@ namespace Assets._Project.Scripts.UI
             // Включаем физику обратно без броска
             if (_heldRigidbody != null)
             {
-                _heldRigidbody.isKinematic = false;
+                _heldEntity.SetKinematicState(false);
                 _heldRigidbody.useGravity = true;
             }
 

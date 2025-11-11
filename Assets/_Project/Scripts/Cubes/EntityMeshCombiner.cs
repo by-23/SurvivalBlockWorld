@@ -61,6 +61,29 @@ public class EntityMeshCombiner : MonoBehaviour
         _propertyBlock = new MaterialPropertyBlock();
     }
 
+    private bool TrySetEntityKinematic(bool state)
+    {
+        if (_entity != null)
+            return _entity.SetKinematicState(state, true);
+
+        if (_rb != null)
+        {
+            if (_rb.isKinematic != state)
+                _rb.isKinematic = state;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool GetEntityKinematic()
+    {
+        if (_entity != null)
+            return _entity.IsKinematic;
+
+        return _rb != null && _rb.isKinematic;
+    }
+
 
 #if UNITY_EDITOR
     private void OnValidate()
@@ -255,10 +278,10 @@ public class EntityMeshCombiner : MonoBehaviour
                 }
             }
 
-            if (_rb != null)
+            if (_rb != null || _entity != null)
             {
-                _isKinematicOriginalState = _rb.isKinematic;
-                _rb.isKinematic = true;
+                _isKinematicOriginalState = GetEntityKinematic();
+                TrySetEntityKinematic(true);
             }
 
             // Очищаем кэш и переиспользуем структуры
@@ -270,6 +293,15 @@ public class EntityMeshCombiner : MonoBehaviour
             _colorGroups.Clear();
             _colorKeys.Clear();
 
+            // Проверяем валидность transform и _cachedComponents перед использованием
+            if (transform == null || _cachedComponents == null || _cachedComponents.Length == 0)
+            {
+                ShowCubes();
+                TrySetEntityKinematic(false);
+                _isCombined = false;
+                return;
+            }
+
             // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
             var worldToLocal = transform.worldToLocalMatrix;
             for (int i = 0; i < _cachedComponents.Length; i++)
@@ -277,8 +309,12 @@ public class EntityMeshCombiner : MonoBehaviour
                 var cached = _cachedComponents[i];
                 if (!cached.IsValid || cached.Mesh == null) continue;
 
+                // Проверяем валидность MeshFilter и его transform
+                if (cached.MeshFilter == null || cached.MeshFilter.transform == null)
+                    continue;
+
                 // Выключаем рендеры
-                if (cached.MeshRenderer.enabled)
+                if (cached.MeshRenderer != null && cached.MeshRenderer.enabled)
                 {
                     if (_sourceMaterial == null)
                         _sourceMaterial = cached.MeshRenderer.sharedMaterial;
@@ -307,7 +343,7 @@ public class EntityMeshCombiner : MonoBehaviour
             if (_sourceMaterial == null)
             {
                 ShowCubes();
-                if (_rb != null) _rb.isKinematic = false;
+                TrySetEntityKinematic(false);
                 _isCombined = false;
                 return;
             }
@@ -365,10 +401,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 _entity.ClearStructureDirty();
 
             // Устанавливаем isKinematic в false после объединения
-            if (_rb != null)
-            {
-                _rb.isKinematic = false;
-            }
+            TrySetEntityKinematic(false);
         }
         finally
         {
@@ -389,7 +422,7 @@ public class EntityMeshCombiner : MonoBehaviour
 
         // Используем актуальный список кубов вместо кэша
         var currentCubes = (_entity != null && _entity.Cubes != null) ? _entity.Cubes : GetComponentsInChildren<Cube>();
-        
+
         if (currentCubes != null)
         {
             for (int i = 0; i < currentCubes.Length; i++)
@@ -444,10 +477,7 @@ public class EntityMeshCombiner : MonoBehaviour
             _combinedMeshObject = null;
         }
 
-        if (_rb != null)
-        {
-            _rb.isKinematic = false;
-        }
+        TrySetEntityKinematic(false);
 
         _isCombined = false;
     }
@@ -472,7 +502,7 @@ public class EntityMeshCombiner : MonoBehaviour
 
         // Используем актуальный список кубов вместо кэша
         var currentCubes = (_entity != null && _entity.Cubes != null) ? _entity.Cubes : GetComponentsInChildren<Cube>();
-        
+
         if (currentCubes != null)
         {
             for (int i = 0; i < currentCubes.Length; i++)
@@ -551,10 +581,7 @@ public class EntityMeshCombiner : MonoBehaviour
             _combinedMeshObject = null;
         }
 
-        if (_rb != null)
-        {
-            _rb.isKinematic = false;
-        }
+        TrySetEntityKinematic(false);
 
         _isCombined = false;
     }
@@ -615,10 +642,10 @@ public class EntityMeshCombiner : MonoBehaviour
                 }
             }
 
-            if (_rb != null)
+            if (_rb != null || _entity != null)
             {
-                _isKinematicOriginalState = _rb.isKinematic;
-                _rb.isKinematic = true;
+                _isKinematicOriginalState = GetEntityKinematic();
+                TrySetEntityKinematic(true);
             }
 
             // Очищаем кэш и переиспользуем структуры
@@ -630,6 +657,15 @@ public class EntityMeshCombiner : MonoBehaviour
             _colorGroups.Clear();
             _colorKeys.Clear();
 
+            // Проверяем валидность transform и _cachedComponents перед использованием
+            if (transform == null || _cachedComponents == null || _cachedComponents.Length == 0)
+            {
+                ShowCubes();
+                TrySetEntityKinematic(false);
+                _isCombined = false;
+                yield break;
+            }
+
             // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
             var worldToLocal = transform.worldToLocalMatrix;
             for (int i = 0; i < _cachedComponents.Length; i++)
@@ -637,8 +673,12 @@ public class EntityMeshCombiner : MonoBehaviour
                 var cached = _cachedComponents[i];
                 if (!cached.IsValid || cached.Mesh == null) continue;
 
+                // Проверяем валидность MeshFilter и его transform
+                if (cached.MeshFilter == null || cached.MeshFilter.transform == null)
+                    continue;
+
                 // Выключаем рендеры
-                if (cached.MeshRenderer.enabled)
+                if (cached.MeshRenderer != null && cached.MeshRenderer.enabled)
                 {
                     if (_sourceMaterial == null)
                         _sourceMaterial = cached.MeshRenderer.sharedMaterial;
@@ -672,7 +712,7 @@ public class EntityMeshCombiner : MonoBehaviour
             if (_sourceMaterial == null)
             {
                 ShowCubes();
-                if (_rb != null) _rb.isKinematic = false;
+                TrySetEntityKinematic(false);
                 _isCombined = false;
                 yield break;
             }
@@ -733,10 +773,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 _entity.ClearStructureDirty();
 
             // Устанавливаем isKinematic в false после объединения
-            if (_rb != null)
-            {
-                _rb.isKinematic = false;
-            }
+            TrySetEntityKinematic(false);
         }
         finally
         {

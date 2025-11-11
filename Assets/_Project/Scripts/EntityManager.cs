@@ -284,10 +284,19 @@ public class EntityManager : MonoBehaviour
                 screenshotId = await _screenshotManager.CaptureAsync(target, null, 512, 512, _playerCamera);
             }
 
+            // Пивот при сохранении: центр по XZ и самый низ по Y
+            Vector3 savedPivot = target.transform.position;
+            if (target.TryGetLocalBounds(out Bounds localBounds))
+            {
+                // Берём точку (center.x, min.y, center.z) в локальных координатах и переводим в мир
+                Vector3 localBottomCenter = new Vector3(localBounds.center.x, localBounds.min.y, localBounds.center.z);
+                savedPivot = target.transform.TransformPoint(localBottomCenter);
+            }
+
             SingleEntitySave data = new SingleEntitySave
             {
                 name = target.gameObject.name,
-                position = target.transform.position,
+                position = savedPivot,
                 rotation = target.transform.rotation,
                 scale = target.transform.localScale,
                 cubes = cubes,
@@ -495,6 +504,7 @@ public class EntityManager : MonoBehaviour
                 entity.FinalizeLoad();
             }
 
+
             Debug.Log("Entity загружен из локального файла");
         }
         catch (Exception e)
@@ -595,6 +605,7 @@ public class EntityManager : MonoBehaviour
             {
                 entity.FinalizeLoad();
             }
+
 
             // Отменяем предыдущий ghost, если он существует
             if (_ghostPlacer != null && _ghostPlacer.IsActive)
