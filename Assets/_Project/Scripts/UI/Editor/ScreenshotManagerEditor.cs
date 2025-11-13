@@ -23,7 +23,14 @@ namespace Assets._Project.Scripts.UI.Editor
         {
             if (_manager == null)
             {
-                _manager = new ScreenshotManager();
+                // Ищем ScreenshotManager в сцене или создаем временный объект для редактора
+                _manager = Object.FindFirstObjectByType<ScreenshotManager>();
+                if (_manager == null)
+                {
+                    GameObject tempObj = new GameObject("TempScreenshotManager");
+                    _manager = tempObj.AddComponent<ScreenshotManager>();
+                    tempObj.hideFlags = HideFlags.HideAndDontSave;
+                }
             }
 
             EditorGUILayout.Space();

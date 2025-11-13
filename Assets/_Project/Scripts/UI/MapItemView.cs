@@ -11,12 +11,29 @@ public class MapItemView : MonoBehaviour
     [SerializeField] private Image _screenshotImage;
     [SerializeField] private Button _loadButton;
     [SerializeField] private Button _deleteButton;
+    [SerializeField] private Button _likeButton;
+    [SerializeField] private Button _publishButton;
+    [SerializeField] private TextMeshProUGUI _likesText;
+
+    [Header("Like State")] [SerializeField]
+    private int _likesCount;
+
+    [SerializeField] private Color _likedColor = Color.white;
+    [SerializeField] private Color _unlikedColor = Color.black;
+    [SerializeField] private Color _publishedColor = Color.green;
+    [SerializeField] private Color _unpublishedColor = Color.gray;
 
     private string _mapName;
     private string _screenshotPath;
+    private bool _isLiked;
+    private bool _isPublished;
+    private Graphic _likeButtonGraphic;
+    private Graphic _publishButtonGraphic;
 
     public System.Action<string> OnLoadMapRequested;
     public System.Action<string> OnDeleteMapRequested;
+    public System.Action<string, int> OnLikeValueChanged;
+    public System.Action<string> OnPublishRequested;
 
     private void Awake()
     {
@@ -29,12 +46,29 @@ public class MapItemView : MonoBehaviour
         {
             _deleteButton.onClick.AddListener(OnDeleteButtonClicked);
         }
+
+        if (_likeButton != null)
+        {
+            _likeButton.onClick.AddListener(OnLikeButtonClicked);
+            _likeButtonGraphic = _likeButton.targetGraphic;
+        }
+
+        if (_publishButton != null)
+        {
+            _publishButton.onClick.AddListener(OnPublishButtonClicked);
+            _publishButtonGraphic = _publishButton.targetGraphic;
+        }
+
+        UpdateLikesUI();
+        UpdatePublishUI();
     }
 
-    public void SetMapData(string mapName, string screenshotPath)
+    public void SetMapData(string mapName, string screenshotPath, int likesCount)
     {
         _mapName = mapName;
         _screenshotPath = screenshotPath;
+        _likesCount = Mathf.Max(0, likesCount);
+        _isLiked = false;
 
         // Set map name
         if (_mapNameText != null)
@@ -44,6 +78,8 @@ public class MapItemView : MonoBehaviour
 
         // Load screenshot
         LoadScreenshot(screenshotPath);
+
+        UpdateLikesUI();
     }
 
     private void LoadScreenshot(string screenshotPath)
@@ -87,6 +123,32 @@ public class MapItemView : MonoBehaviour
         OnDeleteMapRequested?.Invoke(_mapName);
     }
 
+    private void OnLikeButtonClicked()
+    {
+        if (_isLiked)
+        {
+            if (_likesCount > 0)
+            {
+                _likesCount--;
+            }
+
+            _isLiked = false;
+        }
+        else
+        {
+            _likesCount++;
+            _isLiked = true;
+        }
+
+        UpdateLikesUI();
+        OnLikeValueChanged?.Invoke(_mapName, _likesCount);
+    }
+
+    private void OnPublishButtonClicked()
+    {
+        OnPublishRequested?.Invoke(_mapName);
+    }
+
     public void SetInteractable(bool interactable)
     {
         if (_loadButton != null)
@@ -97,6 +159,79 @@ public class MapItemView : MonoBehaviour
         if (_deleteButton != null)
         {
             _deleteButton.interactable = interactable;
+        }
+    }
+
+    public void SetLikesEnabled(bool isEnabled)
+    {
+        if (_likeButton != null)
+        {
+            _likeButton.interactable = isEnabled;
+        }
+
+        if (!isEnabled)
+        {
+            _isLiked = false;
+            UpdateLikeButtonVisual();
+        }
+    }
+
+    public void SetPublishedState(bool isPublished)
+    {
+        _isPublished = isPublished;
+        UpdatePublishUI();
+    }
+
+    public void SetPublishButtonEnabled(bool isEnabled)
+    {
+        if (_publishButton != null)
+        {
+            _publishButton.interactable = isEnabled;
+        }
+    }
+
+    private void UpdateLikesUI()
+    {
+        UpdateLikesText();
+        UpdateLikeButtonVisual();
+    }
+
+    private void UpdateLikesText()
+    {
+        if (_likesText != null)
+        {
+            _likesText.text = _likesCount.ToString();
+        }
+    }
+
+    private void UpdateLikeButtonVisual()
+    {
+        if (_likeButtonGraphic == null && _likeButton != null)
+        {
+            _likeButtonGraphic = _likeButton.targetGraphic;
+        }
+
+        if (_likeButtonGraphic != null)
+        {
+            _likeButtonGraphic.color = _isLiked ? _likedColor : _unlikedColor;
+        }
+    }
+
+    private void UpdatePublishUI()
+    {
+        UpdatePublishButtonVisual();
+    }
+
+    private void UpdatePublishButtonVisual()
+    {
+        if (_publishButtonGraphic == null && _publishButton != null)
+        {
+            _publishButtonGraphic = _publishButton.targetGraphic;
+        }
+
+        if (_publishButtonGraphic != null)
+        {
+            _publishButtonGraphic.color = _isPublished ? _publishedColor : _unpublishedColor;
         }
     }
 }

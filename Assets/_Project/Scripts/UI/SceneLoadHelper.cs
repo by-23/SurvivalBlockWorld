@@ -26,6 +26,9 @@ namespace Assets._Project.Scripts.UI
 
             Debug.Log($"Начинаем загрузку сцены по индексу: {sceneIndex}");
 
+            // Уведомляем о начале загрузки сцены для показа экрана загрузки
+            UIManager.NotifyLoadingStarted();
+
             // Загружаем сцену асинхронно по индексу
             AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(sceneIndex);
 
@@ -71,7 +74,7 @@ namespace Assets._Project.Scripts.UI
             if (loadSuccess)
             {
                 Debug.Log($"Мир '{mapName}' успешно загружен");
-                
+
                 if (Player.Instance != null)
                 {
                     Player.Instance.ForcePlayerControlMode();

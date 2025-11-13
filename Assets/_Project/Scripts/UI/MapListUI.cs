@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -11,10 +12,16 @@ namespace Assets._Project.Scripts.UI
     public class MapListUI : MonoBehaviour
     {
         [Header("UI References")] [SerializeField]
-        private Transform _mapListContainer;
+        private Transform _localMapListContainer;
+
+        [SerializeField] private Transform _publishedMapListContainer;
+
+        [SerializeField] private GameObject _localMapListObject;
+        [SerializeField] private GameObject _publishedMapListObject;
 
         [SerializeField] private GameObject _mapItemPrefab;
-        [SerializeField] private SnappingScroll _snappingScroll;
+        [SerializeField] private Button _localListButton;
+        [SerializeField] private Button _onlineListButton;
         [SerializeField] private Button _startNewGameButton; // Кнопка «Новая игра»
 
         [Header("Configuration")] [SerializeField]
@@ -36,15 +43,46 @@ namespace Assets._Project.Scripts.UI
         [Header("Scene Settings")] [SerializeField]
         private int _mapSceneIndex = 1; // Индекс сцены карты в Build Settings
 
-        private List<MapItemView> _mapItems = new List<MapItemView>();
+        private readonly List<MapItemEntry> _mapItems = new List<MapItemEntry>();
         private bool _isLoading;
         private Image _loadingBackgroundImage;
         private float _originalTimeScale = 1f;
+        private bool _isLoadingScene = false;
+        private bool _listsLoaded;
+        private SaveSystem.WorldStorageSource? _activeListSource;
 
-        public event Action<string> OnMapLoadRequested;
-        public event Action<string> OnMapDeleteRequested;
+        public event Action<string, SaveSystem.WorldStorageSource> OnMapLoadRequested;
+        public event Action<string, SaveSystem.WorldStorageSource> OnMapDeleteRequested;
         public event Action OnLoadingStarted;
         public event Action OnLoadingCompleted;
+
+        private class MapItemEntry
+        {
+            public MapItemView View;
+            public string MapName;
+        }
+
+        private void Awake()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        private void OnDestroy()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            UnsubscribeFromSaveListEvents();
+            ClearMapList();
+        }
+
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            // Скрываем экран загрузки после полной загрузки сцены, если он был показан
+            if (_isLoadingScene && _loadingPanel != null)
+            {
+                _loadingPanel.SetActive(false);
+                _isLoadingScene = false;
+            }
+        }
 
         private void Start()
         {
@@ -54,6 +92,18 @@ namespace Assets._Project.Scripts.UI
             {
                 _startNewGameButton.onClick.RemoveAllListeners();
                 _startNewGameButton.onClick.AddListener(PromptNewMapName);
+            }
+
+            if (_localListButton != null)
+            {
+                _localListButton.onClick.RemoveAllListeners();
+                _localListButton.onClick.AddListener(OnLocalListButtonPressed);
+            }
+
+            if (_onlineListButton != null)
+            {
+                _onlineListButton.onClick.RemoveAllListeners();
+                _onlineListButton.onClick.AddListener(OnOnlineListButtonPressed);
             }
 
             if (_confirmNewMapButton != null)
@@ -73,14 +123,12 @@ namespace Assets._Project.Scripts.UI
                 _newMapPanel.SetActive(false);
             }
 
-            if (SceneManager.GetActiveScene().buildIndex == 0)
-                LoadSaveList();
-        }
+            HideAllLists();
 
-        private void OnDestroy()
-        {
-            UnsubscribeFromSaveListEvents();
-            ClearMapList();
+            if (SceneManager.GetActiveScene().buildIndex == 0)
+            {
+                ToggleList(SaveSystem.WorldStorageSource.LocalOnly);
+            }
         }
 
         private void SubscribeToSaveListEvents()
@@ -114,7 +162,7 @@ namespace Assets._Project.Scripts.UI
 
             gameObject.SetActive(true);
 
-            LoadSaveList();
+            ToggleList(SaveSystem.WorldStorageSource.LocalOnly);
         }
 
         public async void LoadSaveList()
@@ -126,6 +174,7 @@ namespace Assets._Project.Scripts.UI
 
             _isLoading = true;
             OnLoadingStarted?.Invoke();
+            _listsLoaded = false;
 
             try
             {
@@ -140,24 +189,47 @@ namespace Assets._Project.Scripts.UI
                     return;
                 }
 
-                var worldsMetadata = await _saveSystem.GetAllWorldsMetadata();
+                var localTask = _saveSystem.GetAllLocalWorldsMetadata();
+                var publishedTask = _saveSystem.GetAllWorldsMetadata();
 
-                if (worldsMetadata.Count == 0)
+                await Task.WhenAll(localTask, publishedTask);
+
+                var localWorlds = localTask.Result;
+                var publishedWorlds = publishedTask.Result;
+
+                if ((localWorlds == null || localWorlds.Count == 0) &&
+                    (publishedWorlds == null || publishedWorlds.Count == 0))
                 {
+                    _listsLoaded = true;
                     _isLoading = false;
                     OnLoadingCompleted?.Invoke();
+                    ApplyActiveListVisibility();
+                    UpdateListButtonsState();
                     return;
                 }
 
-                foreach (var metadata in worldsMetadata)
+                if (localWorlds != null)
                 {
-                    CreateMapItem(metadata.WorldName, metadata.ScreenshotPath);
+                    foreach (var metadata in localWorlds)
+                    {
+                        CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.LocalOnly),
+                            SaveSystem.WorldStorageSource.LocalOnly);
+                    }
+                }
+
+                if (publishedWorlds != null)
+                {
+                    foreach (var metadata in publishedWorlds)
+                    {
+                        CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.OnlineOnly),
+                            SaveSystem.WorldStorageSource.OnlineOnly);
+                    }
                 }
 
                 OnLoadingCompleted?.Invoke();
-
-                if (_snappingScroll)
-                    _snappingScroll.UpdateChildren();
+                _listsLoaded = true;
+                ApplyActiveListVisibility();
+                UpdateListButtonsState();
             }
             catch (Exception e)
             {
@@ -169,15 +241,22 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        private void CreateMapItem(string mapName, string screenshotPath)
+        private Transform GetContainerForSource(SaveSystem.WorldStorageSource source)
         {
-            if (_mapItemPrefab == null || _mapListContainer == null)
+            return source == SaveSystem.WorldStorageSource.LocalOnly
+                ? _localMapListContainer
+                : _publishedMapListContainer;
+        }
+
+        private void CreateMapItem(WorldMetadata metadata, Transform container, SaveSystem.WorldStorageSource source)
+        {
+            if (_mapItemPrefab == null || container == null)
             {
                 Debug.LogError("Map item prefab or container not assigned!");
                 return;
             }
 
-            GameObject mapItemObj = Instantiate(_mapItemPrefab, _mapListContainer);
+            GameObject mapItemObj = Instantiate(_mapItemPrefab, container);
             MapItemView mapItemView = mapItemObj.GetComponent<MapItemView>();
 
             if (mapItemView == null)
@@ -187,29 +266,127 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
-            mapItemView.SetMapData(mapName, screenshotPath);
+            mapItemView.SetMapData(metadata.WorldName, metadata.ScreenshotPath, metadata.Likes);
 
-            // Замыкание нужно для сохранения актуального имени карты в событии
-            string capturedMapName = mapName;
-            mapItemView.OnLoadMapRequested += (_) => { OnMapLoadRequested?.Invoke(capturedMapName); };
-            mapItemView.OnDeleteMapRequested += (_) => { OnMapDeleteRequested?.Invoke(capturedMapName); };
+            string capturedMapName = metadata.WorldName;
+            mapItemView.OnLoadMapRequested += (_) => { OnMapLoadRequested?.Invoke(capturedMapName, source); };
+            mapItemView.OnDeleteMapRequested += (_) => { OnMapDeleteRequested?.Invoke(capturedMapName, source); };
 
-            _mapItems.Add(mapItemView);
+            if (source == SaveSystem.WorldStorageSource.OnlineOnly)
+            {
+                mapItemView.OnLikeValueChanged += OnMapLikesChanged;
+                mapItemView.SetPublishButtonEnabled(false);
+            }
+            else
+            {
+                mapItemView.SetLikesEnabled(false);
+                mapItemView.OnPublishRequested += OnPublishRequested;
+                CheckAndSetPublishedState(mapItemView, capturedMapName);
+            }
+
+            _mapItems.Add(new MapItemEntry { View = mapItemView, MapName = capturedMapName });
         }
 
         private void ClearMapList()
         {
             foreach (var mapItem in _mapItems)
             {
-                if (mapItem != null)
+                if (mapItem?.View != null)
                 {
-                    mapItem.OnLoadMapRequested = null;
-                    mapItem.OnDeleteMapRequested = null;
-                    Destroy(mapItem.gameObject);
+                    mapItem.View.OnLoadMapRequested = null;
+                    mapItem.View.OnDeleteMapRequested = null;
+                    mapItem.View.OnLikeValueChanged = null;
+                    mapItem.View.OnPublishRequested = null;
+                    Destroy(mapItem.View.gameObject);
                 }
             }
 
             _mapItems.Clear();
+        }
+
+        private void OnLocalListButtonPressed()
+        {
+            ToggleList(SaveSystem.WorldStorageSource.LocalOnly);
+        }
+
+        private void OnOnlineListButtonPressed()
+        {
+            ToggleList(SaveSystem.WorldStorageSource.OnlineOnly);
+        }
+
+        private void ToggleList(SaveSystem.WorldStorageSource targetSource)
+        {
+            if (_activeListSource.HasValue && _activeListSource.Value == targetSource)
+            {
+                _activeListSource = null;
+                HideAllLists();
+                UpdateListButtonsState();
+                return;
+            }
+
+            _activeListSource = targetSource;
+
+            if (targetSource == SaveSystem.WorldStorageSource.OnlineOnly)
+            {
+                LoadSaveList();
+            }
+            else if (!_listsLoaded)
+            {
+                LoadSaveList();
+            }
+
+            ApplyActiveListVisibility();
+            UpdateListButtonsState();
+        }
+
+        private void ApplyActiveListVisibility()
+        {
+            if (!_activeListSource.HasValue)
+            {
+                HideAllLists();
+                return;
+            }
+
+            bool showLocal = _activeListSource.Value == SaveSystem.WorldStorageSource.LocalOnly;
+            bool showOnline = _activeListSource.Value == SaveSystem.WorldStorageSource.OnlineOnly;
+
+            if (_localMapListObject != null)
+            {
+                _localMapListObject.SetActive(showLocal);
+            }
+
+            if (_publishedMapListObject != null)
+            {
+                _publishedMapListObject.SetActive(showOnline);
+            }
+        }
+
+        private void HideAllLists()
+        {
+            if (_localMapListObject != null)
+            {
+                _localMapListObject.SetActive(false);
+            }
+
+            if (_publishedMapListObject != null)
+            {
+                _publishedMapListObject.SetActive(false);
+            }
+        }
+
+        private void UpdateListButtonsState()
+        {
+            if (_localListButton != null)
+            {
+                _localListButton.interactable = !_activeListSource.HasValue ||
+                                                _activeListSource.Value != SaveSystem.WorldStorageSource.LocalOnly;
+            }
+
+            if (_onlineListButton != null)
+            {
+                _onlineListButton.interactable = !_activeListSource.HasValue ||
+                                                 _activeListSource.Value != SaveSystem.WorldStorageSource.OnlineOnly;
+            }
         }
 
         public void RefreshSaveList()
@@ -217,7 +394,7 @@ namespace Assets._Project.Scripts.UI
             LoadSaveList();
         }
 
-        public async void DeleteMap(string mapName)
+        public async void DeleteMap(string mapName, SaveSystem.WorldStorageSource source)
         {
             OnLoadingStarted?.Invoke();
 
@@ -230,16 +407,45 @@ namespace Assets._Project.Scripts.UI
                     return;
                 }
 
-                bool success = await _saveSystem.DeleteWorldAsync(mapName);
+                bool localDeleted = false;
+                bool onlineDeleted = false;
 
-                if (success)
+                if (source == SaveSystem.WorldStorageSource.LocalOnly)
+                {
+                    localDeleted = _saveSystem.DeleteLocalWorld(mapName);
+                    bool isPublished = await _saveSystem.IsWorldPublishedAsync(mapName);
+                    if (isPublished)
+                    {
+                        onlineDeleted = await _saveSystem.DeleteWorldAsync(mapName);
+                    }
+                    else
+                    {
+                        onlineDeleted = true;
+                    }
+                }
+                else
+                {
+                    onlineDeleted = await _saveSystem.DeleteWorldAsync(mapName);
+                    var localWorlds = await _saveSystem.GetAllLocalWorldsMetadata();
+                    bool localExists = localWorlds != null && localWorlds.Any(w => w.WorldName == mapName);
+                    if (localExists)
+                    {
+                        localDeleted = _saveSystem.DeleteLocalWorld(mapName);
+                    }
+                    else
+                    {
+                        localDeleted = true;
+                    }
+                }
+
+                if (localDeleted && onlineDeleted)
                 {
                     Debug.Log($"Map '{mapName}' deleted successfully.");
                     LoadSaveList();
                 }
                 else
                 {
-                    Debug.LogError($"Failed to delete map '{mapName}'.");
+                    Debug.LogError($"Failed to delete map '{mapName}'. Local: {localDeleted}, Online: {onlineDeleted}");
                     OnLoadingCompleted?.Invoke();
                 }
             }
@@ -250,12 +456,104 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        private void OnMapLoadRequestedHandler(string mapName)
+        private void OnMapLoadRequestedHandler(string mapName, SaveSystem.WorldStorageSource source)
         {
-            OnMapLoadRequestedAsync(mapName);
+            OnMapLoadRequestedAsync(mapName, source);
         }
 
-        private async void OnMapLoadRequestedAsync(string mapName)
+        private async void OnMapLikesChanged(string mapName, int likes)
+        {
+            // Сохраняем лайки в Firebase через SaveSystem
+            if (string.IsNullOrEmpty(mapName))
+                return;
+
+            if (_saveSystem == null)
+                _saveSystem = FindAnyObjectByType<SaveSystem>();
+
+            if (_saveSystem == null)
+            {
+                Debug.LogError("SaveSystem not found when trying to update likes.");
+                return;
+            }
+
+            bool success = await _saveSystem.UpdateWorldLikesAsync(mapName, likes);
+            if (!success)
+            {
+                Debug.LogError($"Не удалось обновить количество лайков карты '{mapName}'");
+                LoadSaveList();
+            }
+        }
+
+        private async void OnPublishRequested(string mapName)
+        {
+            if (string.IsNullOrEmpty(mapName))
+                return;
+
+            if (_saveSystem == null)
+                _saveSystem = FindAnyObjectByType<SaveSystem>();
+
+            if (_saveSystem == null)
+            {
+                Debug.LogError("SaveSystem not found when trying to publish/unpublish.");
+                return;
+            }
+
+            bool isPublished = await _saveSystem.IsWorldPublishedAsync(mapName);
+
+            if (isPublished)
+            {
+                bool success = await _saveSystem.DeleteWorldAsync(mapName);
+                if (success)
+                {
+                    Debug.Log($"Map '{mapName}' unpublished successfully.");
+                    UpdatePublishedStateForMap(mapName, false);
+                }
+                else
+                {
+                    Debug.LogError($"Failed to unpublish map '{mapName}'.");
+                }
+            }
+            else
+            {
+                bool success = await _saveSystem.PublishLocalWorldToFirebaseAsync(mapName);
+                if (success)
+                {
+                    Debug.Log($"Map '{mapName}' published successfully.");
+                    UpdatePublishedStateForMap(mapName, true);
+                    LoadSaveList();
+                }
+                else
+                {
+                    Debug.LogError($"Failed to publish map '{mapName}'.");
+                }
+            }
+        }
+
+        private async void CheckAndSetPublishedState(MapItemView mapItemView, string mapName)
+        {
+            if (_saveSystem == null)
+                _saveSystem = FindAnyObjectByType<SaveSystem>();
+
+            if (_saveSystem != null)
+            {
+                bool isPublished = await _saveSystem.IsWorldPublishedAsync(mapName);
+                mapItemView.SetPublishedState(isPublished);
+            }
+        }
+
+        private void UpdatePublishedStateForMap(string mapName, bool isPublished)
+        {
+            foreach (var mapItem in _mapItems)
+            {
+                if (mapItem?.View != null && mapItem.MapName == mapName)
+                {
+                    mapItem.View.SetPublishedState(isPublished);
+                    break;
+                }
+            }
+        }
+
+        private async void OnMapLoadRequestedAsync(string mapName, SaveSystem.WorldStorageSource source)
         {
             gameObject.SetActive(false);
 
@@ -275,7 +573,8 @@ namespace Assets._Project.Scripts.UI
                     _saveSystem = FindAnyObjectByType<SaveSystem>();
                 if (_saveSystem != null)
                 {
-                    bool loadSuccess = await _saveSystem.LoadWorldAsync(mapName, OnWorldLoadProgress);
+                    bool loadSuccess =
+                        await _saveSystem.LoadWorldAsync(mapName, false, OnWorldLoadProgress, source);
 
                     if (loadSuccess)
                     {
@@ -320,7 +619,8 @@ namespace Assets._Project.Scripts.UI
                     _saveSystem = FindAnyObjectByType<SaveSystem>();
                 if (_saveSystem != null)
                 {
-                    bool loadSuccess = await _saveSystem.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
+                    bool loadSuccess =
+                        await _saveSystem.LoadWorldAsync(mapName, false, OnWorldLoadProgress, source);
 
                     if (loadSuccess)
                     {
@@ -361,10 +661,10 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        private void OnMapDeleteRequestedHandler(string mapName)
+        private void OnMapDeleteRequestedHandler(string mapName, SaveSystem.WorldStorageSource source)
         {
             Debug.Log($"Удаление карты: {mapName}");
-            DeleteMap(mapName);
+            DeleteMap(mapName, source);
         }
 
         private void OnLoadingStartedHandler()
@@ -390,11 +690,15 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
+            // Показываем экран загрузки перед загрузкой сцены
+            ShowLoadingPanel();
+            _isLoadingScene = true;
             AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(_mapSceneIndex);
 
             if (asyncLoad == null)
             {
                 Debug.LogError($"Не удалось начать загрузку сцены с индексом {_mapSceneIndex}");
+                _isLoadingScene = false;
                 return;
             }
 
@@ -418,6 +722,10 @@ namespace Assets._Project.Scripts.UI
             }
 
             gameObject.SetActive(false);
+
+            _activeListSource = null;
+            HideAllLists();
+            UpdateListButtonsState();
 
             if (_loadingPanel != null)
             {
@@ -447,26 +755,26 @@ namespace Assets._Project.Scripts.UI
                 if (_saveSystem == null)
                     _saveSystem = FindAnyObjectByType<SaveSystem>();
                 if (_saveSystem != null)
-            {
+                {
                     bool loadSuccess = await _saveSystem.LoadWorldAsync(mapName, false, OnWorldLoadProgress);
 
-                if (!loadSuccess)
-                {
-                    Debug.LogError($"Ошибка загрузки мира '{mapName}'");
-                    HideLoadingPanel();
-
-                    if (this != null && gameObject != null)
+                    if (!loadSuccess)
                     {
-                        gameObject.SetActive(true);
+                        Debug.LogError($"Ошибка загрузки мира '{mapName}'");
+                        HideLoadingPanel();
+
+                        if (this != null && gameObject != null)
+                        {
+                            gameObject.SetActive(true);
+                        }
+
+                        Time.timeScale = _originalTimeScale;
+                        return;
                     }
 
-                    Time.timeScale = _originalTimeScale;
-                    return;
-                }
-
-                if (GameManager.Instance != null)
-                {
-                    GameManager.Instance.CurrentWorldName = mapName;
+                    if (GameManager.Instance != null)
+                    {
+                        GameManager.Instance.CurrentWorldName = mapName;
                     }
                 }
             }
@@ -515,6 +823,9 @@ namespace Assets._Project.Scripts.UI
                 // Setup dark background
                 SetupLoadingBackground();
             }
+
+            // Вызываем событие для отключения управления
+            UIManager.NotifyFullscreenUIOpened();
         }
 
         public void HideLoadingPanel()
@@ -523,6 +834,11 @@ namespace Assets._Project.Scripts.UI
             {
                 _loadingPanel.SetActive(false);
             }
+
+            _isLoadingScene = false;
+
+            // Вызываем событие для включения управления
+            UIManager.NotifyFullscreenUIClosed();
         }
 
         private void SetupLoadingBackground()

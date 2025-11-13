@@ -50,6 +50,7 @@ MonoBehaviour:
   _ghostTransparency: 0.5
   _ghostMaterial: {fileID: 2100000, guid: 20cc37f763c9cd9408d53a693242b78f, type: 2}
   createButton: {fileID: 0}
+  deleteButton: {fileID: 0}
   colorButtonsParent: {fileID: 0}
   addColorButton: {fileID: 0}
   colorButtonPrefab: {fileID: 2539358945995382460, guid: 47157ec1d57384f0090cf386de2c480d,
@@ -159,13 +160,14 @@ MonoBehaviour:
     m_Bits: 65545
   _blockedLayerMask:
     serializedVersion: 2
-    m_Bits: 67457
-  _maxGhostDistance: 100
+    m_Bits: 67465
+  _maxGhostDistance: 30
   _minGhostDistance: 5
   _distanceMultiplier: 1
   _ghostMaterialGreen: {fileID: 2100000, guid: c2e5da4fa9f59e84096ab0ad2d4deff7, type: 2}
   _ghostMaterialRed: {fileID: 2100000, guid: 7f48292e9165348dfbe135eb468b0582, type: 2}
   _ghostTransparency: 0.5
+  _snapToSurface: 0
 --- !u!1 &3271551172133880201
 GameObject:
   m_ObjectHideFlags: 0
@@ -257,14 +259,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 324e0672ff0794ceba889842fe94fce8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _holdDistance: 10
+  _holdDistance: 15
+  _minPickupDistance: 1.5
   _dropForce: 0
+  _takeText: Take
+  _throwText: Throw
   _collisionLayerMask:
     serializedVersion: 2
     m_Bits: 66569
   _moveButton: {fileID: 0}
+  _buttonTextTmp: {fileID: 0}
+  _buttonText: {fileID: 0}
   _entityManager: {fileID: 2910710070985067754}
-  _entityVisualizer: {fileID: 0}
   _playerCamera: {fileID: 0}
 --- !u!1 &5586815943144874399
 GameObject:

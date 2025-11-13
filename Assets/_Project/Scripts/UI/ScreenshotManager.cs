@@ -12,7 +12,7 @@ namespace Assets._Project.Scripts.UI
     /// <summary>
     /// Управляет созданием скриншотов сущностей
     /// </summary>
-    public class ScreenshotManager
+    public class ScreenshotManager : MonoBehaviour
     {
         private Vector3 _cameraOffset = new Vector3(10f, 4f, -10f);
         private bool _useObjectSpaceOffset = true;

@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -12,6 +14,10 @@ namespace Assets._Project.Scripts.UI
     /// </summary>
     public class UIManager : MonoBehaviour
     {
+        // Общие события для полноэкранных UI элементов
+        public static event Action OnFullscreenUIOpened;
+        public static event Action OnFullscreenUIClosed;
+
         [Header("Gameplay UI")] [SerializeField]
         private Laser _laser;
 
@@ -43,6 +49,7 @@ namespace Assets._Project.Scripts.UI
         [Header("Load UI")] [SerializeField] private Button _closeLoadPanelButton;
         [SerializeField] private MapListUI mapListUI;
         [SerializeField] private GameObject _loadingPanel;
+        [SerializeField] private Image _loadingScreenshotImage;
 
         [Header("Save System")] [SerializeField]
         private SaveSystem _saveSystem;
@@ -58,6 +65,162 @@ namespace Assets._Project.Scripts.UI
         [Header("Build Mode UI")] [SerializeField]
         private GameObject _levitateButtonsPanel;
 
+
+        private void Awake()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        private void OnDestroy()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+        }
+
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            // Скрываем экран загрузки после полной загрузки сцены
+            HideLoadingPanel();
+        }
+
+        /// <summary>
+        /// Показывает экран загрузки и вызывает событие для отключения управления
+        /// </summary>
+        public void ShowLoadingPanel()
+        {
+            if (_loadingPanel != null)
+            {
+                _loadingPanel.SetActive(true);
+            }
+
+            OnFullscreenUIOpened?.Invoke();
+        }
+
+        /// <summary>
+        /// Скрывает экран загрузки и вызывает событие для включения управления
+        /// </summary>
+        public void HideLoadingPanel()
+        {
+            if (_loadingPanel != null)
+            {
+                _loadingPanel.SetActive(false);
+            }
+
+            OnFullscreenUIClosed?.Invoke();
+        }
+
+        /// <summary>
+        /// Уведомляет об открытии полноэкранного UI элемента
+        /// </summary>
+        public static void NotifyFullscreenUIOpened()
+        {
+            OnFullscreenUIOpened?.Invoke();
+        }
+
+        /// <summary>
+        /// Уведомляет о закрытии полноэкранного UI элемента
+        /// </summary>
+        public static void NotifyFullscreenUIClosed()
+        {
+            OnFullscreenUIClosed?.Invoke();
+        }
+
+        /// <summary>
+        /// Вызывает событие начала загрузки и показывает экран загрузки
+        /// </summary>
+        public static void NotifyLoadingStarted()
+        {
+            // Показываем экран загрузки, если есть экземпляр UIManager
+            UIManager instance = FindFirstObjectByType<UIManager>();
+            if (instance != null)
+            {
+                instance.ShowLoadingPanel();
+            }
+            else
+            {
+                // Если экземпляр не найден, только вызываем событие
+                NotifyFullscreenUIOpened();
+            }
+        }
+
+        /// <summary>
+        /// Вызывает событие окончания загрузки (для обратной совместимости)
+        /// </summary>
+        public static void NotifyLoadingFinished()
+        {
+            NotifyFullscreenUIClosed();
+        }
+
+        /// <summary>
+        /// Загружает скриншот в изображение экрана загрузки
+        /// </summary>
+        public void LoadScreenshotToImage(string screenshotPath)
+        {
+            if (_loadingScreenshotImage == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(screenshotPath))
+            {
+                // Если путь пустой, устанавливаем черный фон
+                _loadingScreenshotImage.color = Color.black;
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(screenshotPath))
+                {
+                    byte[] imageData = File.ReadAllBytes(screenshotPath);
+                    Texture2D texture = new Texture2D(2, 2);
+
+                    if (texture.LoadImage(imageData))
+                    {
+                        _loadingScreenshotImage.color = Color.white;
+                        Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
+                            new Vector2(0.5f, 0.5f));
+                        _loadingScreenshotImage.sprite = sprite;
+                        _loadingScreenshotImage.enabled = true;
+                        // Белый фон для видимости изображения
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"Failed to load image from: {screenshotPath}");
+                        _loadingScreenshotImage.enabled = false;
+                        // Черный фон при ошибке загрузки
+                        _loadingScreenshotImage.color = Color.black;
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"Screenshot file not found: {screenshotPath}");
+                    _loadingScreenshotImage.enabled = false;
+                    // Черный фон если файл не найден
+                    _loadingScreenshotImage.color = Color.black;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Failed to load screenshot from {screenshotPath}: {e.Message}");
+                _loadingScreenshotImage.enabled = false;
+                // Черный фон при исключении
+                _loadingScreenshotImage.color = Color.black;
+            }
+        }
+
+        /// <summary>
+        /// Очищает изображение скриншота на экране загрузки
+        /// </summary>
+        public void ClearScreenshotImage()
+        {
+            if (_loadingScreenshotImage != null)
+            {
+                _loadingScreenshotImage.sprite = null;
+                _loadingScreenshotImage.enabled = false;
+                // Устанавливаем черный фон при очистке
+                _loadingScreenshotImage.color = Color.black;
+            }
+        }
 
         private void Start()
         {
@@ -178,6 +341,7 @@ namespace Assets._Project.Scripts.UI
                 _exitMenuPanel.SetActive(false);
             }
 
+            // Не вызываем HideLoadingPanel здесь, так как это только инициализация
             if (_loadingPanel != null)
             {
                 _loadingPanel.SetActive(false);
@@ -327,6 +491,10 @@ namespace Assets._Project.Scripts.UI
             if (_savePanel != null)
             {
                 _savePanel.SetActive(true);
+
+                // Отключаем управление при открытии полноэкранного UI
+                UIManager.NotifyFullscreenUIOpened();
+
                 if (_saveNameInput != null)
                 {
                     _saveNameInput.text = "";
@@ -335,30 +503,139 @@ namespace Assets._Project.Scripts.UI
             }
         }
 
-        private void OnConfirmSaveButtonPressed()
+        private string GetWorldNameFromInput(TMP_InputField inputField)
         {
-            if (_saveNameInput != null && !string.IsNullOrEmpty(_saveNameInput.text))
+            if (inputField == null || string.IsNullOrWhiteSpace(inputField.text))
             {
-                string worldName = _saveNameInput.text.Trim();
-                if (_saveSystem == null)
-                    _saveSystem = FindAnyObjectByType<SaveSystem>();
-                if (_saveSystem != null)
-                    _saveSystem.SaveWorld(worldName);
+                Debug.LogError("Map name cannot be empty.");
+                return null;
+            }
 
-                if (GameManager.Instance != null)
+            return inputField.text.Trim();
+        }
+
+        private bool EnsureSaveSystemInstance()
+        {
+            if (_saveSystem == null)
+                _saveSystem = FindAnyObjectByType<SaveSystem>();
+
+            if (_saveSystem == null)
+            {
+                Debug.LogError("SaveSystem not found!");
+                return false;
+            }
+
+            return true;
+        }
+
+        private string ResolveScreenshotPath(string worldName)
+        {
+            if (_saveSystem != null && _saveSystem.Config != null)
+            {
+                return _saveSystem.Config.GetWorldScreenshotPath(worldName);
+            }
+
+            string sanitized = SaveConfig.SanitizeFileName(worldName);
+            return Path.Combine(Application.persistentDataPath, $"{sanitized}.png");
+        }
+
+        private async Task<bool> ExecuteSaveFlowAsync(string worldName, SaveSystem.SaveDestination destination,
+            bool keepLoadingPanelActive = false)
+        {
+            if (!EnsureSaveSystemInstance())
+            {
+                return false;
+            }
+
+            ShowLoadingPanel();
+
+            bool saveSucceeded = false;
+
+            try
+            {
+                string existingScreenshotPath = ResolveScreenshotPath(worldName);
+                if (File.Exists(existingScreenshotPath))
                 {
-                    GameManager.Instance.CurrentWorldName = worldName;
+                    LoadScreenshotToImage(existingScreenshotPath);
+                }
+
+                bool success = await _saveSystem.SaveWorldAsync(worldName, destination);
+
+                if (success)
+                {
+                    saveSucceeded = true;
+
+                    if (GameManager.Instance != null)
+                    {
+                        GameManager.Instance.CurrentWorldName = worldName;
+                    }
+
+                    string updatedScreenshotPath = ResolveScreenshotPath(worldName);
+                    if (File.Exists(updatedScreenshotPath))
+                    {
+                        LoadScreenshotToImage(updatedScreenshotPath);
+                    }
+                }
+                else
+                {
+                    Debug.LogError($"Failed to save world '{worldName}'. Check SaveSystem logs above for details.");
+
+                    if (_saveSystem != null && _saveSystem.Config != null)
+                    {
+                        bool localEnabled = _saveSystem.Config.useLocalCache;
+                        bool firebaseEnabled = _saveSystem.Config.useFirebase;
+                        bool requestLocal = destination == SaveSystem.SaveDestination.Local ||
+                                            destination == SaveSystem.SaveDestination.LocalAndOnline;
+                        bool requestOnline = destination == SaveSystem.SaveDestination.Online ||
+                                             destination == SaveSystem.SaveDestination.LocalAndOnline;
+
+                        if (requestLocal && !localEnabled)
+                        {
+                            Debug.LogError("Local save requested but useLocalCache is disabled in SaveConfig.");
+                        }
+
+                        if (requestOnline && !firebaseEnabled)
+                        {
+                            Debug.LogError("Online save requested but useFirebase is disabled in SaveConfig.");
+                        }
+
+                        if (!localEnabled && !firebaseEnabled)
+                        {
+                            Debug.LogError(
+                                "Both local and Firebase saves are disabled in SaveConfig. Enable at least one.");
+                        }
+                    }
                 }
             }
-            else
+            catch (Exception e)
             {
-                Debug.LogError("Save name cannot be empty.");
+                Debug.LogError($"Failed to save world '{worldName}': {e.Message}");
+            }
+            finally
+            {
+                if (!keepLoadingPanelActive || !saveSucceeded)
+                {
+                    HideLoadingPanel();
+                }
+            }
+
+            return saveSucceeded;
+        }
+
+        private async void OnConfirmSaveButtonPressed()
+        {
+            string worldName = GetWorldNameFromInput(_saveNameInput);
+            if (string.IsNullOrEmpty(worldName))
+            {
+                return;
             }
 
             if (_savePanel != null)
             {
                 _savePanel.SetActive(false);
             }
+
+            await ExecuteSaveFlowAsync(worldName, SaveSystem.SaveDestination.Local);
         }
 
         private void OnCancelSaveButtonPressed()
@@ -367,6 +644,9 @@ namespace Assets._Project.Scripts.UI
             {
                 _savePanel.SetActive(false);
             }
+
+            // Включаем управление при закрытии полноэкранного UI
+            UIManager.NotifyFullscreenUIClosed();
         }
 
         public void RequestExitToMenu()
@@ -374,6 +654,9 @@ namespace Assets._Project.Scripts.UI
             if (_exitMenuPanel != null)
             {
                 _exitMenuPanel.SetActive(true);
+
+                // Отключаем управление при открытии полноэкранного UI
+                UIManager.NotifyFullscreenUIOpened();
 
                 // Настраиваем поле ввода в зависимости от наличия названия
                 if (_exitMenuNameInput != null)
@@ -422,69 +705,32 @@ namespace Assets._Project.Scripts.UI
                 _exitMenuPanel.SetActive(false);
             }
 
-            // Показываем панель загрузки
-            if (_loadingPanel != null)
+            bool saveSuccess = await ExecuteSaveFlowAsync(worldName, SaveSystem.SaveDestination.Local, true);
+            if (!saveSuccess)
             {
-                _loadingPanel.SetActive(true);
-            }
-
-            // Загружаем скриншот сразу при начале загрузки
-            if (GameManager.Instance != null)
-            {
-                string screenshotPath = System.IO.Path.Combine(Application.persistentDataPath, worldName + ".png");
-                GameManager.Instance.LoadScreenshotToImage(screenshotPath);
-            }
-
-            // Сохраняем карту
-            if (_saveSystem == null)
-                _saveSystem = FindAnyObjectByType<SaveSystem>();
-            if (_saveSystem != null)
-            {
-                bool success = await _saveSystem.SaveWorldAsync(worldName);
-                if (!success)
-                {
-                    Debug.LogError("Failed to save world.");
-                    if (_loadingPanel != null)
-                    {
-                        _loadingPanel.SetActive(false);
-                    }
-
-                    return;
-                }
-
-                if (GameManager.Instance != null)
-                {
-                    GameManager.Instance.CurrentWorldName = worldName;
-
-                    // Обновляем скриншот после сохранения (на случай если он изменился)
-                    string screenshotPath = System.IO.Path.Combine(Application.persistentDataPath, worldName + ".png");
-                    GameManager.Instance.LoadScreenshotToImage(screenshotPath);
-                }
-            }
-            else
-            {
-                Debug.LogError("SaveSystem not found!");
-                if (_loadingPanel != null)
-                {
-                    _loadingPanel.SetActive(false);
-                }
-
+                HideLoadingPanel();
                 return;
             }
 
-            // Загружаем меню
-            SceneManager.LoadScene(0);
+            // Асинхронно загружаем меню
+            // Экран загрузки будет скрыт автоматически через OnSceneLoaded после полной загрузки
+            await SceneLoadHelper.LoadSceneAsync(0);
         }
 
 
-        private void OnExitWithoutSavePressed()
+        private async void OnExitWithoutSavePressed()
         {
             if (_exitMenuPanel != null)
             {
                 _exitMenuPanel.SetActive(false);
             }
 
-            SceneManager.LoadScene(0);
+            // Показываем экран загрузки
+            ShowLoadingPanel();
+
+            // Асинхронно загружаем меню
+            // Экран загрузки будет скрыт автоматически через OnSceneLoaded после полной загрузки
+            await SceneLoadHelper.LoadSceneAsync(0);
         }
 
         private void OnCancelExitPressed()
@@ -493,6 +739,9 @@ namespace Assets._Project.Scripts.UI
             {
                 _exitMenuPanel.SetActive(false);
             }
+
+            // Включаем управление при закрытии полноэкранного UI
+            UIManager.NotifyFullscreenUIClosed();
         }
 
         private void OnCloseLoadPanelButtonPressed()

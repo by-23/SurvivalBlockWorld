@@ -26,7 +26,7 @@ public class EntityManager : MonoBehaviour
 
     [SerializeField] private CubeSpawner _cubeSpawner;
     [SerializeField] private Assets._Project.Scripts.UI.GhostEntityPlacer _ghostPlacer;
-    private ScreenshotManager _screenshotManager;
+    [SerializeField] private ScreenshotManager _screenshotManager;
     private Entity _currentGhostEntity;
 
     [Serializable]
@@ -274,7 +274,7 @@ public class EntityManager : MonoBehaviour
             // Делаем скриншот
             if (_screenshotManager == null)
             {
-                _screenshotManager = new ScreenshotManager();
+                _screenshotManager = FindAnyObjectByType<ScreenshotManager>();
             }
 
             string screenshotId = string.Empty;
@@ -387,7 +387,7 @@ public class EntityManager : MonoBehaviour
 
         if (_screenshotManager == null)
         {
-            _screenshotManager = new ScreenshotManager();
+            _screenshotManager = FindAnyObjectByType<ScreenshotManager>();
         }
 
         if (image != null && _screenshotManager != null && !string.IsNullOrEmpty(screenshotId))
@@ -679,7 +679,7 @@ public class EntityManager : MonoBehaviour
             if (!string.IsNullOrEmpty(screenshotId))
             {
                 if (_screenshotManager == null)
-                    _screenshotManager = new ScreenshotManager();
+                    _screenshotManager = FindAnyObjectByType<ScreenshotManager>();
 
                 if (_screenshotManager != null)
                 {

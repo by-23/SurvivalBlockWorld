@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -11,8 +12,8 @@ public class SaveSystem : MonoBehaviour
 
     [Header("Screenshot")] public Camera _screenshotCamera;
 
-    [SerializeField] private int _screenshotWidth = 1920;
-    [SerializeField] private int _screenshotHeight = 1080;
+    [SerializeField] private int _screenshotWidth = 640;
+    [SerializeField] private int _screenshotHeight = 480;
 
     [Header("Spawning")] [SerializeField] private CubeSpawner _cubeSpawner;
 
@@ -21,6 +22,20 @@ public class SaveSystem : MonoBehaviour
     private FirebaseAdapter _firebaseAdapter;
 
     private bool _isLoading = false;
+
+    public enum SaveDestination
+    {
+        Local,
+        Online,
+        LocalAndOnline
+    }
+
+    public enum WorldStorageSource
+    {
+        Auto,
+        LocalOnly,
+        OnlineOnly
+    }
 
 
     private void Awake()
@@ -141,6 +156,12 @@ public class SaveSystem : MonoBehaviour
     public async System.Threading.Tasks.Task<bool> SaveWorldAsync(string worldName,
         Action<float> progressCallback = null)
     {
+        return await SaveWorldAsync(worldName, SaveDestination.LocalAndOnline, progressCallback);
+    }
+
+    public async System.Threading.Tasks.Task<bool> SaveWorldAsync(string worldName, SaveDestination destination,
+        Action<float> progressCallback = null)
+    {
         try
         {
             if (string.IsNullOrEmpty(worldName))
@@ -183,17 +204,56 @@ public class SaveSystem : MonoBehaviour
 
             progressCallback?.Invoke(0.7f);
 
-            if (_config.useLocalCache)
+            bool requestLocal = destination == SaveDestination.Local || destination == SaveDestination.LocalAndOnline;
+            bool requestOnline = destination == SaveDestination.Online || destination == SaveDestination.LocalAndOnline;
+
+            bool shouldSaveLocal = requestLocal && _config.useLocalCache;
+            bool shouldSaveOnline = requestOnline && _config.useFirebase;
+
+            if (!shouldSaveLocal && !shouldSaveOnline)
             {
-                bool success =
-                    await _fileManager.SaveWorldAsync(worldData, (p) => progressCallback?.Invoke(0.7f + p * 0.15f));
-                if (!success) return false;
+                string errorMsg = $"Save skipped: no enabled destinations for the current configuration. " +
+                                  $"Requested: Local={requestLocal}, Online={requestOnline}. " +
+                                  $"Config: useLocalCache={_config.useLocalCache}, useFirebase={_config.useFirebase}.";
+                Debug.LogError(errorMsg);
+                return false;
             }
 
-            if (_config.useFirebase)
+            if (shouldSaveLocal)
             {
+                float localRange = shouldSaveOnline ? 0.15f : 0.3f;
+                if (_fileManager == null)
+                {
+                    _fileManager = new FileManager(_config);
+                }
+
+                bool success = await _fileManager.SaveWorldAsync(worldData,
+                    (p) => progressCallback?.Invoke(0.7f + p * localRange));
+                if (!success)
+                {
+                    Debug.LogError(
+                        $"Failed to save world '{worldName}' to local storage. Check FileManager logs above for details.");
+                    return false;
+                }
+
+                progressCallback?.Invoke(0.7f + localRange);
+            }
+
+            if (shouldSaveOnline)
+            {
+                progressCallback?.Invoke(shouldSaveLocal ? 0.85f : 0.8f);
+                if (_firebaseAdapter == null)
+                {
+                    _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+                }
+
                 bool success = await _firebaseAdapter.SaveWorldToFirestore(worldData);
-                if (!success) return false;
+                if (!success)
+                {
+                    Debug.LogError(
+                        $"Failed to save world '{worldName}' to Firebase. Check FirebaseAdapter logs above for details.");
+                    return false;
+                }
             }
 
             _chunkManager.ClearDirtyChunks();
@@ -203,7 +263,7 @@ public class SaveSystem : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError($"SaveWorld failed: {e.Message}");
+            Debug.LogError($"SaveWorld failed for '{worldName}': {e.Message}\nStackTrace: {e.StackTrace}");
             return false;
         }
     }
@@ -222,7 +282,7 @@ public class SaveSystem : MonoBehaviour
     }
 
     public async System.Threading.Tasks.Task<bool> LoadWorldAsync(string worldName, bool loadScene,
-        Action<float> progressCallback = null)
+        Action<float> progressCallback = null, WorldStorageSource source = WorldStorageSource.Auto)
     {
         try
         {
@@ -256,16 +316,8 @@ public class SaveSystem : MonoBehaviour
 
             WorldSaveData worldData = null;
 
-            if (_config.useFirebase)
-            {
-                worldData = await _firebaseAdapter.LoadWorldFromFirestore(worldName);
-            }
-            else if (_config.useLocalCache &&
-                     _fileManager.SaveFileExists()) // This part might need adjustment for multiple saves
-            {
-                worldData = await _fileManager.LoadWorldAsync((p) => progressCallback?.Invoke(0.1f + p * 0.3f));
-            }
-
+            worldData = await LoadWorldDataAsync(worldName, source,
+                (p) => progressCallback?.Invoke(0.1f + p * 0.3f));
 
             if (worldData == null)
             {
@@ -305,7 +357,12 @@ public class SaveSystem : MonoBehaviour
 
             if (_config.useLocalCache)
             {
-                _fileManager.DeleteSaveFile();
+                string directory = _config.GetLocalSavesDirectory();
+                if (Directory.Exists(directory))
+                {
+                    Directory.Delete(directory, true);
+                }
+
                 Debug.Log("Local save data cleared");
             }
 
@@ -371,6 +428,51 @@ public class SaveSystem : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError($"DeleteWorld failed for world '{worldName}': {e.Message}");
+            return false;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<bool> UpdateWorldLikesAsync(string worldName, int likesCount)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Update likes failed: World name cannot be empty.");
+                return false;
+            }
+
+            if (!_config.useFirebase)
+            {
+                Debug.LogWarning("Update likes skipped: Firebase disabled in configuration.");
+                return false;
+            }
+
+            if (_firebaseAdapter == null)
+            {
+                if (_config == null)
+                {
+                    _config = Resources.Load<SaveConfig>("SaveConfig");
+                    if (_config == null)
+                    {
+                        Debug.LogError("SaveConfig not found when updating likes.");
+                        return false;
+                    }
+                }
+
+                if (_chunkManager == null)
+                {
+                    _chunkManager = new ChunkManager(_config);
+                }
+
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+
+            return await _firebaseAdapter.UpdateWorldLikes(worldName, likesCount);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"UpdateWorldLikesAsync failed for world '{worldName}': {e.Message}");
             return false;
         }
     }
@@ -600,6 +702,214 @@ public class SaveSystem : MonoBehaviour
         }
 
         return await _firebaseAdapter.GetAllWorldsMetadata();
+    }
+
+    public async System.Threading.Tasks.Task<List<WorldMetadata>> GetAllLocalWorldsMetadata()
+    {
+        if (_fileManager == null)
+        {
+            _fileManager = new FileManager(_config);
+        }
+
+        return await _fileManager.LoadLocalWorldsMetadataAsync();
+    }
+
+    public bool DeleteLocalWorld(string worldName)
+    {
+        if (string.IsNullOrEmpty(worldName))
+        {
+            Debug.LogError("Delete failed: World name cannot be empty.");
+            return false;
+        }
+
+        if (_fileManager == null)
+        {
+            _fileManager = new FileManager(_config);
+        }
+
+        bool deleted = _fileManager.DeleteSaveFile(worldName);
+
+        if (deleted)
+        {
+            string screenshotPath = _config != null
+                ? _config.GetWorldScreenshotPath(worldName)
+                : Path.Combine(Application.persistentDataPath, $"{SaveConfig.SanitizeFileName(worldName)}.png");
+
+            if (File.Exists(screenshotPath))
+            {
+                try
+                {
+                    File.Delete(screenshotPath);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"Failed to delete screenshot for '{worldName}': {e.Message}");
+                }
+            }
+        }
+
+        return deleted;
+    }
+
+    private async System.Threading.Tasks.Task<WorldSaveData> LoadWorldDataAsync(string worldName,
+        WorldStorageSource source, Action<float> progressCallback)
+    {
+        switch (source)
+        {
+            case WorldStorageSource.LocalOnly:
+                return await LoadLocalWorld(worldName, progressCallback);
+            case WorldStorageSource.OnlineOnly:
+                return await LoadOnlineWorld(worldName);
+            default:
+                WorldSaveData onlineWorld = null;
+
+                if (_config.useFirebase)
+                {
+                    onlineWorld = await LoadOnlineWorld(worldName);
+                    if (onlineWorld != null)
+                    {
+                        return onlineWorld;
+                    }
+                }
+
+                if (_config.useLocalCache)
+                {
+                    return await LoadLocalWorld(worldName, progressCallback);
+                }
+
+                return onlineWorld;
+        }
+    }
+
+    private async System.Threading.Tasks.Task<WorldSaveData> LoadLocalWorld(string worldName,
+        Action<float> progressCallback)
+    {
+        if (_fileManager == null)
+        {
+            _fileManager = new FileManager(_config);
+        }
+
+        return await _fileManager.LoadWorldAsync(worldName, progressCallback);
+    }
+
+    private async System.Threading.Tasks.Task<WorldSaveData> LoadOnlineWorld(string worldName)
+    {
+        if (_firebaseAdapter == null)
+        {
+            if (_config == null)
+            {
+                _config = Resources.Load<SaveConfig>("SaveConfig");
+                if (_config == null)
+                {
+                    Debug.LogError("SaveConfig not found when attempting to load online world.");
+                    return null;
+                }
+            }
+
+            if (_chunkManager == null)
+            {
+                _chunkManager = new ChunkManager(_config);
+            }
+
+            _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+        }
+
+        return await _firebaseAdapter.LoadWorldFromFirestore(worldName);
+    }
+
+    public async System.Threading.Tasks.Task<bool> PublishLocalWorldToFirebaseAsync(string worldName)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Publish failed: World name cannot be empty.");
+                return false;
+            }
+
+            if (!_config.useFirebase)
+            {
+                Debug.LogError("Publish failed: Firebase is disabled in configuration.");
+                return false;
+            }
+
+            if (_fileManager == null)
+            {
+                _fileManager = new FileManager(_config);
+            }
+
+            WorldSaveData worldData = await _fileManager.LoadWorldAsync(worldName);
+            if (worldData == null)
+            {
+                Debug.LogError($"Publish failed: Local world '{worldName}' not found.");
+                return false;
+            }
+
+            if (_firebaseAdapter == null)
+            {
+                if (_chunkManager == null)
+                {
+                    _chunkManager = new ChunkManager(_config);
+                }
+
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+
+            bool success = await _firebaseAdapter.SaveWorldToFirestore(worldData);
+            if (success)
+            {
+                Debug.Log($"World '{worldName}' published to Firebase successfully.");
+            }
+            else
+            {
+                Debug.LogError($"Failed to publish world '{worldName}' to Firebase.");
+            }
+
+            return success;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"PublishLocalWorldToFirebaseAsync failed for '{worldName}': {e.Message}");
+            return false;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<bool> IsWorldPublishedAsync(string worldName)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(worldName) || !_config.useFirebase)
+            {
+                return false;
+            }
+
+            if (_firebaseAdapter == null)
+            {
+                if (_config == null)
+                {
+                    _config = Resources.Load<SaveConfig>("SaveConfig");
+                    if (_config == null)
+                    {
+                        return false;
+                    }
+                }
+
+                if (_chunkManager == null)
+                {
+                    _chunkManager = new ChunkManager(_config);
+                }
+
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+
+            WorldSaveData worldData = await _firebaseAdapter.LoadWorldFromFirestore(worldName);
+            return worldData != null;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"IsWorldPublishedAsync failed for '{worldName}': {e.Message}");
+            return false;
+        }
     }
 }
 

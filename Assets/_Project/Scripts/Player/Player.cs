@@ -41,6 +41,17 @@ public class Player : MonoBehaviour
         {
             _playerCamera.enabled = true;
         }
+
+        // Подписываемся на события полноэкранных UI элементов
+        UIManager.OnFullscreenUIOpened += DisablePlayerControl;
+        UIManager.OnFullscreenUIClosed += ForcePlayerControlMode;
+    }
+
+    private void OnDestroy()
+    {
+        // Отписываемся от событий
+        UIManager.OnFullscreenUIOpened -= DisablePlayerControl;
+        UIManager.OnFullscreenUIClosed -= ForcePlayerControlMode;
     }
 
     public void EnterCar()
@@ -114,6 +125,32 @@ public class Player : MonoBehaviour
         if (_characterController != null)
         {
             _characterController.enabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Отключает управление персонажем (используется при показе экрана загрузки)
+    /// </summary>
+    public void DisablePlayerControl()
+    {
+        if (_playerMovement != null)
+        {
+            _playerMovement.enabled = false;
+        }
+
+        if (_playerCamera != null)
+        {
+            _playerCamera.enabled = false;
+        }
+
+        if (_capsuleCollider != null)
+        {
+            _capsuleCollider.enabled = false;
+        }
+
+        if (_characterController != null)
+        {
+            _characterController.enabled = false;
         }
     }
 }

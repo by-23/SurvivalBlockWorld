@@ -12,6 +12,7 @@ public class WorldSaveData
     public Vector3Int WorldBoundsMax;
     public long Timestamp;
     public Dictionary<Vector3Int, ChunkData> Chunks = new Dictionary<Vector3Int, ChunkData>();
+    public int LikesCount;
 
     public WorldSaveData(string name, Vector3Int boundsMin, Vector3Int boundsMax)
     {
@@ -20,6 +21,7 @@ public class WorldSaveData
         WorldBoundsMax = boundsMax;
         Timestamp = DateTime.UtcNow.Ticks;
         ScreenshotPath = string.Empty;
+        LikesCount = 0;
     }
 
     public byte[] PackToBinary()
@@ -44,6 +46,8 @@ public class WorldSaveData
                 writer.Write(chunkData.Length);
                 writer.Write(chunkData);
             }
+
+            writer.Write(LikesCount);
 
             return ms.ToArray();
         }
@@ -80,6 +84,11 @@ public class WorldSaveData
                 byte[] chunkData = reader.ReadBytes(chunkDataLength);
                 ChunkData chunk = ChunkData.UnpackFromBinary(chunkData);
                 world.Chunks[chunk.chunkCoordinates] = chunk;
+            }
+
+            if (reader.BaseStream.Position < reader.BaseStream.Length)
+            {
+                world.LikesCount = reader.ReadInt32();
             }
 
             return world;

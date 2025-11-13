@@ -23,6 +23,14 @@ public class FirebaseAdapter
         {
             DocumentReference worldRef = _db.Collection("worlds").Document(worldData.WorldName);
 
+            DocumentSnapshot existingSnapshot = await worldRef.GetSnapshotAsync();
+
+            int likesValue = 0;
+            if (existingSnapshot.Exists && existingSnapshot.TryGetValue("likes", out long existingLikes))
+            {
+                likesValue = (int)Mathf.Max(0, existingLikes);
+            }
+
             var worldMetadata = new Dictionary<string, object>
             {
                 { "worldName", worldData.WorldName },
@@ -33,10 +41,11 @@ public class FirebaseAdapter
                 { "worldBoundsMaxX", worldData.WorldBoundsMax.x },
                 { "worldBoundsMaxY", worldData.WorldBoundsMax.y },
                 { "worldBoundsMaxZ", worldData.WorldBoundsMax.z },
-                { "timestamp", worldData.Timestamp }
+                { "timestamp", worldData.Timestamp },
+                { "likes", likesValue }
             };
 
-            await worldRef.SetAsync(worldMetadata);
+            await worldRef.SetAsync(worldMetadata, SetOptions.MergeAll);
             Debug.Log($"World metadata for '{worldData.WorldName}' saved to Firestore.");
 
             foreach (var chunk in worldData.Chunks.Values)
@@ -139,6 +148,11 @@ public class FirebaseAdapter
                 Timestamp = worldSnapshot.GetValue<long>("timestamp")
             };
 
+            if (worldSnapshot.TryGetValue("likes", out long likes))
+            {
+                worldData.LikesCount = (int)Mathf.Max(0, likes);
+            }
+
             QuerySnapshot snapshot = await _db.Collection("worlds").Document(worldId)
                 .Collection("chunks").GetSnapshotAsync();
 
@@ -176,7 +190,10 @@ public class FirebaseAdapter
                     {
                         WorldName = document.Id,
                         ScreenshotPath = document.GetValue<string>("screenshotPath"),
-                        Timestamp = document.GetValue<long>("timestamp")
+                        Timestamp = document.GetValue<long>("timestamp"),
+                        Likes = document.TryGetValue("likes", out long likes)
+                            ? (int)Mathf.Max(0, likes)
+                            : 0
                     };
                     worlds.Add(metadata);
                 }
@@ -228,6 +245,27 @@ public class FirebaseAdapter
         await Task.Delay(100);
         return false;
     }
+
+    public async Task<bool> UpdateWorldLikes(string worldName, int likesCount)
+    {
+        try
+        {
+            DocumentReference worldRef = _db.Collection("worlds").Document(worldName);
+            var payload = new Dictionary<string, object>
+            {
+                { "likes", Mathf.Max(0, likesCount) },
+                { "likesUpdatedAt", Timestamp.GetCurrentTimestamp() }
+            };
+
+            await worldRef.SetAsync(payload, SetOptions.MergeAll);
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error updating likes for world '{worldName}' in Firestore: {e.Message}");
+            return false;
+        }
+    }
 }
 
 [Serializable]
@@ -236,6 +274,7 @@ public class WorldMetadata
     public string WorldName;
     public string ScreenshotPath;
     public long Timestamp;
+    public int Likes;
 }
 
 [Serializable]

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -18,19 +19,30 @@ public class FileManager
         {
             progressCallback?.Invoke(0.1f);
 
-            byte[] data = worldData.PackToBinary();
+            byte[] data;
+            try
+            {
+                data = worldData.PackToBinary();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Failed to pack world data for '{worldData.WorldName}': {e.Message}");
+                return false;
+            }
 
             progressCallback?.Invoke(0.5f);
 
-            string path = config.GetSavePath();
-            string directory = Path.GetDirectoryName(path);
+            string path = config.GetWorldSavePath(worldData.WorldName);
 
-            if (!Directory.Exists(directory))
+            try
             {
-                Directory.CreateDirectory(directory);
+                await File.WriteAllBytesAsync(path, data);
             }
-
-            await File.WriteAllBytesAsync(path, data);
+            catch (Exception e)
+            {
+                Debug.LogError($"Failed to write world file to '{path}': {e.Message}");
+                return false;
+            }
 
             progressCallback?.Invoke(1f);
 
@@ -39,18 +51,19 @@ public class FileManager
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to save world: {e.Message}");
+            Debug.LogError(
+                $"Failed to save world '{worldData?.WorldName ?? "unknown"}': {e.Message}\nStackTrace: {e.StackTrace}");
             return false;
         }
     }
 
-    public async Task<WorldSaveData> LoadWorldAsync(Action<float> progressCallback = null)
+    public async Task<WorldSaveData> LoadWorldAsync(string worldName, Action<float> progressCallback = null)
     {
         try
         {
             progressCallback?.Invoke(0.1f);
 
-            string path = config.GetSavePath();
+            string path = config.GetWorldSavePath(worldName);
 
             if (!File.Exists(path))
             {
@@ -78,19 +91,78 @@ public class FileManager
         }
     }
 
-    public bool SaveFileExists()
+    public async Task<List<WorldMetadata>> LoadLocalWorldsMetadataAsync()
     {
-        return File.Exists(config.GetSavePath());
+        List<WorldMetadata> metadata = new List<WorldMetadata>();
+
+        try
+        {
+            string directory = config.GetLocalSavesDirectory();
+
+            if (!Directory.Exists(directory))
+            {
+                return metadata;
+            }
+
+            string[] files = Directory.GetFiles(directory, "*.dat", SearchOption.TopDirectoryOnly);
+
+            foreach (string file in files)
+            {
+                try
+                {
+                    byte[] data = await File.ReadAllBytesAsync(file);
+                    WorldSaveData world = WorldSaveData.UnpackFromBinary(data);
+                    metadata.Add(new WorldMetadata
+                    {
+                        WorldName = world.WorldName,
+                        ScreenshotPath = world.ScreenshotPath,
+                        Timestamp = world.Timestamp,
+                        Likes = world.LikesCount
+                    });
+                }
+                catch (Exception readException)
+                {
+                    Debug.LogWarning($"Failed to read metadata from '{file}': {readException.Message}");
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"Failed to enumerate local worlds: {e.Message}");
+        }
+
+        return metadata;
     }
 
-    public void DeleteSaveFile()
+    public bool SaveFileExists(string worldName)
     {
-        string path = config.GetSavePath();
+        string path = config.GetWorldSavePath(worldName);
+        return File.Exists(path);
+    }
+
+    public bool AnySaveFilesExist()
+    {
+        string directory = config.GetLocalSavesDirectory();
+        if (!Directory.Exists(directory))
+        {
+            return false;
+        }
+
+        string[] files = Directory.GetFiles(directory, "*.dat", SearchOption.TopDirectoryOnly);
+        return files.Length > 0;
+    }
+
+    public bool DeleteSaveFile(string worldName)
+    {
+        string path = config.GetWorldSavePath(worldName);
         if (File.Exists(path))
         {
             File.Delete(path);
             Debug.Log($"Save file deleted: {path}");
+            return true;
         }
+
+        return false;
     }
 }
 

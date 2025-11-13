@@ -16,11 +16,12 @@ MonoBehaviour:
   worldBoundsMin: {x: -500, y: -100, z: -500}
   worldBoundsMax: {x: 500, y: 100, z: 500}
   useFirebase: 1
-  useLocalCache: 0
+  useLocalCache: 1
   enableCompression: 0
   maxCubesPerFrame: 100
   disablePhysicsDuringLoad: 1
   useDeferredSetup: 1
   minBatchSize: 200
   saveFileName: world.dat
+  localSavesFolderName: WorldSaves
   entityScale: 1
