@@ -42,6 +42,12 @@ public class SaveSystem : MonoBehaviour
     {
         Application.targetFrameRate = -1;
         QualitySettings.vSyncCount = 0;
+
+        if (Physics.simulationMode != SimulationMode.Update)
+        {
+            Physics.simulationMode = SimulationMode.Update;
+        }
+
         FindScreenshotCamera();
 
         if (_config == null)
@@ -533,89 +539,98 @@ public class SaveSystem : MonoBehaviour
     private async System.Threading.Tasks.Task SpawnWorldFromData(WorldSaveData worldData,
         Action<float> progressCallback = null)
     {
-        bool wasAutoSimulation = Physics.simulationMode == SimulationMode.Update;
-        if (_config.disablePhysicsDuringLoad)
+        SimulationMode previousSimulationMode = Physics.simulationMode;
+        bool restoreSimulationMode = false;
+        if (_config.disablePhysicsDuringLoad && previousSimulationMode != SimulationMode.Script)
         {
             Physics.simulationMode = SimulationMode.Script;
+            restoreSimulationMode = true;
         }
 
-        int totalCubes = worldData.Chunks.Values.Sum(c => c.cubes.Count);
-        int spawnedCubes = 0;
-
-        Dictionary<Vector3Int, List<CubeData>> cubesByEntity = GroupCubesByEntity(worldData);
-
-        List<Entity> allEntities = _config.useDeferredSetup ? new List<Entity>(cubesByEntity.Count) : null;
-
-        int batchSize = Mathf.Max(_config.maxCubesPerFrame, _config.minBatchSize);
-        int processedInBatch = 0;
-
-        foreach (var kvp in cubesByEntity)
+        try
         {
-            if (kvp.Value.Count == 0)
-                continue;
+            int totalCubes = worldData.Chunks.Values.Sum(c => c.cubes.Count);
+            int spawnedCubes = 0;
 
-            Vector3 minPos = kvp.Value[0].Position;
-            foreach (var cube in kvp.Value)
+            Dictionary<Vector3Int, List<CubeData>> cubesByEntity = GroupCubesByEntity(worldData);
+
+            List<Entity> allEntities = _config.useDeferredSetup ? new List<Entity>(cubesByEntity.Count) : null;
+
+            int batchSize = Mathf.Max(_config.maxCubesPerFrame, _config.minBatchSize);
+            int processedInBatch = 0;
+
+            foreach (var kvp in cubesByEntity)
             {
-                if (cube.Position != null)
+                if (kvp.Value.Count == 0)
+                    continue;
+
+                Vector3 minPos = kvp.Value[0].Position;
+                foreach (var cube in kvp.Value)
                 {
-                    if (cube.Position.x < minPos.x) minPos.x = cube.Position.x;
-                    if (cube.Position.y < minPos.y) minPos.y = cube.Position.y;
-                    if (cube.Position.z < minPos.z) minPos.z = cube.Position.z;
+                    if (cube.Position != null)
+                    {
+                        if (cube.Position.x < minPos.x) minPos.x = cube.Position.x;
+                        if (cube.Position.y < minPos.y) minPos.y = cube.Position.y;
+                        if (cube.Position.z < minPos.z) minPos.z = cube.Position.z;
+                    }
+                }
+
+                // Создаем Entity через фабрику
+                Entity entity = EntityFactory.CreateEntity(
+                    minPos,
+                    Quaternion.identity,
+                    Vector3.one * _config.entityScale,
+                    isKinematic: true,
+                    entityName: "Entity"
+                );
+
+                // minPos используется как сохранённая позиция entity для правильного вычисления локальных позиций кубов
+                await entity.LoadFromDataAsync(kvp.Value.ToArray(), _cubeSpawner,
+                    deferredSetup: _config.useDeferredSetup,
+                    savedEntityPosition: minPos);
+
+                if (_config.useDeferredSetup)
+                {
+                    allEntities.Add(entity);
+                }
+
+                spawnedCubes += kvp.Value.Count;
+                processedInBatch += kvp.Value.Count;
+                progressCallback?.Invoke((float)spawnedCubes / totalCubes * 0.8f);
+
+                if (processedInBatch >= batchSize)
+                {
+                    await System.Threading.Tasks.Task.Yield();
+                    processedInBatch = 0;
                 }
             }
 
-            // Создаем Entity через фабрику
-            Entity entity = EntityFactory.CreateEntity(
-                minPos,
-                Quaternion.identity,
-                Vector3.one * _config.entityScale,
-                isKinematic: true,
-                entityName: "Entity"
-            );
-
-            // minPos используется как сохранённая позиция entity для правильного вычисления локальных позиций кубов
-            await entity.LoadFromDataAsync(kvp.Value.ToArray(), _cubeSpawner, deferredSetup: _config.useDeferredSetup,
-                savedEntityPosition: minPos);
-
-            if (_config.useDeferredSetup)
+            if (_config.useDeferredSetup && allEntities != null)
             {
-                allEntities.Add(entity);
-            }
+                progressCallback?.Invoke(0.85f);
 
-            spawnedCubes += kvp.Value.Count;
-            processedInBatch += kvp.Value.Count;
-            progressCallback?.Invoke((float)spawnedCubes / totalCubes * 0.8f);
+                foreach (var entity in allEntities)
+                {
+                    if (entity != null)
+                    {
+                        entity.FinalizeLoad();
+                    }
+                }
 
-            if (processedInBatch >= batchSize)
-            {
+                progressCallback?.Invoke(0.95f);
                 await System.Threading.Tasks.Task.Yield();
-                processedInBatch = 0;
             }
+
+            progressCallback?.Invoke(1f);
         }
-
-        if (_config.useDeferredSetup && allEntities != null)
+        finally
         {
-            progressCallback?.Invoke(0.85f);
-
-            foreach (var entity in allEntities)
+            if (restoreSimulationMode)
             {
-                if (entity != null)
-                {
-                    entity.FinalizeLoad();
-                }
+                // Возвращаем исходный режим симуляции физики
+                Physics.simulationMode = previousSimulationMode;
             }
-
-            progressCallback?.Invoke(0.95f);
-            await System.Threading.Tasks.Task.Yield();
         }
-
-        if (_config.disablePhysicsDuringLoad)
-        {
-            Physics.simulationMode = SimulationMode.Update;
-        }
-
-        progressCallback?.Invoke(1f);
     }
 
     private Dictionary<Vector3Int, List<CubeData>> GroupCubesByEntity(WorldSaveData worldData)

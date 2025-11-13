@@ -1293,21 +1293,26 @@ public class Entity : MonoBehaviour
 
     public bool SetKinematicState(bool isKinematic, bool ignoreGhost = false)
     {
-        if (!EnsureRigidbodyReference())
-            return false;
-
         if (!ignoreGhost && _isGhost && !isKinematic)
             return false;
 
-        if (_rb.isKinematic == isKinematic)
+        var rb = _rb;
+        if (rb == null)
+        {
+            rb = GetComponent<Rigidbody>();
+            if (rb == null)
+                return false;
+
+            _rb = rb;
+        }
+
+        if (rb.isKinematic == isKinematic)
             return true;
 
-        _rb.isKinematic = isKinematic;
+        rb.isKinematic = isKinematic;
 
         if (!isKinematic)
-        {
             RequestDelayedCombine();
-        }
 
         return true;
     }

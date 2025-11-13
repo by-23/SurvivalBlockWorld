@@ -47,11 +47,16 @@ public class EntityMeshCombiner : MonoBehaviour
 
     // Object pooling для мешей
     private Queue<Mesh> _meshPool = new Queue<Mesh>();
-    private Queue<GameObject> _gameObjectPool = new Queue<GameObject>();
 
-    // Кэш для дочерних объектов combined mesh
-    private GameObject[] _cachedChildObjects = System.Array.Empty<GameObject>();
-    private MeshFilter[] _cachedMeshFilters = System.Array.Empty<MeshFilter>();
+    private class CombinedSegment
+    {
+        public GameObject Object;
+        public MeshFilter Filter;
+        public MeshRenderer Renderer;
+    }
+
+    private readonly System.Collections.Generic.List<CombinedSegment> _segments =
+        new System.Collections.Generic.List<CombinedSegment>(16);
 
     private void Awake()
     {
@@ -64,16 +69,24 @@ public class EntityMeshCombiner : MonoBehaviour
     private bool TrySetEntityKinematic(bool state)
     {
         if (_entity != null)
-            return _entity.SetKinematicState(state, true);
-
-        if (_rb != null)
         {
-            if (_rb.isKinematic != state)
-                _rb.isKinematic = state;
-            return true;
+            if (_entity.IsKinematic == state)
+                return true;
+
+            return _entity.SetKinematicState(state, true);
         }
 
-        return false;
+        if (_rb == null)
+            _rb = GetComponent<Rigidbody>();
+
+        if (_rb == null)
+            return false;
+
+        if (_rb.isKinematic == state)
+            return true;
+
+        _rb.isKinematic = state;
+        return true;
     }
 
     private bool GetEntityKinematic()
@@ -102,11 +115,21 @@ public class EntityMeshCombiner : MonoBehaviour
             if (mesh != null) DestroyImmediate(mesh);
         }
 
-        while (_gameObjectPool.Count > 0)
+        for (int i = 0; i < _segments.Count; i++)
         {
-            var go = _gameObjectPool.Dequeue();
-            if (go != null) DestroyImmediate(go);
+            var segment = _segments[i];
+            if (segment.Filter != null && segment.Filter.sharedMesh != null)
+            {
+                DestroyImmediate(segment.Filter.sharedMesh);
+                segment.Filter.sharedMesh = null;
+            }
+
+            if (segment.Object != null)
+                DestroyImmediate(segment.Object);
         }
+
+        if (_combinedMeshObject != null)
+            DestroyImmediate(_combinedMeshObject);
     }
 
     private void CacheCubeComponents()
@@ -174,62 +197,55 @@ public class EntityMeshCombiner : MonoBehaviour
         }
     }
 
-    private GameObject GetPooledGameObject(string objectName)
-    {
-        if (_gameObjectPool.Count > 0)
-        {
-            var go = _gameObjectPool.Dequeue();
-            go.name = objectName;
-            go.SetActive(true);
-            return go;
-        }
-
-        return new GameObject(objectName);
-    }
-
-    private void ReturnGameObjectToPool(GameObject go)
-    {
-        if (go != null)
-        {
-            go.SetActive(false);
-            _gameObjectPool.Enqueue(go);
-        }
-    }
-
-    private void CacheChildObjects()
+    private GameObject EnsureCombinedRoot()
     {
         if (_combinedMeshObject != null)
+            return _combinedMeshObject;
+
+        _combinedMeshObject = new GameObject("CombinedMesh");
+        _combinedMeshObject.transform.SetParent(transform, false);
+        return _combinedMeshObject;
+    }
+
+    private CombinedSegment EnsureSegment(int index)
+    {
+        EnsureCombinedRoot();
+
+        while (_segments.Count <= index)
         {
-            int childCount = _combinedMeshObject.transform.childCount;
-            _cachedChildObjects = new GameObject[childCount];
+            var segmentIndex = _segments.Count;
+            var go = new GameObject($"CombinedMesh_{segmentIndex}");
+            go.transform.SetParent(_combinedMeshObject.transform, false);
+            go.SetActive(false);
 
-            int meshFilterCount = 0;
-            for (int i = 0; i < childCount; i++)
+            var filter = go.AddComponent<MeshFilter>();
+            var meshRenderer = go.AddComponent<MeshRenderer>();
+
+            _segments.Add(new CombinedSegment
             {
-                var child = _combinedMeshObject.transform.GetChild(i).gameObject;
-                _cachedChildObjects[i] = child;
-
-                if (child.GetComponent<MeshFilter>() != null)
-                {
-                    meshFilterCount++;
-                }
-            }
-
-            _cachedMeshFilters = new MeshFilter[meshFilterCount];
-            int writeIndex = 0;
-            for (int i = 0; i < childCount; i++)
-            {
-                var meshFilter = _cachedChildObjects[i].GetComponent<MeshFilter>();
-                if (meshFilter != null)
-                {
-                    _cachedMeshFilters[writeIndex++] = meshFilter;
-                }
-            }
+                Object = go,
+                Filter = filter,
+                Renderer = meshRenderer
+            });
         }
-        else
+
+        return _segments[index];
+    }
+
+    private void DeactivateUnusedSegments(int startIndex)
+    {
+        // Снимаем меши и скрываем сегменты без изменения иерархии
+        for (int i = startIndex; i < _segments.Count; i++)
         {
-            _cachedChildObjects = System.Array.Empty<GameObject>();
-            _cachedMeshFilters = System.Array.Empty<MeshFilter>();
+            var segment = _segments[i];
+            if (segment.Filter.sharedMesh != null)
+            {
+                ReturnMeshToPool(segment.Filter.sharedMesh);
+                segment.Filter.sharedMesh = null;
+            }
+
+            if (segment.Object.activeSelf)
+                segment.Object.SetActive(false);
         }
     }
 
@@ -348,11 +364,14 @@ public class EntityMeshCombiner : MonoBehaviour
                 return;
             }
 
-            _combinedMeshObject = GetPooledGameObject("CombinedMesh");
-            _combinedMeshObject.transform.SetParent(transform, false);
+            _combinedMeshObject = EnsureCombinedRoot();
+            if (!_combinedMeshObject.activeSelf)
+                _combinedMeshObject.SetActive(true);
 
             // Очищаем MaterialPropertyBlock для переиспользования
             _propertyBlock.Clear();
+
+            int activeSegments = 0;
 
             // Обходим группы цветов и создаём объединённые меши
             for (int i = 0; i < _colorKeys.Count; i++)
@@ -371,28 +390,28 @@ public class EntityMeshCombiner : MonoBehaviour
                 else
                     subMesh.RecalculateBounds();
 
-                var colorMeshObject = GetPooledGameObject($"CombinedMesh_{i}");
-                colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
+                var segment =
+                    EnsureSegment(activeSegments++); // Переиспользуем дочерние объекты, чтобы не трогать SetParent
+                if (!segment.Object.activeSelf)
+                    segment.Object.SetActive(true);
 
-                var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
-                if (meshFilter == null)
-                    meshFilter = colorMeshObject.AddComponent<MeshFilter>();
-                meshFilter.sharedMesh = subMesh;
+                if (segment.Filter.sharedMesh != null)
+                {
+                    ReturnMeshToPool(segment.Filter.sharedMesh);
+                    segment.Filter.sharedMesh = null;
+                }
 
-                var meshRenderer = colorMeshObject.GetComponent<MeshRenderer>();
-                if (meshRenderer == null)
-                    meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
-                meshRenderer.sharedMaterial = _sourceMaterial;
+                segment.Filter.sharedMesh = subMesh;
+                segment.Renderer.sharedMaterial = _sourceMaterial;
 
                 // Очищаем PropertyBlock перед установкой цвета для каждого объекта
                 _propertyBlock.Clear();
                 _propertyBlock.SetColor("_BaseColor", (Color)color);
                 _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
-                meshRenderer.SetPropertyBlock(_propertyBlock);
+                segment.Renderer.SetPropertyBlock(_propertyBlock);
             }
 
-            // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
-            CacheChildObjects();
+            DeactivateUnusedSegments(activeSegments);
 
             _isCombined = true;
 
@@ -453,28 +472,21 @@ public class EntityMeshCombiner : MonoBehaviour
         // Возвращаем объекты в pool используя кэшированные данные
         if (_combinedMeshObject != null)
         {
-            // Возвращаем меши в pool используя кэшированные MeshFilter
-            for (int i = 0; i < _cachedMeshFilters.Length; i++)
+            for (int i = 0; i < _segments.Count; i++)
             {
-                var meshFilter = _cachedMeshFilters[i];
-                if (meshFilter != null && meshFilter.sharedMesh != null)
+                var segment = _segments[i];
+                if (segment.Filter.sharedMesh != null)
                 {
-                    ReturnMeshToPool(meshFilter.sharedMesh);
+                    ReturnMeshToPool(segment.Filter.sharedMesh);
+                    segment.Filter.sharedMesh = null;
                 }
+
+                if (segment.Object.activeSelf)
+                    segment.Object.SetActive(false);
             }
 
-            // Возвращаем дочерние GameObject в pool используя кэш
-            for (int i = 0; i < _cachedChildObjects.Length; i++)
-            {
-                var child = _cachedChildObjects[i];
-                if (child != null)
-                {
-                    ReturnGameObjectToPool(child);
-                }
-            }
-
-            ReturnGameObjectToPool(_combinedMeshObject);
-            _combinedMeshObject = null;
+            if (_combinedMeshObject.activeSelf)
+                _combinedMeshObject.SetActive(false);
         }
 
         TrySetEntityKinematic(false);
@@ -545,40 +557,26 @@ public class EntityMeshCombiner : MonoBehaviour
         // Возвращаем объекты в pool используя кэшированные данные
         if (_combinedMeshObject != null)
         {
-            // Возвращаем меши в pool используя кэшированные MeshFilter
-            for (int i = 0; i < _cachedMeshFilters.Length; i++)
+            for (int i = 0; i < _segments.Count; i++)
             {
-                var meshFilter = _cachedMeshFilters[i];
-                if (meshFilter != null && meshFilter.sharedMesh != null)
+                var segment = _segments[i];
+                if (segment.Filter.sharedMesh != null)
                 {
-                    ReturnMeshToPool(meshFilter.sharedMesh);
+                    ReturnMeshToPool(segment.Filter.sharedMesh);
+                    segment.Filter.sharedMesh = null;
                 }
 
-                // Yield каждые 5 мешей
+                if (segment.Object.activeSelf)
+                    segment.Object.SetActive(false);
+
                 if (i % 5 == 0)
                 {
                     yield return null;
                 }
             }
 
-            // Возвращаем дочерние GameObject в pool используя кэш
-            for (int i = 0; i < _cachedChildObjects.Length; i++)
-            {
-                var child = _cachedChildObjects[i];
-                if (child != null)
-                {
-                    ReturnGameObjectToPool(child);
-                }
-
-                // Yield каждые 5 объектов
-                if (i % 5 == 0)
-                {
-                    yield return null;
-                }
-            }
-
-            ReturnGameObjectToPool(_combinedMeshObject);
-            _combinedMeshObject = null;
+            if (_combinedMeshObject.activeSelf)
+                _combinedMeshObject.SetActive(false);
         }
 
         TrySetEntityKinematic(false);
@@ -717,11 +715,14 @@ public class EntityMeshCombiner : MonoBehaviour
                 yield break;
             }
 
-            _combinedMeshObject = GetPooledGameObject("CombinedMesh");
-            _combinedMeshObject.transform.SetParent(transform, false);
+            _combinedMeshObject = EnsureCombinedRoot();
+            if (!_combinedMeshObject.activeSelf)
+                _combinedMeshObject.SetActive(true);
 
             // Очищаем MaterialPropertyBlock для переиспользования
             _propertyBlock.Clear();
+
+            int activeSegments = 0;
 
             // Обходим группы цветов и создаём объединённые меши
             for (int i = 0; i < _colorKeys.Count; i++)
@@ -738,24 +739,25 @@ public class EntityMeshCombiner : MonoBehaviour
                 else
                     subMesh.RecalculateBounds();
 
-                var colorMeshObject = GetPooledGameObject($"CombinedMesh_{i}");
-                colorMeshObject.transform.SetParent(_combinedMeshObject.transform, false);
+                var segment =
+                    EnsureSegment(activeSegments++); // Переиспользуем дочерние объекты, чтобы не трогать SetParent
+                if (!segment.Object.activeSelf)
+                    segment.Object.SetActive(true);
 
-                var meshFilter = colorMeshObject.GetComponent<MeshFilter>();
-                if (meshFilter == null)
-                    meshFilter = colorMeshObject.AddComponent<MeshFilter>();
-                meshFilter.sharedMesh = subMesh;
+                if (segment.Filter.sharedMesh != null)
+                {
+                    ReturnMeshToPool(segment.Filter.sharedMesh);
+                    segment.Filter.sharedMesh = null;
+                }
 
-                var meshRenderer = colorMeshObject.GetComponent<MeshRenderer>();
-                if (meshRenderer == null)
-                    meshRenderer = colorMeshObject.AddComponent<MeshRenderer>();
-                meshRenderer.sharedMaterial = _sourceMaterial;
+                segment.Filter.sharedMesh = subMesh;
+                segment.Renderer.sharedMaterial = _sourceMaterial;
 
                 // Очищаем PropertyBlock перед установкой цвета для каждого объекта
                 _propertyBlock.Clear();
                 _propertyBlock.SetColor("_BaseColor", (Color)color);
                 _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
-                meshRenderer.SetPropertyBlock(_propertyBlock);
+                segment.Renderer.SetPropertyBlock(_propertyBlock);
 
                 // Yield каждые 2 цвета для предотвращения фризов
                 if (i % 2 == 0)
@@ -764,8 +766,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 }
             }
 
-            // Кэшируем дочерние объекты для быстрого доступа в ShowCubes
-            CacheChildObjects();
+            DeactivateUnusedSegments(activeSegments);
 
             _isCombined = true;
 
