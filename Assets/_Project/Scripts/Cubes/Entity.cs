@@ -351,12 +351,32 @@ public class Entity : MonoBehaviour
 
         _pendingDetouchBuffer[_pendingDetouchCount++] = cube;
 
+        // Останавливаем все активные корутины комбинирования, чтобы они не сбросили _structureDirty
+        if (_recombineCoroutine != null)
+        {
+            StopCoroutine(_recombineCoroutine);
+            _recombineCoroutine = null;
+        }
+
+        if (_waitForCombineCoroutine != null)
+        {
+            StopCoroutine(_waitForCombineCoroutine);
+            _waitForCombineCoroutine = null;
+        }
+
+        // Показываем кубы, чтобы прервать асинхронное комбинирование
+        if (_meshCombiner != null && _meshCombiner.IsCombined)
+        {
+            _meshCombiner.ShowCubes();
+        }
+
+        // Устанавливаем флаг ДО запуска корутины, чтобы он был установлен синхронно
+        _structureDirty = true;
+
         if (!_detouchBatchPending)
         {
             StartCoroutine(ProcessDetouchBatch());
         }
-
-        _structureDirty = true;
     }
 
     private IEnumerator ProcessDetouchBatch()
@@ -424,15 +444,6 @@ public class Entity : MonoBehaviour
                 }
 
                 cube.transform.parent = null;
-
-                var rb = cube.gameObject.GetComponent<Rigidbody>();
-                if (rb == null)
-                {
-                    rb = cube.gameObject.AddComponent<Rigidbody>();
-                    rb.mass = 1f;
-                    rb.drag = 0.5f;
-                    rb.angularDrag = 0.5f;
-                }
 
                 if (_hookManager)
                     _hookManager.DetachHookFromCube(cube);
@@ -771,12 +782,26 @@ public class Entity : MonoBehaviour
             return;
         }
 
+        // Проверяем, что _cubesInfo инициализирован
+        if (_cubesInfo == null || _cubesInfoSizeX == 0 || _cubesInfoSizeY == 0 || _cubesInfoSizeZ == 0)
+        {
+            _affectedCells.Clear();
+            RecalculateCubes();
+            return;
+        }
+
         var candidateIds = new HashSet<int>();
         for (int i = 0; i < _affectedCells.Count; i++)
         {
             Vector3Int c = _affectedCells[i];
-            int idHere = _cubesInfo[c.x, c.y, c.z];
-            if (idHere > 0) candidateIds.Add(idHere);
+            // Проверяем границы перед обращением к _cubesInfo, так как размеры могли измениться после CollectCubes()
+            if (c.x >= 0 && c.y >= 0 && c.z >= 0 &&
+                c.x < _cubesInfoSizeX && c.y < _cubesInfoSizeY && c.z < _cubesInfoSizeZ)
+            {
+                int idHere = _cubesInfo[c.x, c.y, c.z];
+                if (idHere > 0) candidateIds.Add(idHere);
+            }
+
             for (int n = 0; n < NeighborOffsets.Length; n++)
             {
                 int nx = c.x + NeighborOffsets[n].x;

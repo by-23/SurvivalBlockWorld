@@ -25892,6 +25892,11 @@ PrefabInstance:
       objectReference: {fileID: 4800000, guid: 2a5b0860ea0024ae6a5c4f0e8672a72b, type: 3}
     - target: {fileID: 3921687087683863564, guid: a3dcbb69fec896f4d8ec0a20c111057e,
         type: 3}
+      propertyPath: _debugStructureLogs
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3921687087683863564, guid: a3dcbb69fec896f4d8ec0a20c111057e,
+        type: 3}
       propertyPath: _minTimeBeforeStopCheck
       value: 2
       objectReference: {fileID: 0}

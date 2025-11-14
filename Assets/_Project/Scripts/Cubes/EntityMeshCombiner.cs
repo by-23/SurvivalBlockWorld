@@ -528,8 +528,8 @@ public class EntityMeshCombiner : MonoBehaviour
 
             _isCombined = true;
 
-            // Сбрасываем флаг грязности после успешной сборки
-            if (_entity != null)
+            // Не сбрасываем флаг грязности, если структура была изменена во время комбинирования
+            if (_entity != null && !_entity.IsStructureDirty)
                 _entity.ClearStructureDirty();
 
             // Устанавливаем isKinematic в false после объединения
@@ -797,8 +797,19 @@ public class EntityMeshCombiner : MonoBehaviour
 
             // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
             var worldToLocal = transform.worldToLocalMatrix;
-            for (int i = 0; i < _cachedComponents.Length; i++)
+            int cachedLength = _cachedComponents != null ? _cachedComponents.Length : 0;
+            for (int i = 0; i < cachedLength; i++)
             {
+                // Проверяем валидность после каждого yield
+                if (_cachedComponents == null || transform == null || i >= _cachedComponents.Length)
+                {
+                    ShowCubes();
+                    TrySetEntityKinematic(false);
+                    _isCombined = false;
+                    _isCombining = false;
+                    yield break;
+                }
+
                 var cached = _cachedComponents[i];
                 if (!cached.IsValid || cached.Mesh == null) continue;
 
@@ -921,7 +932,8 @@ public class EntityMeshCombiner : MonoBehaviour
 
             _isCombined = true;
 
-            if (_entity != null)
+            // Не сбрасываем флаг грязности, если структура была изменена во время комбинирования
+            if (_entity != null && !_entity.IsStructureDirty)
                 _entity.ClearStructureDirty();
 
             // Устанавливаем isKinematic в false после объединения
