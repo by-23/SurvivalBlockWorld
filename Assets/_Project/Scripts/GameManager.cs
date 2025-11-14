@@ -57,6 +57,20 @@ public class GameManager : MonoBehaviour
         BuildModeActive = active;
         if (_playerMovement != null)
             _playerMovement.SetLevitateMode(active);
+
+        UpdateAllEntitiesPhysics();
+    }
+
+    private void UpdateAllEntitiesPhysics()
+    {
+        Entity[] allEntities = FindObjectsByType<Entity>(FindObjectsSortMode.None);
+        for (int i = 0; i < allEntities.Length; i++)
+        {
+            if (allEntities[i] != null)
+            {
+                allEntities[i].UpdatePhysicsForBuildMode();
+            }
+        }
     }
 
     public void LevitateUp(bool isPressed)

@@ -100,6 +100,7 @@ public static class EntityFactory
 
         // Инициализируем Entity
         entity.StartSetup();
+        entity.CheckAndDestroyIfTooFewCubes();
 
         return entity;
     }

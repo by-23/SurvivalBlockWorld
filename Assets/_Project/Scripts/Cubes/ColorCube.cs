@@ -6,6 +6,12 @@ public class ColorCube : MonoBehaviour
     public Color _color = Color.white;
 
     Color _gradColor;
+    private Color32 _quantizedColor;
+    private MaterialPropertyBlock _propertyBlock;
+
+    private const int ColorQuantizationStep = 8;
+    private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+    private static readonly int ColorId = Shader.PropertyToID("_Color");
 
     private void Awake()
     {
@@ -20,11 +26,13 @@ public class ColorCube : MonoBehaviour
         {
             _gradColor = _color * Random.Range(0.8f, 0.9f);
 
-            ApplyColor(_gradColor);
+            _quantizedColor = QuantizeColor(_gradColor);
+            ApplyColor(_quantizedColor);
         }
         else
         {
-            ApplyColor(_color);
+            _quantizedColor = QuantizeColor(_color);
+            ApplyColor(_quantizedColor);
         }
 
         // Обновляем кэш в Cube после установки цвета
@@ -44,31 +52,71 @@ public class ColorCube : MonoBehaviour
         {
             _gradColor = _color * Random.Range(0.8f, 0.9f);
 
-            ApplyColor(_gradColor);
+            _quantizedColor = QuantizeColor(_gradColor);
+            ApplyColor(_quantizedColor);
         }
         else
         {
-            ApplyColor(_color);
+            _quantizedColor = QuantizeColor(_color);
+            ApplyColor(_quantizedColor);
         }
     }
 
-    private void ApplyColor(Color color)
+    private void ApplyColor(Color32 color)
     {
-        var renderer = GetComponent<MeshRenderer>();
-        MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
-        propertyBlock.SetColor("_BaseColor", color);
-        renderer.SetPropertyBlock(propertyBlock);
+        var meshRenderer = GetComponent<MeshRenderer>();
+        if (meshRenderer == null)
+            return;
+
+        if (_propertyBlock == null)
+            _propertyBlock = new MaterialPropertyBlock();
+
+        // Снижаем количество уникальных draw call через квантизацию цвета
+        _propertyBlock.Clear();
+        Color asColor = color;
+        _propertyBlock.SetColor(BaseColorId, asColor);
+        _propertyBlock.SetColor(ColorId, asColor);
+        meshRenderer.SetPropertyBlock(_propertyBlock);
     }
 
     public void ApplyDetouchColor()
     {
-        ApplyColor(_color * 0.8f);
+        Color detouchColor = ((Color)_quantizedColor) * 0.8f;
+        _quantizedColor = QuantizeColor(detouchColor);
+        ApplyColor(_quantizedColor);
+
+        var cube = GetComponent<Cube>();
+        if (cube != null)
+        {
+            cube.RefreshCache();
+        }
     }
 
     public Color32 GetColor32()
     {
-        if (_gradient)
-            return _gradColor;
-        return _color;
+        if (_quantizedColor.a == 0)
+        {
+            var source = _gradient ? _gradColor : _color;
+            _quantizedColor = QuantizeColor(source);
+        }
+
+        return _quantizedColor;
+    }
+
+    private static Color32 QuantizeColor(Color color)
+    {
+        return new Color32(
+            QuantizeChannel(color.r),
+            QuantizeChannel(color.g),
+            QuantizeChannel(color.b),
+            255);
+    }
+
+    private static byte QuantizeChannel(float value)
+    {
+        int channel = Mathf.Clamp(Mathf.RoundToInt(value * 255f), 0, 255);
+        int quantized = ((channel + ColorQuantizationStep / 2) / ColorQuantizationStep) * ColorQuantizationStep;
+        if (quantized > 255) quantized = 255;
+        return (byte)quantized;
     }
 }

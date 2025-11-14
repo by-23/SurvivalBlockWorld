@@ -29,6 +29,16 @@ public class EntityManager : MonoBehaviour
     [SerializeField] private ScreenshotManager _screenshotManager;
     private Entity _currentGhostEntity;
 
+    [Header("Entity Settings")] [SerializeField]
+    private float _maxWaitTimeForStop = 120f;
+
+    [SerializeField] private float _destroyDuration = 1f;
+
+    private static EntityManager _instance;
+
+    public static float MaxWaitTimeForStop => _instance != null ? _instance._maxWaitTimeForStop : 120f;
+    public static float DestroyDuration => _instance != null ? _instance._destroyDuration : 1f;
+
     [Serializable]
     private struct SingleEntitySave
     {
@@ -61,6 +71,11 @@ public class EntityManager : MonoBehaviour
     {
         string nameToUse = string.IsNullOrEmpty(_fileName) ? "entity.dat" : _fileName;
         return Path.Combine(Application.persistentDataPath, nameToUse);
+    }
+
+    private void Awake()
+    {
+        _instance = this;
     }
 
     private void OnEnable()
@@ -98,6 +113,14 @@ public class EntityManager : MonoBehaviour
         if (_savePlaceButton != null)
         {
             _savePlaceButton.onClick.RemoveListener(OnSavePlaceButtonPressed);
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (_instance == this)
+        {
+            _instance = null;
         }
     }
 

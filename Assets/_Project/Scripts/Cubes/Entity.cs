@@ -63,10 +63,11 @@ public class Entity : MonoBehaviour
     private EntityMeshCombiner _meshCombiner;
 
     private Coroutine _recombineCoroutine;
+    private Coroutine _waitForCombineCoroutine;
 
-    [SerializeField] private float _maxWaitTimeForStop = 120f;
     private bool _structureDirty;
     private List<Vector3Int> _affectedCells;
+    private bool? _savedKinematicState;
 
     public bool IsKinematic
     {
@@ -95,6 +96,7 @@ public class Entity : MonoBehaviour
     public void StartSetup()
     {
         UpdateMassAndCubes();
+        CheckAndDestroyIfTooFewCubes();
 
         if (_rb == null || _rb.isKinematic)
         {
@@ -110,6 +112,7 @@ public class Entity : MonoBehaviour
     {
         UpdateMassAndCubes();
         _structureDirty = true;
+        CheckAndDestroyIfTooFewCubes();
         RequestDelayedCombine();
     }
 
@@ -264,8 +267,9 @@ public class Entity : MonoBehaviour
             return;
         }
 
-        if (activeCubeCount <= 3)
+        if (activeCubeCount <= 3 && !IsBuildModeActive())
         {
+            StartCoroutine(ScaleDownAndDestroyOptimized(transform, EntityManager.DestroyDuration));
             return;
         }
 
@@ -311,6 +315,7 @@ public class Entity : MonoBehaviour
                     }
 
                     newEntity.StartSetup();
+                    newEntity.CheckAndDestroyIfTooFewCubes();
 
                     if (_vehicleConnector)
                     {
@@ -321,6 +326,7 @@ public class Entity : MonoBehaviour
         }
 
         CollectCubes();
+        CheckAndDestroyIfTooFewCubes();
         SetKinematicState(false, true);
     }
 
@@ -356,7 +362,6 @@ public class Entity : MonoBehaviour
     private IEnumerator ProcessDetouchBatch()
     {
         _detouchBatchPending = true;
-        yield return null;
 
         if (_pendingDetouchCount == 0)
         {
@@ -432,7 +437,7 @@ public class Entity : MonoBehaviour
                 if (_hookManager)
                     _hookManager.DetachHookFromCube(cube);
 
-                StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, 2f));
+                StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, EntityManager.DestroyDuration));
             }
 
             processed += batchSize;
@@ -444,8 +449,12 @@ public class Entity : MonoBehaviour
         }
 
         _cacheValid = false;
+        CollectCubes();
         RecalculateAroundAffected();
-        RequestDelayedCombine();
+
+        CheckAndDestroyIfTooFewCubes();
+
+        RequestImmediateCombine();
 
         SetKinematicState(false, true);
 
@@ -530,7 +539,7 @@ public class Entity : MonoBehaviour
                 if (_hookManager)
                     _hookManager.DetachHookFromCube(cube);
 
-                StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, 2f));
+                StartCoroutine(ScaleDownAndDestroyOptimized(cube.transform, EntityManager.DestroyDuration));
             }
 
             processed += batchSize;
@@ -542,14 +551,56 @@ public class Entity : MonoBehaviour
         }
 
         _cacheValid = false;
+        CollectCubes();
         RecalculateAroundAffected();
-        RequestDelayedCombine();
+
+        CheckAndDestroyIfTooFewCubes();
+
+        RequestImmediateCombine();
 
         SetKinematicState(false, true);
     }
 
     private float _lastCombineTime = -1f;
     private const float MIN_COMBINE_INTERVAL = 0.3f;
+
+    private void RequestImmediateCombine()
+    {
+        if (_recombineCoroutine != null)
+        {
+            StopCoroutine(_recombineCoroutine);
+            _recombineCoroutine = null;
+        }
+
+        if (_meshCombiner == null || this == null || gameObject == null)
+            return;
+
+        int cubeCount = transform.childCount;
+        if (cubeCount == 0)
+            return;
+
+        bool alreadyCombined = _meshCombiner.IsCombined;
+        if (alreadyCombined)
+        {
+            _meshCombiner.ShowCubes();
+        }
+
+        bool asyncCombine = _meshCombiner.CombineMeshesAdaptive(cubeCount);
+        if (!asyncCombine && _meshCombiner.IsCombined)
+        {
+            _lastCombineTime = Time.time;
+        }
+        else if (asyncCombine)
+        {
+            if (_waitForCombineCoroutine != null)
+            {
+                StopCoroutine(_waitForCombineCoroutine);
+                _waitForCombineCoroutine = null;
+            }
+
+            _waitForCombineCoroutine = StartCoroutine(WaitForMeshCombine());
+        }
+    }
 
     private void RequestDelayedCombine()
     {
@@ -573,16 +624,13 @@ public class Entity : MonoBehaviour
 
     private IEnumerator DelayedCombineMeshes()
     {
-        int cubeCount = transform.childCount;
-        float initialDelay = cubeCount > 50 ? 0.2f : 0.1f;
-        yield return new WaitForSeconds(initialDelay);
-
         if (this == null || gameObject == null)
         {
             _recombineCoroutine = null;
             yield break;
         }
 
+        int cubeCount = transform.childCount;
         bool alreadyCombined = _meshCombiner != null && _meshCombiner.IsCombined;
         float waitStartTime = Time.time;
 
@@ -604,7 +652,7 @@ public class Entity : MonoBehaviour
                 break;
             }
 
-            if (Time.time - waitStartTime >= _maxWaitTimeForStop)
+            if (Time.time - waitStartTime >= EntityManager.MaxWaitTimeForStop)
             {
                 _recombineCoroutine = null;
                 yield break;
@@ -619,17 +667,19 @@ public class Entity : MonoBehaviour
             yield break;
         }
 
-        if (alreadyCombined)
+        if (!alreadyCombined)
         {
-            SetKinematicState(true, true);
-        }
-        else
-        {
-            _meshCombiner.CombineMeshes();
+            bool asyncCombine = _meshCombiner != null && _meshCombiner.CombineMeshesAdaptive(cubeCount);
 
-            if (_meshCombiner != null && _meshCombiner.IsCombined)
+            if (asyncCombine)
             {
-                SetKinematicState(true, true);
+                if (_waitForCombineCoroutine != null)
+                {
+                    StopCoroutine(_waitForCombineCoroutine);
+                    _waitForCombineCoroutine = null;
+                }
+
+                _waitForCombineCoroutine = StartCoroutine(WaitForMeshCombine());
             }
         }
 
@@ -673,12 +723,44 @@ public class Entity : MonoBehaviour
         }
     }
 
+    public void CheckAndDestroyIfTooFewCubes()
+    {
+        if (_isLoading || !_cacheValid)
+            return;
+
+        if (IsBuildModeActive())
+            return;
+
+        CollectCubes();
+        int activeCubeCount = FillActiveCubesArrays();
+
+        if (activeCubeCount > 0 && activeCubeCount <= 3)
+        {
+            StartCoroutine(ScaleDownAndDestroyOptimized(transform, EntityManager.DestroyDuration));
+        }
+    }
+
     private Vector3Int GridPosition(Vector3 localPosition)
     {
         float x = Mathf.RoundToInt(localPosition.x - _cubesInfoStartPosition.x);
         float y = Mathf.RoundToInt(localPosition.y - _cubesInfoStartPosition.y);
         float z = Mathf.RoundToInt(localPosition.z - _cubesInfoStartPosition.z);
         return new Vector3Int((int)x, (int)y, (int)z);
+    }
+
+    private IEnumerator WaitForMeshCombine()
+    {
+        while (_meshCombiner != null && _meshCombiner.IsCombining)
+        {
+            yield return null;
+        }
+
+        if (_meshCombiner != null && _meshCombiner.IsCombined)
+        {
+            _lastCombineTime = Time.time;
+        }
+
+        _waitForCombineCoroutine = null;
     }
 
     private void RecalculateAroundAffected()
@@ -796,6 +878,7 @@ public class Entity : MonoBehaviour
                         }
 
                         newEntity.StartSetup();
+                        newEntity.CheckAndDestroyIfTooFewCubes();
                         if (_vehicleConnector)
                             _vehicleConnector.OnEntityRecalculated();
                     }
@@ -804,6 +887,7 @@ public class Entity : MonoBehaviour
         }
 
         CollectCubes();
+        CheckAndDestroyIfTooFewCubes();
         SetKinematicState(false, true);
     }
 
@@ -1113,59 +1197,6 @@ public class Entity : MonoBehaviour
 
             if (group.Length == 0) continue;
 
-            if (group.Length <= 3)
-            {
-                for (int j = 0; j < group.Length; j++)
-                {
-                    if (_cubeIdToIndex.TryGetValue(group[j], out int cubeIndex))
-                    {
-                        Cube cubeToDestroy = _cubes[cubeIndex];
-                        if (cubeToDestroy != null)
-                        {
-                            Vector3 localPos = cubeToDestroy.transform.localPosition;
-                            int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
-                            int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
-                            int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
-
-                            if (x >= 0 && y >= 0 && z >= 0 &&
-                                x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
-                            {
-                                _cubesInfo[x, y, z] = 0;
-                            }
-
-                            int cubeArrayIndex = cubeToDestroy.Id - 1;
-                            if (cubeArrayIndex >= 0 && cubeArrayIndex < _cubes.Length)
-                            {
-                                _cubes[cubeArrayIndex] = null;
-                            }
-
-                            if (_cubeIdToIndex != null)
-                            {
-                                _cubeIdToIndex.Remove(cubeToDestroy.Id);
-                            }
-
-                            cubeToDestroy.transform.parent = null;
-
-                            if (_hookManager)
-                                _hookManager.DetachHookFromCube(cubeToDestroy);
-
-                            var rb = cubeToDestroy.gameObject.GetComponent<Rigidbody>();
-                            if (rb == null)
-                            {
-                                rb = cubeToDestroy.gameObject.AddComponent<Rigidbody>();
-                                rb.mass = 1f;
-                                rb.drag = 0.5f;
-                                rb.angularDrag = 0.5f;
-                            }
-
-                            StartCoroutine(ScaleDownAndDestroyOptimized(cubeToDestroy.transform, 2f));
-                        }
-                    }
-                }
-
-                continue;
-            }
-
             if (_cubeIdToIndex.TryGetValue(group[0], out int firstCubeIndex))
             {
                 Cube firstCubeInGroup = _cubes[firstCubeIndex];
@@ -1192,6 +1223,7 @@ public class Entity : MonoBehaviour
                     }
 
                     newEntity.StartSetup();
+                    newEntity.CheckAndDestroyIfTooFewCubes();
                     newEntities[writeIndex++] = newEntity;
 
                     if (_vehicleConnector)
@@ -1202,70 +1234,8 @@ public class Entity : MonoBehaviour
             }
         }
 
-        int mainGroupIndex = groupIndices[0];
-        int[] mainGroup = groups[mainGroupIndex];
-
-        if (mainGroup.Length <= 3)
-        {
-            for (int j = 0; j < mainGroup.Length; j++)
-            {
-                if (_cubeIdToIndex.TryGetValue(mainGroup[j], out int cubeIndex))
-                {
-                    Cube cubeToDestroy = _cubes[cubeIndex];
-                    if (cubeToDestroy != null)
-                    {
-                        Vector3 localPos = cubeToDestroy.transform.localPosition;
-                        int x = Mathf.RoundToInt(localPos.x - _cubesInfoStartPosition.x);
-                        int y = Mathf.RoundToInt(localPos.y - _cubesInfoStartPosition.y);
-                        int z = Mathf.RoundToInt(localPos.z - _cubesInfoStartPosition.z);
-
-                        if (x >= 0 && y >= 0 && z >= 0 &&
-                            x < _cubesInfoSizeX && y < _cubesInfoSizeY && z < _cubesInfoSizeZ)
-                        {
-                            _cubesInfo[x, y, z] = 0;
-                        }
-
-                        int cubeArrayIndex = cubeToDestroy.Id - 1;
-                        if (cubeArrayIndex >= 0 && cubeArrayIndex < _cubes.Length)
-                        {
-                            _cubes[cubeArrayIndex] = null;
-                        }
-
-                        if (_cubeIdToIndex != null)
-                        {
-                            _cubeIdToIndex.Remove(cubeToDestroy.Id);
-                        }
-
-                        cubeToDestroy.transform.parent = null;
-
-                        if (_hookManager)
-                            _hookManager.DetachHookFromCube(cubeToDestroy);
-
-                        var rb = cubeToDestroy.gameObject.GetComponent<Rigidbody>();
-                        if (rb == null)
-                        {
-                            rb = cubeToDestroy.gameObject.AddComponent<Rigidbody>();
-                            rb.mass = 1f;
-                            rb.drag = 0.5f;
-                            rb.angularDrag = 0.5f;
-                        }
-
-                        StartCoroutine(ScaleDownAndDestroyOptimized(cubeToDestroy.transform, 2f));
-                    }
-                }
-            }
-
-            Destroy(gameObject);
-
-            if (writeIndex == 0)
-                return System.Array.Empty<Entity>();
-
-            var result = new Entity[writeIndex];
-            System.Array.Copy(newEntities, 0, result, 0, writeIndex);
-            return result;
-        }
-
         CollectCubes();
+        CheckAndDestroyIfTooFewCubes();
         ClearStructureDirty();
         SetKinematicState(false, true);
         RequestDelayedCombine();
@@ -1283,6 +1253,9 @@ public class Entity : MonoBehaviour
         if (_isGhost)
             return;
 
+        if (IsBuildModeActive())
+            return;
+
         SetKinematicState(false, true);
     }
 
@@ -1295,6 +1268,9 @@ public class Entity : MonoBehaviour
     {
         if (!ignoreGhost && _isGhost && !isKinematic)
             return false;
+
+        if (IsBuildModeActive())
+            isKinematic = true;
 
         var rb = _rb;
         if (rb == null)
@@ -1324,6 +1300,40 @@ public class Entity : MonoBehaviour
 
         _rb = GetComponent<Rigidbody>();
         return _rb != null;
+    }
+
+    private bool IsBuildModeActive()
+    {
+        return GameManager.Instance != null && GameManager.Instance.BuildModeActive;
+    }
+
+    public void UpdatePhysicsForBuildMode()
+    {
+        if (IsBuildModeActive())
+        {
+            if (!_savedKinematicState.HasValue && EnsureRigidbodyReference())
+            {
+                _savedKinematicState = _rb.isKinematic;
+            }
+
+            SetKinematicState(true, true);
+        }
+        else
+        {
+            if (_savedKinematicState.HasValue)
+            {
+                if (!_isGhost)
+                {
+                    SetKinematicState(_savedKinematicState.Value, true);
+                }
+
+                _savedKinematicState = null;
+            }
+            else if (!_isGhost && EnsureRigidbodyReference())
+            {
+                SetKinematicState(false, true);
+            }
+        }
     }
 
     public void EnsureCacheValid()

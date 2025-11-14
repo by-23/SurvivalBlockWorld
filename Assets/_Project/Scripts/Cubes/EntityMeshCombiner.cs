@@ -17,6 +17,8 @@ public class EntityMeshCombiner : MonoBehaviour
 
     // Публичное свойство для проверки состояния объединения из Entity
     public bool IsCombined => _isCombined;
+    public bool IsCombining => _isCombining;
+    public int AsyncCombineThreshold => _asyncCombineThreshold;
 
     // Кэшированные компоненты для оптимизации
     private struct CachedCubeComponents
@@ -33,6 +35,7 @@ public class EntityMeshCombiner : MonoBehaviour
 
 
     private MaterialPropertyBlock _propertyBlock;
+    [SerializeField] private int _asyncCombineThreshold = 256; // Порог для асинхронной сборки
 
     private Material _sourceMaterial;
 
@@ -57,6 +60,12 @@ public class EntityMeshCombiner : MonoBehaviour
 
     private readonly System.Collections.Generic.List<CombinedSegment> _segments =
         new System.Collections.Generic.List<CombinedSegment>(16);
+
+    // Пул массивов CombineInstance по размеру — избавляет от ToArray и крупных аллокаций
+    private readonly Dictionary<int, Stack<CombineInstance[]>> _combineArrayPool =
+        new Dictionary<int, Stack<CombineInstance[]>>(16);
+
+    private readonly List<MeshRenderer> _renderersToDisable = new List<MeshRenderer>(256);
 
     private void Awake()
     {
@@ -143,13 +152,12 @@ public class EntityMeshCombiner : MonoBehaviour
         for (int i = 0; i < _cubes.Length; i++)
         {
             var cube = _cubes[i];
-            if (cube == null) continue;
+            if (cube == null || cube.Detouched) continue;
 
             // Используем прямые ссылки (убирает проверки свойств)
             var meshFilter = cube.DirectMeshFilter;
             var meshRenderer = cube.DirectMeshRenderer;
 
-            // Используем кэшированные значения (убирает 2003 вызова get_sharedMesh и 2029 вызовов get_Color)
             Mesh mesh = cube.CachedMesh;
             Color32 color = cube.CachedColor32;
 
@@ -195,6 +203,60 @@ public class EntityMeshCombiner : MonoBehaviour
         {
             _meshPool.Enqueue(mesh);
         }
+    }
+
+    private CombineInstance[] RentCombineArray(int size)
+    {
+        if (size <= 0)
+            return System.Array.Empty<CombineInstance>();
+
+        // Берем готовый массив нужной длины, чтобы не выделять память каждый CombineMeshes
+        if (_combineArrayPool.TryGetValue(size, out var stack) && stack.Count > 0)
+            return stack.Pop();
+
+        return new CombineInstance[size];
+    }
+
+    private void ReturnCombineArray(CombineInstance[] array)
+    {
+        if (array == null || array.Length == 0)
+            return;
+
+        // Возвращаем массив в пул, длина критична для повторного использования
+        if (!_combineArrayPool.TryGetValue(array.Length, out var stack))
+        {
+            stack = new Stack<CombineInstance[]>(2);
+            _combineArrayPool[array.Length] = stack;
+        }
+
+        stack.Push(array);
+    }
+
+    private void QueueRendererDisable(MeshRenderer renderer)
+    {
+        if (renderer == null || !renderer.enabled)
+            return;
+        _renderersToDisable.Add(renderer);
+    }
+
+    private void DisableQueuedRenderers()
+    {
+        if (_renderersToDisable.Count == 0)
+            return;
+
+        for (int i = 0; i < _renderersToDisable.Count; i++)
+        {
+            var renderer = _renderersToDisable[i];
+            if (renderer != null)
+                renderer.enabled = false;
+        }
+
+        _renderersToDisable.Clear();
+    }
+
+    private void ClearRendererDisableQueue()
+    {
+        _renderersToDisable.Clear();
     }
 
     private GameObject EnsureCombinedRoot()
@@ -247,6 +309,35 @@ public class EntityMeshCombiner : MonoBehaviour
             if (segment.Object.activeSelf)
                 segment.Object.SetActive(false);
         }
+    }
+
+    private void ActivateSegments(int count)
+    {
+        int limit = Mathf.Min(count, _segments.Count);
+        for (int i = 0; i < limit; i++)
+        {
+            var segment = _segments[i];
+            if (!segment.Object.activeSelf)
+                segment.Object.SetActive(true);
+        }
+    }
+
+    public bool CombineMeshesAdaptive(int cubeCount)
+    {
+        if (_isCombined)
+            return false;
+
+        if (_isCombining)
+            return true;
+
+        if (cubeCount >= _asyncCombineThreshold)
+        {
+            CombineMeshesAsync();
+            return true;
+        }
+
+        CombineMeshes();
+        return false;
     }
 
     public void CombineMeshes()
@@ -308,6 +399,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 list.Clear();
             _colorGroups.Clear();
             _colorKeys.Clear();
+            ClearRendererDisableQueue();
 
             // Проверяем валидность transform и _cachedComponents перед использованием
             if (transform == null || _cachedComponents == null || _cachedComponents.Length == 0)
@@ -315,6 +407,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 ShowCubes();
                 TrySetEntityKinematic(false);
                 _isCombined = false;
+                ClearRendererDisableQueue();
                 return;
             }
 
@@ -325,6 +418,13 @@ public class EntityMeshCombiner : MonoBehaviour
                 var cached = _cachedComponents[i];
                 if (!cached.IsValid || cached.Mesh == null) continue;
 
+                // Проверяем, что куб не был удален между кэшированием и комбинированием
+                if (_cubes != null && i < _cubes.Length)
+                {
+                    var cube = _cubes[i];
+                    if (cube == null || cube.Detouched) continue;
+                }
+
                 // Проверяем валидность MeshFilter и его transform
                 if (cached.MeshFilter == null || cached.MeshFilter.transform == null)
                     continue;
@@ -334,7 +434,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 {
                     if (_sourceMaterial == null)
                         _sourceMaterial = cached.MeshRenderer.sharedMaterial;
-                    cached.MeshRenderer.enabled = false;
+                    QueueRendererDisable(cached.MeshRenderer);
                 }
 
                 // Создаём CombineInstance сразу
@@ -361,6 +461,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 ShowCubes();
                 TrySetEntityKinematic(false);
                 _isCombined = false;
+                ClearRendererDisableQueue();
                 return;
             }
 
@@ -379,10 +480,17 @@ public class EntityMeshCombiner : MonoBehaviour
                 var color = _colorKeys[i];
                 var instances = _colorGroups[color];
 
-                if (instances.Count == 0) continue;
+                int instanceCount = instances.Count;
+                if (instanceCount == 0) continue;
+
+                var combineArray = RentCombineArray(instanceCount);
+                for (int j = 0; j < instanceCount; j++)
+                {
+                    combineArray[j] = instances[j];
+                }
 
                 var subMesh = GetPooledMesh();
-                subMesh.CombineMeshes(instances.ToArray(), true, true);
+                subMesh.CombineMeshes(combineArray, true, true);
 
                 // Для кубов задаём границы напрямую при наличии данных
                 if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
@@ -392,8 +500,8 @@ public class EntityMeshCombiner : MonoBehaviour
 
                 var segment =
                     EnsureSegment(activeSegments++); // Переиспользуем дочерние объекты, чтобы не трогать SetParent
-                if (!segment.Object.activeSelf)
-                    segment.Object.SetActive(true);
+                if (segment.Object.activeSelf)
+                    segment.Object.SetActive(false);
 
                 if (segment.Filter.sharedMesh != null)
                 {
@@ -409,8 +517,13 @@ public class EntityMeshCombiner : MonoBehaviour
                 _propertyBlock.SetColor("_BaseColor", (Color)color);
                 _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
                 segment.Renderer.SetPropertyBlock(_propertyBlock);
+
+                ReturnCombineArray(combineArray);
+                instances.Clear();
             }
 
+            DisableQueuedRenderers();
+            ActivateSegments(activeSegments);
             DeactivateUnusedSegments(activeSegments);
 
             _isCombined = true;
@@ -462,7 +575,15 @@ public class EntityMeshCombiner : MonoBehaviour
             for (int i = 0; i < _cachedComponents.Length; i++)
             {
                 var cached = _cachedComponents[i];
-                if (cached.MeshRenderer != null)
+                if (cached.MeshRenderer != null && _cubes != null && i < _cubes.Length)
+                {
+                    var cube = _cubes[i];
+                    if (cube != null && !cube.Detouched)
+                    {
+                        cached.MeshRenderer.enabled = true;
+                    }
+                }
+                else if (cached.MeshRenderer != null)
                 {
                     cached.MeshRenderer.enabled = true;
                 }
@@ -541,7 +662,15 @@ public class EntityMeshCombiner : MonoBehaviour
             for (int i = 0; i < _cachedComponents.Length; i++)
             {
                 var cached = _cachedComponents[i];
-                if (cached.MeshRenderer != null)
+                if (cached.MeshRenderer != null && _cubes != null && i < _cubes.Length)
+                {
+                    var cube = _cubes[i];
+                    if (cube != null && !cube.Detouched)
+                    {
+                        cached.MeshRenderer.enabled = true;
+                    }
+                }
+                else if (cached.MeshRenderer != null)
                 {
                     cached.MeshRenderer.enabled = true;
                 }
@@ -654,6 +783,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 list.Clear();
             _colorGroups.Clear();
             _colorKeys.Clear();
+            ClearRendererDisableQueue();
 
             // Проверяем валидность transform и _cachedComponents перед использованием
             if (transform == null || _cachedComponents == null || _cachedComponents.Length == 0)
@@ -661,6 +791,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 ShowCubes();
                 TrySetEntityKinematic(false);
                 _isCombined = false;
+                ClearRendererDisableQueue();
                 yield break;
             }
 
@@ -671,6 +802,13 @@ public class EntityMeshCombiner : MonoBehaviour
                 var cached = _cachedComponents[i];
                 if (!cached.IsValid || cached.Mesh == null) continue;
 
+                // Проверяем, что куб не был удален между кэшированием и комбинированием
+                if (_cubes != null && i < _cubes.Length)
+                {
+                    var cube = _cubes[i];
+                    if (cube == null || cube.Detouched) continue;
+                }
+
                 // Проверяем валидность MeshFilter и его transform
                 if (cached.MeshFilter == null || cached.MeshFilter.transform == null)
                     continue;
@@ -680,7 +818,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 {
                     if (_sourceMaterial == null)
                         _sourceMaterial = cached.MeshRenderer.sharedMaterial;
-                    cached.MeshRenderer.enabled = false;
+                    QueueRendererDisable(cached.MeshRenderer);
                 }
 
                 // Создаём CombineInstance сразу
@@ -712,6 +850,7 @@ public class EntityMeshCombiner : MonoBehaviour
                 ShowCubes();
                 TrySetEntityKinematic(false);
                 _isCombined = false;
+                ClearRendererDisableQueue();
                 yield break;
             }
 
@@ -730,10 +869,17 @@ public class EntityMeshCombiner : MonoBehaviour
                 var color = _colorKeys[i];
                 var instances = _colorGroups[color];
 
-                if (instances.Count == 0) continue;
+                int instanceCount = instances.Count;
+                if (instanceCount == 0) continue;
+
+                var combineArray = RentCombineArray(instanceCount);
+                for (int j = 0; j < instanceCount; j++)
+                {
+                    combineArray[j] = instances[j];
+                }
 
                 var subMesh = GetPooledMesh();
-                subMesh.CombineMeshes(instances.ToArray(), true, true);
+                subMesh.CombineMeshes(combineArray, true, true);
                 if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
                     subMesh.bounds = fastBounds;
                 else
@@ -741,8 +887,8 @@ public class EntityMeshCombiner : MonoBehaviour
 
                 var segment =
                     EnsureSegment(activeSegments++); // Переиспользуем дочерние объекты, чтобы не трогать SetParent
-                if (!segment.Object.activeSelf)
-                    segment.Object.SetActive(true);
+                if (segment.Object.activeSelf)
+                    segment.Object.SetActive(false);
 
                 if (segment.Filter.sharedMesh != null)
                 {
@@ -759,6 +905,9 @@ public class EntityMeshCombiner : MonoBehaviour
                 _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
                 segment.Renderer.SetPropertyBlock(_propertyBlock);
 
+                ReturnCombineArray(combineArray);
+                instances.Clear();
+
                 // Yield каждые 2 цвета для предотвращения фризов
                 if (i % 2 == 0)
                 {
@@ -766,6 +915,8 @@ public class EntityMeshCombiner : MonoBehaviour
                 }
             }
 
+            DisableQueuedRenderers();
+            ActivateSegments(activeSegments);
             DeactivateUnusedSegments(activeSegments);
 
             _isCombined = true;
