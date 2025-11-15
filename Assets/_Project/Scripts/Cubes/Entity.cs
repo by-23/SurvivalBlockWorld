@@ -7,6 +7,8 @@ public class Entity : MonoBehaviour
 {
     public bool _StartCheck = true;
 
+    [SerializeField] GameObject _cubesHolder;
+
     private static int _nextEntityId = 1;
     [SerializeField, HideInInspector] private int _entityId;
 
@@ -51,12 +53,12 @@ public class Entity : MonoBehaviour
     private int[] _tempGroupIndices;
     private int[] _idToActiveIndex;
     private Vector3Int[] _tempGridPositions;
-    private Cube[] _pendingDetouchBuffer;
-    private int _pendingDetouchCount;
+    private Cube[] _pendingDetachBuffer;
+    private int _pendingDetachCount;
 
-    private bool _detouchBatchPending = false;
-    private Cube[] _detouchWorkBuffer;
-    private const int MAX_CUBES_PER_FRAME_DETOUCH = 15;
+    private bool _detachBatchPending = false;
+    private Cube[] _detachWorkBuffer;
+    private const int MAX_CUBES_PER_FRAME_DETACH = 15;
 
     private EntityVehicleConnector _vehicleConnector;
     private EntityHookManager _hookManager;
@@ -69,6 +71,14 @@ public class Entity : MonoBehaviour
     private List<Vector3Int> _affectedCells;
     private bool? _savedKinematicState;
 
+    private Mesh[] _combinedMeshes;
+    public Mesh[] CombinedMeshes => _combinedMeshes;
+
+    internal void SetCombinedMeshes(Mesh[] meshes)
+    {
+        _combinedMeshes = meshes;
+    }
+
     public bool IsKinematic
     {
         get
@@ -77,6 +87,19 @@ public class Entity : MonoBehaviour
                 return false;
             return _rb.isKinematic;
         }
+    }
+
+    public GameObject GetOrCreateCubesHolder()
+    {
+        if (_cubesHolder != null)
+            return _cubesHolder;
+
+        _cubesHolder = new GameObject("Cubes");
+        _cubesHolder.transform.SetParent(transform);
+        _cubesHolder.transform.localPosition = Vector3.zero;
+        _cubesHolder.transform.localRotation = Quaternion.identity;
+        _cubesHolder.transform.localScale = Vector3.one;
+        return _cubesHolder;
     }
 
     private void Awake()
@@ -119,14 +142,24 @@ public class Entity : MonoBehaviour
     public void UpdateMassAndCubes()
     {
         if (_rb)
-            _rb.mass = transform.childCount / 10;
+        {
+            int cubeCount = 0;
+            GameObject cubesHolder = GetOrCreateCubesHolder();
+            if (cubesHolder != null)
+            {
+                cubeCount = cubesHolder.transform.childCount;
+            }
+
+            _rb.mass = cubeCount / 10f;
+        }
 
         CollectCubes();
     }
 
     private void CollectCubes()
     {
-        int currentChildCount = transform.childCount;
+        GameObject cubesHolder = GetOrCreateCubesHolder();
+        int currentChildCount = cubesHolder.transform.childCount;
         if (_cacheValid && currentChildCount == _lastChildCount && _cubes != null && _cubes.Length == currentChildCount)
         {
             bool allValid = true;
@@ -302,6 +335,7 @@ public class Entity : MonoBehaviour
                         entityName: "Entity"
                     );
 
+                    GameObject cubesHolder = newEntity.GetOrCreateCubesHolder();
                     for (int j = 0; j < group.Length; j++)
                     {
                         if (_cubeIdToIndex.TryGetValue(group[j], out int cubeIndex))
@@ -309,7 +343,7 @@ public class Entity : MonoBehaviour
                             Cube cubeToMove = _cubes[cubeIndex];
                             if (cubeToMove != null)
                             {
-                                cubeToMove.transform.SetParent(newEntity.transform, true);
+                                cubeToMove.transform.SetParent(cubesHolder.transform, true);
                             }
                         }
                     }
@@ -331,25 +365,25 @@ public class Entity : MonoBehaviour
     }
 
 
-    public void DetouchCube(Cube cube)
+    public void DetachCube(Cube cube)
     {
         if (cube == null) return;
 
-        if (_pendingDetouchBuffer == null)
+        if (_pendingDetachBuffer == null)
         {
-            _pendingDetouchBuffer = new Cube[16];
-            _pendingDetouchCount = 0;
+            _pendingDetachBuffer = new Cube[16];
+            _pendingDetachCount = 0;
         }
 
-        if (_pendingDetouchCount == _pendingDetouchBuffer.Length)
+        if (_pendingDetachCount == _pendingDetachBuffer.Length)
         {
-            int newCapacity = _pendingDetouchBuffer.Length << 1;
+            int newCapacity = _pendingDetachBuffer.Length << 1;
             var newArr = new Cube[newCapacity];
-            System.Array.Copy(_pendingDetouchBuffer, 0, newArr, 0, _pendingDetouchCount);
-            _pendingDetouchBuffer = newArr;
+            System.Array.Copy(_pendingDetachBuffer, 0, newArr, 0, _pendingDetachCount);
+            _pendingDetachBuffer = newArr;
         }
 
-        _pendingDetouchBuffer[_pendingDetouchCount++] = cube;
+        _pendingDetachBuffer[_pendingDetachCount++] = cube;
 
         // Останавливаем все активные корутины комбинирования, чтобы они не сбросили _structureDirty
         if (_recombineCoroutine != null)
@@ -373,42 +407,42 @@ public class Entity : MonoBehaviour
         // Устанавливаем флаг ДО запуска корутины, чтобы он был установлен синхронно
         _structureDirty = true;
 
-        if (!_detouchBatchPending)
+        if (!_detachBatchPending)
         {
-            StartCoroutine(ProcessDetouchBatch());
+            StartCoroutine(ProcessDetachBatch());
         }
     }
 
-    private IEnumerator ProcessDetouchBatch()
+    private IEnumerator ProcessDetachBatch()
     {
-        _detouchBatchPending = true;
+        _detachBatchPending = true;
 
-        if (_pendingDetouchCount == 0)
+        if (_pendingDetachCount == 0)
         {
-            _detouchBatchPending = false;
+            _detachBatchPending = false;
             yield break;
         }
 
-        if (_detouchWorkBuffer == null || _detouchWorkBuffer.Length < _pendingDetouchCount)
+        if (_detachWorkBuffer == null || _detachWorkBuffer.Length < _pendingDetachCount)
         {
-            int newCapacity = _pendingDetouchCount < 16 ? 16 : _pendingDetouchCount;
-            _detouchWorkBuffer = new Cube[newCapacity];
+            int newCapacity = _pendingDetachCount < 16 ? 16 : _pendingDetachCount;
+            _detachWorkBuffer = new Cube[newCapacity];
         }
 
-        int workCount = _pendingDetouchCount;
-        System.Array.Copy(_pendingDetouchBuffer, 0, _detouchWorkBuffer, 0, workCount);
-        _pendingDetouchCount = 0;
+        int workCount = _pendingDetachCount;
+        System.Array.Copy(_pendingDetachBuffer, 0, _detachWorkBuffer, 0, workCount);
+        _pendingDetachCount = 0;
 
         _meshCombiner.ShowCubes();
 
         int processed = 0;
         while (processed < workCount)
         {
-            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, workCount - processed);
+            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETACH, workCount - processed);
 
             for (int i = 0; i < batchSize; i++)
             {
-                Cube cube = _detouchWorkBuffer[processed + i];
+                Cube cube = _detachWorkBuffer[processed + i];
                 if (cube == null) continue;
 
                 Vector3 localPos = cube.transform.localPosition;
@@ -469,39 +503,39 @@ public class Entity : MonoBehaviour
 
         SetKinematicState(false, true);
 
-        _detouchBatchPending = false;
+        _detachBatchPending = false;
     }
 
-    public void FlushDetouchBatch()
+    public void FlushDetachBatch()
     {
-        if (_pendingDetouchBuffer != null && _pendingDetouchCount > 0)
+        if (_pendingDetachBuffer != null && _pendingDetachCount > 0)
         {
-            StartCoroutine(ProcessDetouchBatchImmediate());
+            StartCoroutine(ProcessDetachBatchImmediate());
         }
     }
 
-    private IEnumerator ProcessDetouchBatchImmediate()
+    private IEnumerator ProcessDetachBatchImmediate()
     {
-        if (_pendingDetouchCount == 0) yield break;
+        if (_pendingDetachCount == 0) yield break;
 
-        if (_detouchWorkBuffer == null || _detouchWorkBuffer.Length < _pendingDetouchCount)
+        if (_detachWorkBuffer == null || _detachWorkBuffer.Length < _pendingDetachCount)
         {
-            int newCapacity = _pendingDetouchCount < 16 ? 16 : _pendingDetouchCount;
-            _detouchWorkBuffer = new Cube[newCapacity];
+            int newCapacity = _pendingDetachCount < 16 ? 16 : _pendingDetachCount;
+            _detachWorkBuffer = new Cube[newCapacity];
         }
 
-        int workCount = _pendingDetouchCount;
-        System.Array.Copy(_pendingDetouchBuffer, 0, _detouchWorkBuffer, 0, workCount);
-        _pendingDetouchCount = 0;
+        int workCount = _pendingDetachCount;
+        System.Array.Copy(_pendingDetachBuffer, 0, _detachWorkBuffer, 0, workCount);
+        _pendingDetachCount = 0;
 
         int processed = 0;
         while (processed < workCount)
         {
-            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETOUCH, workCount - processed);
+            int batchSize = Mathf.Min(MAX_CUBES_PER_FRAME_DETACH, workCount - processed);
 
             for (int i = 0; i < batchSize; i++)
             {
-                Cube cube = _detouchWorkBuffer[processed + i];
+                Cube cube = _detachWorkBuffer[processed + i];
                 if (cube == null) continue;
 
                 Vector3 localPos = cube.transform.localPosition;
@@ -586,7 +620,8 @@ public class Entity : MonoBehaviour
         if (_meshCombiner == null || this == null || gameObject == null)
             return;
 
-        int cubeCount = transform.childCount;
+        GameObject cubesHolder = GetOrCreateCubesHolder();
+        int cubeCount = cubesHolder.transform.childCount;
         if (cubeCount == 0)
             return;
 
@@ -641,7 +676,8 @@ public class Entity : MonoBehaviour
             yield break;
         }
 
-        int cubeCount = transform.childCount;
+        GameObject cubesHolder = GetOrCreateCubesHolder();
+        int cubeCount = cubesHolder.transform.childCount;
         bool alreadyCombined = _meshCombiner != null && _meshCombiner.IsCombined;
         float waitStartTime = Time.time;
 
@@ -889,6 +925,7 @@ public class Entity : MonoBehaviour
                             entityName: "Entity"
                         );
 
+                        GameObject cubesHolder = newEntity.GetOrCreateCubesHolder();
                         for (int j = 0; j < groupIds.Count; j++)
                         {
                             int gid = groupIds[j];
@@ -897,7 +934,7 @@ public class Entity : MonoBehaviour
                                 Cube cc = (gi >= 0 && gi < _cubes.Length) ? _cubes[gi] : null;
                                 if (cc != null)
                                 {
-                                    cc.transform.SetParent(newEntity.transform, true);
+                                    cc.transform.SetParent(cubesHolder.transform, true);
                                 }
                             }
                         }
@@ -1127,9 +1164,10 @@ public class Entity : MonoBehaviour
         Vector3 entityPos = savedEntityPosition ?? transform.position;
         float entityScale = transform.localScale.x;
 
+        GameObject cubesHolder = GetOrCreateCubesHolder();
         foreach (var cubeData in cubes)
         {
-            GameObject cubeObj = spawner.SpawnCube(cubeData, transform);
+            GameObject cubeObj = spawner.SpawnCube(cubeData, cubesHolder.transform);
             if (cubeObj != null)
             {
                 Vector3 localPos = (cubeData.Position - entityPos) / entityScale;
@@ -1235,6 +1273,7 @@ public class Entity : MonoBehaviour
                         entityName: "Entity"
                     );
 
+                    GameObject cubesHolder = newEntity.GetOrCreateCubesHolder();
                     for (int j = 0; j < group.Length; j++)
                     {
                         if (_cubeIdToIndex.TryGetValue(group[j], out int cubeIndex))
@@ -1242,7 +1281,7 @@ public class Entity : MonoBehaviour
                             Cube cubeToMove = _cubes[cubeIndex];
                             if (cubeToMove != null)
                             {
-                                cubeToMove.transform.SetParent(newEntity.transform, true);
+                                cubeToMove.transform.SetParent(cubesHolder.transform, true);
                             }
                         }
                     }
@@ -1416,7 +1455,7 @@ public class Entity : MonoBehaviour
         if (!TryGetCubeById(cubeId, out Cube cube) || cube == null)
             return false;
 
-        DetouchCube(cube);
+        DetachCube(cube);
         _structureDirty = true;
         return true;
     }

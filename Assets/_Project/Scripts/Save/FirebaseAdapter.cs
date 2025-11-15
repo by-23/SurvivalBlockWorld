@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 using Firebase.Firestore;
@@ -17,7 +18,7 @@ public class FirebaseAdapter
         _db = FirebaseFirestore.DefaultInstance;
     }
 
-    public async Task<bool> SaveWorldToFirestore(WorldSaveData worldData)
+    public async Task<bool> SaveWorldToFirestore(WorldSaveData worldData, string userId = null)
     {
         try
         {
@@ -29,6 +30,12 @@ public class FirebaseAdapter
             if (existingSnapshot.Exists && existingSnapshot.TryGetValue("likes", out long existingLikes))
             {
                 likesValue = (int)Mathf.Max(0, existingLikes);
+            }
+
+            string existingUserId = string.Empty;
+            if (existingSnapshot.Exists && existingSnapshot.TryGetValue("userId", out string existingUserIdValue))
+            {
+                existingUserId = existingUserIdValue;
             }
 
             var worldMetadata = new Dictionary<string, object>
@@ -44,6 +51,15 @@ public class FirebaseAdapter
                 { "timestamp", worldData.Timestamp },
                 { "likes", likesValue }
             };
+
+            if (!string.IsNullOrEmpty(userId))
+            {
+                worldMetadata["userId"] = userId;
+            }
+            else if (!string.IsNullOrEmpty(existingUserId))
+            {
+                worldMetadata["userId"] = existingUserId;
+            }
 
             await worldRef.SetAsync(worldMetadata, SetOptions.MergeAll);
             Debug.Log($"World metadata for '{worldData.WorldName}' saved to Firestore.");
@@ -142,7 +158,13 @@ public class FirebaseAdapter
                 worldSnapshot.GetValue<int>("worldBoundsMaxZ")
             );
 
-            WorldSaveData worldData = new WorldSaveData(worldId, boundsMin, boundsMax)
+            string worldNameFromField = worldSnapshot.TryGetValue("worldName", out string worldNameValue)
+                ? worldNameValue
+                : null;
+
+            string actualWorldName = !string.IsNullOrEmpty(worldNameFromField) ? worldNameFromField : worldId;
+
+            WorldSaveData worldData = new WorldSaveData(actualWorldName, boundsMin, boundsMax)
             {
                 ScreenshotPath = worldSnapshot.GetValue<string>("screenshotPath"),
                 Timestamp = worldSnapshot.GetValue<long>("timestamp")
@@ -186,14 +208,25 @@ public class FirebaseAdapter
             {
                 try
                 {
+                    string documentId = document.Id;
+                    string worldNameFromField = document.TryGetValue("worldName", out string worldNameValue)
+                        ? worldNameValue
+                        : null;
+
+                    string actualWorldName =
+                        !string.IsNullOrEmpty(worldNameFromField) ? worldNameFromField : documentId;
+
                     WorldMetadata metadata = new WorldMetadata
                     {
-                        WorldName = document.Id,
+                        WorldName = actualWorldName,
                         ScreenshotPath = document.GetValue<string>("screenshotPath"),
                         Timestamp = document.GetValue<long>("timestamp"),
                         Likes = document.TryGetValue("likes", out long likes)
                             ? (int)Mathf.Max(0, likes)
-                            : 0
+                            : 0,
+                        UserId = document.TryGetValue("userId", out string docUserId)
+                            ? docUserId
+                            : string.Empty
                     };
                     worlds.Add(metadata);
                 }
@@ -212,10 +245,20 @@ public class FirebaseAdapter
         }
     }
 
-    public async Task<bool> DeleteWorldFromFirestore(string worldName)
+    public async Task<bool> DeleteWorldFromFirestore(string worldName, string userId = null)
     {
         try
         {
+            if (!string.IsNullOrEmpty(userId))
+            {
+                string ownerId = await GetWorldOwnerIdAsync(worldName);
+                if (string.IsNullOrEmpty(ownerId) || ownerId != userId)
+                {
+                    Debug.LogWarning($"User '{userId}' is not the owner of world '{worldName}'. Deletion denied.");
+                    return false;
+                }
+            }
+
             DocumentReference worldRef = _db.Collection("worlds").Document(worldName);
 
             // Сначала удаляем все чанки
@@ -266,6 +309,269 @@ public class FirebaseAdapter
             return false;
         }
     }
+
+    public async Task<bool> RegisterUserIdAsync(string userId)
+    {
+        try
+        {
+            DocumentReference userRef = _db.Collection("users").Document(userId);
+            var userData = new Dictionary<string, object>
+            {
+                { "registeredAt", Timestamp.GetCurrentTimestamp() }
+            };
+
+            await userRef.SetAsync(userData);
+            Debug.Log($"User ID '{userId}' registered in Firestore.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error registering user ID '{userId}' in Firestore: {e.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> IsUserIdAvailableAsync(string userId)
+    {
+        try
+        {
+            DocumentReference userRef = _db.Collection("users").Document(userId);
+            DocumentSnapshot snapshot = await userRef.GetSnapshotAsync();
+            return !snapshot.Exists;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error checking user ID availability '{userId}': {e.Message}");
+            return false;
+        }
+    }
+
+    public async Task<List<WorldMetadata>> GetUserWorldsMetadataAsync(string userId)
+    {
+        try
+        {
+            QuerySnapshot snapshot = await _db.Collection("worlds")
+                .WhereEqualTo("userId", userId)
+                .GetSnapshotAsync();
+
+            List<WorldMetadata> worlds = new List<WorldMetadata>();
+
+            foreach (DocumentSnapshot document in snapshot.Documents)
+            {
+                try
+                {
+                    string documentId = document.Id;
+                    string worldNameFromField = document.TryGetValue("worldName", out string worldNameValue)
+                        ? worldNameValue
+                        : null;
+
+                    string actualWorldName =
+                        !string.IsNullOrEmpty(worldNameFromField) ? worldNameFromField : documentId;
+
+                    WorldMetadata metadata = new WorldMetadata
+                    {
+                        WorldName = actualWorldName,
+                        ScreenshotPath = document.GetValue<string>("screenshotPath"),
+                        Timestamp = document.GetValue<long>("timestamp"),
+                        Likes = document.TryGetValue("likes", out long likes)
+                            ? (int)Mathf.Max(0, likes)
+                            : 0,
+                        UserId = document.TryGetValue("userId", out string docUserId)
+                            ? docUserId
+                            : string.Empty
+                    };
+                    worlds.Add(metadata);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"Error processing world metadata for {document.Id}: {e.Message}");
+                }
+            }
+
+            return worlds;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to get user worlds metadata: {e.Message}");
+            return new List<WorldMetadata>();
+        }
+    }
+
+    public async Task<string> GetWorldOwnerIdAsync(string worldName)
+    {
+        try
+        {
+            DocumentReference worldRef = _db.Collection("worlds").Document(worldName);
+            DocumentSnapshot snapshot = await worldRef.GetSnapshotAsync();
+
+            if (snapshot.Exists && snapshot.TryGetValue("userId", out string userId))
+            {
+                return userId;
+            }
+
+            return string.Empty;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error getting world owner ID for '{worldName}': {e.Message}");
+            return string.Empty;
+        }
+    }
+
+    public async Task<HashSet<string>> GetUserLikedWorldsAsync(string userId)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                return new HashSet<string>();
+            }
+
+            DocumentReference userRef = _db.Collection("users").Document(userId);
+            DocumentSnapshot snapshot = await userRef.GetSnapshotAsync();
+
+            if (snapshot.Exists && snapshot.TryGetValue("likedWorlds", out List<string> likedWorlds))
+            {
+                return new HashSet<string>(likedWorlds ?? new List<string>());
+            }
+
+            return new HashSet<string>();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error getting liked worlds for user '{userId}': {e.Message}");
+            return new HashSet<string>();
+        }
+    }
+
+    public async Task<bool> AddLikedWorldAsync(string userId, string worldName)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(worldName))
+            {
+                return false;
+            }
+
+            DocumentReference userRef = _db.Collection("users").Document(userId);
+            DocumentSnapshot snapshot = await userRef.GetSnapshotAsync();
+
+            HashSet<string> likedWorlds = new HashSet<string>();
+            if (snapshot.Exists && snapshot.TryGetValue("likedWorlds", out List<string> existingLikedWorlds))
+            {
+                likedWorlds = new HashSet<string>(existingLikedWorlds ?? new List<string>());
+            }
+
+            if (likedWorlds.Contains(worldName))
+            {
+                return true;
+            }
+
+            likedWorlds.Add(worldName);
+
+            var userData = new Dictionary<string, object>
+            {
+                { "likedWorlds", likedWorlds.ToList() },
+                { "lastUpdated", Timestamp.GetCurrentTimestamp() }
+            };
+
+            await userRef.SetAsync(userData, SetOptions.MergeAll);
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error adding liked world '{worldName}' for user '{userId}': {e.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> RemoveLikedWorldAsync(string userId, string worldName)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(worldName))
+            {
+                return false;
+            }
+
+            DocumentReference userRef = _db.Collection("users").Document(userId);
+            DocumentSnapshot snapshot = await userRef.GetSnapshotAsync();
+
+            HashSet<string> likedWorlds = new HashSet<string>();
+            if (snapshot.Exists && snapshot.TryGetValue("likedWorlds", out List<string> existingLikedWorlds))
+            {
+                likedWorlds = new HashSet<string>(existingLikedWorlds ?? new List<string>());
+            }
+
+            if (!likedWorlds.Contains(worldName))
+            {
+                return true;
+            }
+
+            likedWorlds.Remove(worldName);
+
+            var userData = new Dictionary<string, object>
+            {
+                { "likedWorlds", likedWorlds.ToList() },
+                { "lastUpdated", Timestamp.GetCurrentTimestamp() }
+            };
+
+            await userRef.SetAsync(userData, SetOptions.MergeAll);
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error removing liked world '{worldName}' for user '{userId}': {e.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> UpdateWorldLikesWithUser(string worldName, string userId, bool isLiking)
+    {
+        try
+        {
+            DocumentReference worldRef = _db.Collection("worlds").Document(worldName);
+            DocumentSnapshot worldSnapshot = await worldRef.GetSnapshotAsync();
+
+            if (!worldSnapshot.Exists)
+            {
+                Debug.LogError($"World '{worldName}' not found.");
+                return false;
+            }
+
+            int currentLikes = 0;
+            if (worldSnapshot.TryGetValue("likes", out long likes))
+            {
+                currentLikes = (int)Mathf.Max(0, likes);
+            }
+
+            int newLikesCount = isLiking ? currentLikes + 1 : Mathf.Max(0, currentLikes - 1);
+
+            var payload = new Dictionary<string, object>
+            {
+                { "likes", newLikesCount },
+                { "likesUpdatedAt", Timestamp.GetCurrentTimestamp() }
+            };
+
+            await worldRef.SetAsync(payload, SetOptions.MergeAll);
+
+            if (isLiking)
+            {
+                await AddLikedWorldAsync(userId, worldName);
+            }
+            else
+            {
+                await RemoveLikedWorldAsync(userId, worldName);
+            }
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error updating likes for world '{worldName}' with user '{userId}': {e.Message}");
+            return false;
+        }
+    }
 }
 
 [Serializable]
@@ -275,6 +581,7 @@ public class WorldMetadata
     public string ScreenshotPath;
     public long Timestamp;
     public int Likes;
+    public string UserId;
 }
 
 [Serializable]

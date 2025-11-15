@@ -30,13 +30,6 @@ namespace Assets._Project.Scripts.UI
 
         [SerializeField] private Button _moverButton;
 
-
-        [Header("Save UI")] [SerializeField] private Button _saveButton;
-        [SerializeField] private GameObject _savePanel;
-        [SerializeField] private TMP_InputField _saveNameInput;
-        [SerializeField] private Button _confirmSaveButton;
-        [SerializeField] private Button _cancelSaveButton;
-
         [Header("Menu Exit UI")] [SerializeField]
         private Button _menuButton;
 
@@ -46,9 +39,7 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Button _exitWithoutSaveButton;
         [SerializeField] private Button _cancelExitButton;
 
-        [Header("Load UI")] [SerializeField] private Button _closeLoadPanelButton;
-        [SerializeField] private MapListUI mapListUI;
-        [SerializeField] private GameObject _loadingPanel;
+        [Header("Load UI")] [SerializeField] private GameObject _loadingPanel;
         [SerializeField] private Image _loadingScreenshotImage;
 
         [Header("Save System")] [SerializeField]
@@ -64,6 +55,11 @@ namespace Assets._Project.Scripts.UI
 
         [Header("Build Mode UI")] [SerializeField]
         private GameObject _levitateButtonsPanel;
+
+        [SerializeField] private EntityMover _entityMover;
+        [SerializeField] private EntityManager _entityManager;
+        private bool _lastHoldingState;
+        private bool _lastGhostActiveState;
 
 
         private void Awake()
@@ -229,30 +225,38 @@ namespace Assets._Project.Scripts.UI
             SetupToolButtons();
             InitializeVisualizer();
             InitializeBuildModeUI();
+            FindEntityMover();
+            FindEntityManager();
+            UpdateToolButtonsState();
+
+            // Инициализируем состояние ghost для отслеживания изменений
+            if (_entityManager != null)
+            {
+                _lastGhostActiveState = _entityManager.IsGhostActive();
+            }
+
+            UpdateMoverButtonState();
         }
+
+        private void FindEntityMover()
+        {
+            if (_entityMover == null)
+            {
+                _entityMover = FindFirstObjectByType<EntityMover>();
+            }
+        }
+
+        private void FindEntityManager()
+        {
+            if (_entityManager == null)
+            {
+                _entityManager = FindFirstObjectByType<EntityManager>();
+            }
+        }
+
 
         private void SetupButtons()
         {
-            if (_saveButton != null)
-            {
-                _saveButton.onClick.AddListener(OnSaveButtonPressed);
-            }
-
-            if (_menuButton != null)
-            {
-                _menuButton.onClick.AddListener(RequestExitToMenu);
-            }
-
-            if (_confirmSaveButton != null)
-            {
-                _confirmSaveButton.onClick.AddListener(OnConfirmSaveButtonPressed);
-            }
-
-            if (_cancelSaveButton != null)
-            {
-                _cancelSaveButton.onClick.AddListener(OnCancelSaveButtonPressed);
-            }
-
             if (_exitAndSaveButton != null)
             {
                 _exitAndSaveButton.onClick.AddListener(OnExitAndSavePressed);
@@ -266,11 +270,6 @@ namespace Assets._Project.Scripts.UI
             if (_cancelExitButton != null)
             {
                 _cancelExitButton.onClick.AddListener(OnCancelExitPressed);
-            }
-
-            if (_closeLoadPanelButton != null)
-            {
-                _closeLoadPanelButton.onClick.AddListener(OnCloseLoadPanelButtonPressed);
             }
 
             if (_bombButton != null)
@@ -322,20 +321,53 @@ namespace Assets._Project.Scripts.UI
                 _jumpButton.gameObject.SetActive(!buildActive);
             }
 
-            // Отключаем кнопку поднятия объектов в режиме строительства
-            if (_moverButton != null)
+            // Обновляем состояние кнопки перемещения (учитывает и build mode, и ghost)
+            UpdateMoverButtonState();
+        }
+
+        private void UpdateMoverButtonState()
+        {
+            if (_moverButton == null)
+                return;
+
+            if (_entityManager == null)
             {
-                _moverButton.interactable = !buildActive;
+                FindEntityManager();
             }
+
+            bool isGhostActive = _entityManager != null && _entityManager.IsGhostActive();
+            bool buildActive = GameManager.Instance != null && GameManager.Instance.BuildModeActive;
+
+            // Блокируем кнопку перемещения, если активен ghost или режим строительства
+            _moverButton.interactable = !buildActive && !isGhostActive;
+        }
+
+        private void UpdateToolButtonsState()
+        {
+            if (_entityMover == null)
+            {
+                FindEntityMover();
+            }
+
+            bool isHolding = _entityMover != null && _entityMover.IsHolding;
+
+            // Блокируем все кнопки инструментов, если игрок удерживает предмет
+            if (_tools != null && _tools.Count > 0)
+            {
+                foreach (var kvp in _tools)
+                {
+                    if (kvp.Key != null)
+                    {
+                        kvp.Key.interactable = !isHolding;
+                    }
+                }
+            }
+
+            _lastHoldingState = isHolding;
         }
 
         private void SetupPanels()
         {
-            if (_savePanel != null)
-            {
-                _savePanel.SetActive(false);
-            }
-
             if (_exitMenuPanel != null)
             {
                 _exitMenuPanel.SetActive(false);
@@ -446,6 +478,7 @@ namespace Assets._Project.Scripts.UI
                 selectedTool.SetActive(true);
                 _activeToolName = selectedTool.name;
 
+
                 // Автоматически включаем building mode при выборе инструмента строительства кубов
                 bool isCubeBuildingTool = selectedTool.name.Contains("CubeCreator");
                 if (GameManager.Instance != null)
@@ -483,24 +516,10 @@ namespace Assets._Project.Scripts.UI
                     _entityVisualizer.ActivateForTool(_activeToolName);
                 }
             }
-        }
 
-        // Button functions
-        private void OnSaveButtonPressed()
-        {
-            if (_savePanel != null)
-            {
-                _savePanel.SetActive(true);
-
-                // Отключаем управление при открытии полноэкранного UI
-                UIManager.NotifyFullscreenUIOpened();
-
-                if (_saveNameInput != null)
-                {
-                    _saveNameInput.text = "";
-                    _saveNameInput.interactable = true;
-                }
-            }
+            // Обновляем состояние кнопок инструментов
+            UpdateToolButtonsState();
+            UpdateMoverButtonState();
         }
 
         private string GetWorldNameFromInput(TMP_InputField inputField)
@@ -622,33 +641,6 @@ namespace Assets._Project.Scripts.UI
             return saveSucceeded;
         }
 
-        private async void OnConfirmSaveButtonPressed()
-        {
-            string worldName = GetWorldNameFromInput(_saveNameInput);
-            if (string.IsNullOrEmpty(worldName))
-            {
-                return;
-            }
-
-            if (_savePanel != null)
-            {
-                _savePanel.SetActive(false);
-            }
-
-            await ExecuteSaveFlowAsync(worldName, SaveSystem.SaveDestination.Local);
-        }
-
-        private void OnCancelSaveButtonPressed()
-        {
-            if (_savePanel != null)
-            {
-                _savePanel.SetActive(false);
-            }
-
-            // Включаем управление при закрытии полноэкранного UI
-            UIManager.NotifyFullscreenUIClosed();
-        }
-
         public void RequestExitToMenu()
         {
             if (_exitMenuPanel != null)
@@ -744,14 +736,6 @@ namespace Assets._Project.Scripts.UI
             UIManager.NotifyFullscreenUIClosed();
         }
 
-        private void OnCloseLoadPanelButtonPressed()
-        {
-            if (mapListUI != null)
-            {
-                mapListUI.CloseMapList();
-            }
-        }
-
         public void OnLaserRemoveButtonPressed(bool isPressed)
         {
             if (_laser != null)
@@ -800,6 +784,34 @@ namespace Assets._Project.Scripts.UI
             if (_raycastDetoucher != null)
             {
                 _raycastDetoucher.Raycast();
+            }
+        }
+
+        private void Update()
+        {
+            // Периодически проверяем состояние удержания объекта и обновляем кнопки
+            if (_entityMover != null)
+            {
+                bool currentHoldingState = _entityMover.IsHolding;
+                if (currentHoldingState != _lastHoldingState)
+                {
+                    UpdateToolButtonsState();
+                }
+            }
+
+            // Периодически проверяем состояние ghost entity и обновляем кнопку перемещения
+            if (_entityManager != null)
+            {
+                bool currentGhostActiveState = _entityManager.IsGhostActive();
+                if (currentGhostActiveState != _lastGhostActiveState)
+                {
+                    UpdateMoverButtonState();
+                    _lastGhostActiveState = currentGhostActiveState;
+                }
+            }
+            else
+            {
+                FindEntityManager();
             }
         }
     }

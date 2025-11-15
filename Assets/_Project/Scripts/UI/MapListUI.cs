@@ -20,8 +20,9 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private GameObject _publishedMapListObject;
 
         [SerializeField] private GameObject _mapItemPrefab;
-        [SerializeField] private Button _localListButton;
-        [SerializeField] private Button _onlineListButton;
+        [SerializeField] private Button _localMapsButton;
+        [SerializeField] private Button _publishedMapsButton;
+        [SerializeField] private Button _communityMapsButton;
         [SerializeField] private Button _startNewGameButton; // Кнопка «Новая игра»
 
         [Header("Configuration")] [SerializeField]
@@ -50,6 +51,7 @@ namespace Assets._Project.Scripts.UI
         private bool _isLoadingScene = false;
         private bool _listsLoaded;
         private SaveSystem.WorldStorageSource? _activeListSource;
+        private HashSet<string> _userLikedWorlds = new HashSet<string>();
 
         public event Action<string, SaveSystem.WorldStorageSource> OnMapLoadRequested;
         public event Action<string, SaveSystem.WorldStorageSource> OnMapDeleteRequested;
@@ -94,16 +96,22 @@ namespace Assets._Project.Scripts.UI
                 _startNewGameButton.onClick.AddListener(PromptNewMapName);
             }
 
-            if (_localListButton != null)
+            if (_localMapsButton != null)
             {
-                _localListButton.onClick.RemoveAllListeners();
-                _localListButton.onClick.AddListener(OnLocalListButtonPressed);
+                _localMapsButton.onClick.RemoveAllListeners();
+                _localMapsButton.onClick.AddListener(OnLocalListButtonPressed);
             }
 
-            if (_onlineListButton != null)
+            if (_communityMapsButton != null)
             {
-                _onlineListButton.onClick.RemoveAllListeners();
-                _onlineListButton.onClick.AddListener(OnOnlineListButtonPressed);
+                _communityMapsButton.onClick.RemoveAllListeners();
+                _communityMapsButton.onClick.AddListener(OnCommunityListButtonPressed);
+            }
+
+            if (_publishedMapsButton != null)
+            {
+                _publishedMapsButton.onClick.RemoveAllListeners();
+                _publishedMapsButton.onClick.AddListener(OnPublishedListButtonPressed);
             }
 
             if (_confirmNewMapButton != null)
@@ -189,40 +197,50 @@ namespace Assets._Project.Scripts.UI
                     return;
                 }
 
-                var localTask = _saveSystem.GetAllLocalWorldsMetadata();
-                var publishedTask = _saveSystem.GetAllWorldsMetadata();
-
-                await Task.WhenAll(localTask, publishedTask);
-
-                var localWorlds = localTask.Result;
-                var publishedWorlds = publishedTask.Result;
-
-                if ((localWorlds == null || localWorlds.Count == 0) &&
-                    (publishedWorlds == null || publishedWorlds.Count == 0))
+                if (!_activeListSource.HasValue)
                 {
-                    _listsLoaded = true;
                     _isLoading = false;
                     OnLoadingCompleted?.Invoke();
-                    ApplyActiveListVisibility();
-                    UpdateListButtonsState();
                     return;
                 }
 
-                if (localWorlds != null)
+                var source = _activeListSource.Value;
+
+                if (source == SaveSystem.WorldStorageSource.LocalOnly)
                 {
-                    foreach (var metadata in localWorlds)
+                    var localWorlds = await _saveSystem.GetAllLocalWorldsMetadata();
+                    if (localWorlds != null)
                     {
-                        CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.LocalOnly),
-                            SaveSystem.WorldStorageSource.LocalOnly);
+                        foreach (var metadata in localWorlds)
+                        {
+                            CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.LocalOnly),
+                                SaveSystem.WorldStorageSource.LocalOnly);
+                        }
                     }
                 }
-
-                if (publishedWorlds != null)
+                else if (source == SaveSystem.WorldStorageSource.UserPublished)
                 {
-                    foreach (var metadata in publishedWorlds)
+                    var userWorlds = await _saveSystem.GetUserWorldsMetadataAsync();
+                    if (userWorlds != null)
                     {
-                        CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.OnlineOnly),
-                            SaveSystem.WorldStorageSource.OnlineOnly);
+                        foreach (var metadata in userWorlds)
+                        {
+                            CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.UserPublished),
+                                SaveSystem.WorldStorageSource.UserPublished);
+                        }
+                    }
+                }
+                else if (source == SaveSystem.WorldStorageSource.Community)
+                {
+                    _userLikedWorlds = await _saveSystem.GetUserLikedWorldsAsync();
+                    var allWorlds = await _saveSystem.GetAllWorldsMetadata();
+                    if (allWorlds != null)
+                    {
+                        foreach (var metadata in allWorlds)
+                        {
+                            CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.Community),
+                                SaveSystem.WorldStorageSource.Community);
+                        }
                     }
                 }
 
@@ -272,14 +290,27 @@ namespace Assets._Project.Scripts.UI
             mapItemView.OnLoadMapRequested += (_) => { OnMapLoadRequested?.Invoke(capturedMapName, source); };
             mapItemView.OnDeleteMapRequested += (_) => { OnMapDeleteRequested?.Invoke(capturedMapName, source); };
 
-            if (source == SaveSystem.WorldStorageSource.OnlineOnly)
+            if (source == SaveSystem.WorldStorageSource.Community)
             {
                 mapItemView.OnLikeValueChanged += OnMapLikesChanged;
                 mapItemView.SetPublishButtonEnabled(false);
+                mapItemView.SetLikesVisible(true);
+                mapItemView.SetDeleteButtonEnabled(false);
+                bool isLiked = _userLikedWorlds.Contains(capturedMapName);
+                mapItemView.SetLikedState(isLiked);
+            }
+            else if (source == SaveSystem.WorldStorageSource.UserPublished)
+            {
+                mapItemView.SetLikesEnabled(false);
+                mapItemView.SetLikesVisible(false);
+                mapItemView.SetPublishButtonEnabled(false);
+                mapItemView.SetDeleteButtonEnabled(true);
             }
             else
             {
                 mapItemView.SetLikesEnabled(false);
+                mapItemView.SetLikesVisible(false);
+                mapItemView.SetPublishButtonEnabled(true);
                 mapItemView.OnPublishRequested += OnPublishRequested;
                 CheckAndSetPublishedState(mapItemView, capturedMapName);
             }
@@ -309,9 +340,14 @@ namespace Assets._Project.Scripts.UI
             ToggleList(SaveSystem.WorldStorageSource.LocalOnly);
         }
 
-        private void OnOnlineListButtonPressed()
+        private void OnCommunityListButtonPressed()
         {
-            ToggleList(SaveSystem.WorldStorageSource.OnlineOnly);
+            ToggleList(SaveSystem.WorldStorageSource.Community);
+        }
+
+        private void OnPublishedListButtonPressed()
+        {
+            ToggleList(SaveSystem.WorldStorageSource.UserPublished);
         }
 
         private void ToggleList(SaveSystem.WorldStorageSource targetSource)
@@ -326,15 +362,7 @@ namespace Assets._Project.Scripts.UI
 
             _activeListSource = targetSource;
 
-            if (targetSource == SaveSystem.WorldStorageSource.OnlineOnly)
-            {
-                LoadSaveList();
-            }
-            else if (!_listsLoaded)
-            {
-                LoadSaveList();
-            }
-
+            LoadSaveList();
             ApplyActiveListVisibility();
             UpdateListButtonsState();
         }
@@ -348,7 +376,8 @@ namespace Assets._Project.Scripts.UI
             }
 
             bool showLocal = _activeListSource.Value == SaveSystem.WorldStorageSource.LocalOnly;
-            bool showOnline = _activeListSource.Value == SaveSystem.WorldStorageSource.OnlineOnly;
+            bool showOnline = _activeListSource.Value == SaveSystem.WorldStorageSource.UserPublished ||
+                              _activeListSource.Value == SaveSystem.WorldStorageSource.Community;
 
             if (_localMapListObject != null)
             {
@@ -376,16 +405,23 @@ namespace Assets._Project.Scripts.UI
 
         private void UpdateListButtonsState()
         {
-            if (_localListButton != null)
+            if (_localMapsButton != null)
             {
-                _localListButton.interactable = !_activeListSource.HasValue ||
+                _localMapsButton.interactable = !_activeListSource.HasValue ||
                                                 _activeListSource.Value != SaveSystem.WorldStorageSource.LocalOnly;
             }
 
-            if (_onlineListButton != null)
+            if (_communityMapsButton != null)
             {
-                _onlineListButton.interactable = !_activeListSource.HasValue ||
-                                                 _activeListSource.Value != SaveSystem.WorldStorageSource.OnlineOnly;
+                _communityMapsButton.interactable = !_activeListSource.HasValue ||
+                                                    _activeListSource.Value != SaveSystem.WorldStorageSource.Community;
+            }
+
+            if (_publishedMapsButton != null)
+            {
+                _publishedMapsButton.interactable = !_activeListSource.HasValue ||
+                                                    _activeListSource.Value !=
+                                                    SaveSystem.WorldStorageSource.UserPublished;
             }
         }
 
@@ -463,7 +499,6 @@ namespace Assets._Project.Scripts.UI
 
         private async void OnMapLikesChanged(string mapName, int likes)
         {
-            // Сохраняем лайки в Firebase через SaveSystem
             if (string.IsNullOrEmpty(mapName))
                 return;
 
@@ -476,11 +511,40 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
-            bool success = await _saveSystem.UpdateWorldLikesAsync(mapName, likes);
-            if (!success)
+            bool isCurrentlyLiked = _userLikedWorlds.Contains(mapName);
+            bool isLiking = !isCurrentlyLiked;
+
+            bool success = await _saveSystem.UpdateWorldLikesWithUserAsync(mapName, isLiking);
+            if (success)
             {
-                Debug.LogError($"Не удалось обновить количество лайков карты '{mapName}'");
+                if (isLiking)
+                {
+                    _userLikedWorlds.Add(mapName);
+                }
+                else
+                {
+                    _userLikedWorlds.Remove(mapName);
+                }
+
+                UpdateMapItemLikedState(mapName, isLiking, likes);
+            }
+            else
+            {
+                Debug.LogError($"Не удалось обновить лайк карты '{mapName}'");
                 LoadSaveList();
+            }
+        }
+
+        private void UpdateMapItemLikedState(string mapName, bool isLiked, int newLikesCount)
+        {
+            foreach (var mapItem in _mapItems)
+            {
+                if (mapItem?.View != null && mapItem.MapName == mapName)
+                {
+                    mapItem.View.SetLikedState(isLiked);
+                    mapItem.View.UpdateLikesCount(newLikesCount);
+                    break;
+                }
             }
         }
 

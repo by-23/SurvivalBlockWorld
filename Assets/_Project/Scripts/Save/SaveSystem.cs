@@ -34,7 +34,9 @@ public class SaveSystem : MonoBehaviour
     {
         Auto,
         LocalOnly,
-        OnlineOnly
+        OnlineOnly,
+        UserPublished,
+        Community
     }
 
 
@@ -75,6 +77,14 @@ public class SaveSystem : MonoBehaviour
         }
 
         SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private async void Start()
+    {
+        if (_config != null && _config.useFirebase && _firebaseAdapter != null)
+        {
+            await UserManager.InitializeUserIdAsync(_firebaseAdapter);
+        }
     }
 
     private void OnDestroy()
@@ -417,7 +427,23 @@ public class SaveSystem : MonoBehaviour
 
             if (_config.useFirebase)
             {
-                success = await _firebaseAdapter.DeleteWorldFromFirestore(worldName);
+                if (_firebaseAdapter == null)
+                {
+                    if (_chunkManager == null)
+                    {
+                        _chunkManager = new ChunkManager(_config);
+                    }
+
+                    _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+                }
+
+                if (!UserManager.IsInitialized)
+                {
+                    await UserManager.InitializeUserIdAsync(_firebaseAdapter);
+                }
+
+                string userId = UserManager.UserId;
+                success = await _firebaseAdapter.DeleteWorldFromFirestore(worldName, userId);
             }
 
             if (success)
@@ -480,6 +506,137 @@ public class SaveSystem : MonoBehaviour
         {
             Debug.LogError($"UpdateWorldLikesAsync failed for world '{worldName}': {e.Message}");
             return false;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<bool> UpdateWorldLikesWithUserAsync(string worldName, bool isLiking)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Update likes failed: World name cannot be empty.");
+                return false;
+            }
+
+            if (!_config.useFirebase)
+            {
+                Debug.LogWarning("Update likes skipped: Firebase disabled in configuration.");
+                return false;
+            }
+
+            if (!UserManager.IsInitialized)
+            {
+                if (_firebaseAdapter == null)
+                {
+                    if (_config == null)
+                    {
+                        _config = Resources.Load<SaveConfig>("SaveConfig");
+                    }
+
+                    if (_chunkManager == null)
+                    {
+                        _chunkManager = new ChunkManager(_config);
+                    }
+
+                    _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+                }
+
+                await UserManager.InitializeUserIdAsync(_firebaseAdapter);
+            }
+
+            string userId = UserManager.UserId;
+            if (string.IsNullOrEmpty(userId))
+            {
+                Debug.LogError("User ID not initialized. Cannot update likes.");
+                return false;
+            }
+
+            if (_firebaseAdapter == null)
+            {
+                if (_config == null)
+                {
+                    _config = Resources.Load<SaveConfig>("SaveConfig");
+                    if (_config == null)
+                    {
+                        Debug.LogError("SaveConfig not found when updating likes.");
+                        return false;
+                    }
+                }
+
+                if (_chunkManager == null)
+                {
+                    _chunkManager = new ChunkManager(_config);
+                }
+
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+
+            return await _firebaseAdapter.UpdateWorldLikesWithUser(worldName, userId, isLiking);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"UpdateWorldLikesWithUserAsync failed for world '{worldName}': {e.Message}");
+            return false;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<HashSet<string>> GetUserLikedWorldsAsync()
+    {
+        try
+        {
+            if (!_config.useFirebase)
+            {
+                return new HashSet<string>();
+            }
+
+            if (!UserManager.IsInitialized)
+            {
+                if (_firebaseAdapter == null)
+                {
+                    if (_config == null)
+                    {
+                        _config = Resources.Load<SaveConfig>("SaveConfig");
+                    }
+
+                    if (_chunkManager == null)
+                    {
+                        _chunkManager = new ChunkManager(_config);
+                    }
+
+                    _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+                }
+
+                await UserManager.InitializeUserIdAsync(_firebaseAdapter);
+            }
+
+            string userId = UserManager.UserId;
+            if (string.IsNullOrEmpty(userId))
+            {
+                return new HashSet<string>();
+            }
+
+            if (_firebaseAdapter == null)
+            {
+                if (_config == null)
+                {
+                    _config = Resources.Load<SaveConfig>("SaveConfig");
+                }
+
+                if (_chunkManager == null)
+                {
+                    _chunkManager = new ChunkManager(_config);
+                }
+
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+
+            return await _firebaseAdapter.GetUserLikedWorldsAsync(userId);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"GetUserLikedWorldsAsync failed: {e.Message}");
+            return new HashSet<string>();
         }
     }
 
@@ -729,6 +886,47 @@ public class SaveSystem : MonoBehaviour
         return await _fileManager.LoadLocalWorldsMetadataAsync();
     }
 
+    public async System.Threading.Tasks.Task<List<WorldMetadata>> GetUserWorldsMetadataAsync()
+    {
+        if (!_config.useFirebase)
+        {
+            return new List<WorldMetadata>();
+        }
+
+        if (_firebaseAdapter == null)
+        {
+            if (_config == null)
+            {
+                _config = Resources.Load<SaveConfig>("SaveConfig");
+                if (_config == null)
+                {
+                    Debug.LogError("SaveConfig not found in Resources! Cannot initialize FirebaseAdapter.");
+                    return new List<WorldMetadata>();
+                }
+            }
+
+            if (_chunkManager == null)
+            {
+                _chunkManager = new ChunkManager(_config);
+            }
+
+            _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+        }
+
+        if (!UserManager.IsInitialized)
+        {
+            await UserManager.InitializeUserIdAsync(_firebaseAdapter);
+        }
+
+        string userId = UserManager.UserId;
+        if (string.IsNullOrEmpty(userId))
+        {
+            return new List<WorldMetadata>();
+        }
+
+        return await _firebaseAdapter.GetUserWorldsMetadataAsync(userId);
+    }
+
     public bool DeleteLocalWorld(string worldName)
     {
         if (string.IsNullOrEmpty(worldName))
@@ -870,7 +1068,13 @@ public class SaveSystem : MonoBehaviour
                 _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
             }
 
-            bool success = await _firebaseAdapter.SaveWorldToFirestore(worldData);
+            if (!UserManager.IsInitialized)
+            {
+                await UserManager.InitializeUserIdAsync(_firebaseAdapter);
+            }
+
+            string userId = UserManager.UserId;
+            bool success = await _firebaseAdapter.SaveWorldToFirestore(worldData, userId);
             if (success)
             {
                 Debug.Log($"World '{worldName}' published to Firebase successfully.");

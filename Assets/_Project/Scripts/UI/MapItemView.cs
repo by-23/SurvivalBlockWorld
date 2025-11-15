@@ -13,6 +13,7 @@ public class MapItemView : MonoBehaviour
     [SerializeField] private Button _deleteButton;
     [SerializeField] private Button _likeButton;
     [SerializeField] private Button _publishButton;
+    [SerializeField] private TextMeshProUGUI _publishButtonText;
     [SerializeField] private TextMeshProUGUI _likesText;
 
     [Header("Like State")] [SerializeField]
@@ -57,6 +58,11 @@ public class MapItemView : MonoBehaviour
         {
             _publishButton.onClick.AddListener(OnPublishButtonClicked);
             _publishButtonGraphic = _publishButton.targetGraphic;
+
+            if (_publishButtonText == null)
+            {
+                _publishButtonText = _publishButton.GetComponentInChildren<TextMeshProUGUI>();
+            }
         }
 
         UpdateLikesUI();
@@ -70,16 +76,28 @@ public class MapItemView : MonoBehaviour
         _likesCount = Mathf.Max(0, likesCount);
         _isLiked = false;
 
-        // Set map name
         if (_mapNameText != null)
         {
             _mapNameText.text = mapName;
+            _mapNameText.ForceMeshUpdate();
         }
 
         // Load screenshot
         LoadScreenshot(screenshotPath);
 
         UpdateLikesUI();
+    }
+
+    public void SetLikedState(bool isLiked)
+    {
+        _isLiked = isLiked;
+        UpdateLikeButtonVisual();
+    }
+
+    public void UpdateLikesCount(int newCount)
+    {
+        _likesCount = Mathf.Max(0, newCount);
+        UpdateLikesText();
     }
 
     private void LoadScreenshot(string screenshotPath)
@@ -176,6 +194,19 @@ public class MapItemView : MonoBehaviour
         }
     }
 
+    public void SetLikesVisible(bool isVisible)
+    {
+        if (_likeButton != null)
+        {
+            _likeButton.gameObject.SetActive(isVisible);
+        }
+
+        if (_likesText != null)
+        {
+            _likesText.gameObject.SetActive(isVisible);
+        }
+    }
+
     public void SetPublishedState(bool isPublished)
     {
         _isPublished = isPublished;
@@ -187,6 +218,16 @@ public class MapItemView : MonoBehaviour
         if (_publishButton != null)
         {
             _publishButton.interactable = isEnabled;
+            _publishButton.gameObject.SetActive(isEnabled);
+        }
+    }
+
+    public void SetDeleteButtonEnabled(bool isEnabled)
+    {
+        if (_deleteButton != null)
+        {
+            _deleteButton.interactable = isEnabled;
+            _deleteButton.gameObject.SetActive(isEnabled);
         }
     }
 
@@ -232,6 +273,11 @@ public class MapItemView : MonoBehaviour
         if (_publishButtonGraphic != null)
         {
             _publishButtonGraphic.color = _isPublished ? _publishedColor : _unpublishedColor;
+        }
+
+        if (_publishButtonText != null)
+        {
+            _publishButtonText.text = _isPublished ? "Unpublish" : "Publish";
         }
     }
 }

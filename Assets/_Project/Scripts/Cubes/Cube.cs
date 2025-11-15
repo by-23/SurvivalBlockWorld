@@ -107,7 +107,7 @@ public class Cube : MonoBehaviour
         _detouched = true;
 
         if (_entity)
-            _entity.DetouchCube(this);
+            _entity.DetachCube(this);
 
         if (_colorCube)
             _colorCube.ApplyDetouchColor();

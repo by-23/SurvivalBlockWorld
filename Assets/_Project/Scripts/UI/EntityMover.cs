@@ -27,6 +27,11 @@ namespace Assets._Project.Scripts.UI
         [Header("Collision Detection")] [SerializeField]
         private LayerMask _collisionLayerMask = ~0;
 
+        [Header("Material Settings")] [SerializeField]
+        private Material _redMaterial;
+
+        [SerializeField] private float _transparency = 0.5f;
+
         [Header("References")] [SerializeField]
         private Button _moveButton;
 
@@ -43,6 +48,7 @@ namespace Assets._Project.Scripts.UI
         private HashSet<Collider> _collidingColliders = new HashSet<Collider>();
         private Dictionary<Collider, bool> _originalTriggerStates = new Dictionary<Collider, bool>();
         private List<CollisionDetector> _detectors = new List<CollisionDetector>();
+        private EntityMaterialColorizer _materialColorizer;
 
         public bool IsHolding => _isHolding;
         public bool CanPlace => _isHolding && _collidingColliders.Count == 0;
@@ -222,6 +228,10 @@ namespace Assets._Project.Scripts.UI
             SetCollidersAsTriggers(true);
             AddCollisionDetectors();
 
+            // Инициализируем colorizer для покраски при пересечениях
+            _materialColorizer = new EntityMaterialColorizer(_redMaterial, _transparency);
+            _materialColorizer.Initialize(_heldEntity, excludeCubes: false);
+
             _isHolding = true;
             _collidingColliders.Clear();
 
@@ -240,6 +250,13 @@ namespace Assets._Project.Scripts.UI
             RemoveCollisionDetectors();
             // Восстанавливаем коллайдеры
             SetCollidersAsTriggers(false);
+
+            // Восстанавливаем материалы
+            if (_materialColorizer != null)
+            {
+                _materialColorizer.Restore();
+                _materialColorizer = null;
+            }
 
             // Включаем физику обратно
             if (_heldRigidbody != null)
@@ -275,6 +292,13 @@ namespace Assets._Project.Scripts.UI
             RemoveCollisionDetectors();
             // Восстанавливаем коллайдеры
             SetCollidersAsTriggers(false);
+
+            // Восстанавливаем материалы
+            if (_materialColorizer != null)
+            {
+                _materialColorizer.Restore();
+                _materialColorizer = null;
+            }
 
             // Включаем физику обратно без броска
             if (_heldRigidbody != null)
@@ -321,6 +345,13 @@ namespace Assets._Project.Scripts.UI
 
             Vector3 targetPosition = cameraPosition + cameraForward * (_currentHoldDistance - distanceToClosestPoint);
             _heldEntity.transform.position = targetPosition;
+
+            // Обновляем цвет в зависимости от пересечений
+            if (_materialColorizer != null)
+            {
+                bool hasCollision = _collidingColliders.Count > 0;
+                _materialColorizer.UpdateColor(hasCollision);
+            }
         }
 
         private Bounds GetEntityBounds(Entity entity)

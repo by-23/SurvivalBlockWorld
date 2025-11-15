@@ -21,13 +21,15 @@ public static class EntityCubeAttacher
             return;
         }
 
-        if (cube.transform.parent == entity.transform)
+        GameObject cubesHolder = entity.GetOrCreateCubesHolder();
+        if (cube.transform.parent == cubesHolder.transform || cube.transform.parent == entity.transform)
         {
             // Куб уже прикреплен к этому Entity
             return;
         }
 
         Transform entityTransform = entity.transform;
+        Transform cubesHolderTransform = cubesHolder.transform;
         Vector3 entityWorldPos = entityTransform.position;
         float entityScale = entityTransform.localScale.x;
 
@@ -38,11 +40,11 @@ public static class EntityCubeAttacher
         // Устанавливаем родителя
         if (preserveWorldPosition)
         {
-            cube.transform.SetParent(entityTransform, true);
+            cube.transform.SetParent(cubesHolderTransform, true);
         }
         else
         {
-            cube.transform.SetParent(entityTransform);
+            cube.transform.SetParent(cubesHolderTransform);
             // Конвертируем мировую позицию в локальную относительно Entity
             cube.transform.localPosition = (worldPos - entityWorldPos) / entityScale;
             cube.transform.localRotation = worldRot;
@@ -72,6 +74,8 @@ public static class EntityCubeAttacher
             return;
 
         Transform entityTransform = entity.transform;
+        GameObject cubesHolder = entity.GetOrCreateCubesHolder();
+        Transform cubesHolderTransform = cubesHolder.transform;
         Vector3 entityWorldPos = entityTransform.position;
         float entityScale = entityTransform.localScale.x;
 
@@ -86,7 +90,7 @@ public static class EntityCubeAttacher
             Quaternion worldRot = cube.transform.rotation;
 
             // Устанавливаем родителя
-            cube.transform.SetParent(entityTransform);
+            cube.transform.SetParent(cubesHolderTransform);
 
             // Конвертируем мировую позицию в локальную относительно Entity
             cube.transform.localPosition = (worldPos - entityWorldPos) / entityScale;

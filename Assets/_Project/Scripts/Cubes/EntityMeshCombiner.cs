@@ -322,6 +322,28 @@ public class EntityMeshCombiner : MonoBehaviour
         }
     }
 
+    private void UpdateEntityMeshReferences(int activeSegments)
+    {
+        if (_entity == null) return;
+
+        if (activeSegments == 0)
+        {
+            _entity.SetCombinedMeshes(null);
+            return;
+        }
+
+        var meshes = new Mesh[activeSegments];
+        for (int i = 0; i < activeSegments; i++)
+        {
+            if (i < _segments.Count)
+            {
+                meshes[i] = _segments[i].Filter.sharedMesh;
+            }
+        }
+
+        _entity.SetCombinedMeshes(meshes);
+    }
+
     public bool CombineMeshesAdaptive(int cubeCount)
     {
         if (_isCombined)
@@ -526,6 +548,8 @@ public class EntityMeshCombiner : MonoBehaviour
             ActivateSegments(activeSegments);
             DeactivateUnusedSegments(activeSegments);
 
+            UpdateEntityMeshReferences(activeSegments);
+
             _isCombined = true;
 
             // Не сбрасываем флаг грязности, если структура была изменена во время комбинирования
@@ -609,6 +633,8 @@ public class EntityMeshCombiner : MonoBehaviour
             if (_combinedMeshObject.activeSelf)
                 _combinedMeshObject.SetActive(false);
         }
+
+        UpdateEntityMeshReferences(0);
 
         TrySetEntityKinematic(false);
 
@@ -707,6 +733,8 @@ public class EntityMeshCombiner : MonoBehaviour
             if (_combinedMeshObject.activeSelf)
                 _combinedMeshObject.SetActive(false);
         }
+
+        UpdateEntityMeshReferences(0);
 
         TrySetEntityKinematic(false);
 
@@ -929,6 +957,8 @@ public class EntityMeshCombiner : MonoBehaviour
             DisableQueuedRenderers();
             ActivateSegments(activeSegments);
             DeactivateUnusedSegments(activeSegments);
+
+            UpdateEntityMeshReferences(activeSegments);
 
             _isCombined = true;
 
