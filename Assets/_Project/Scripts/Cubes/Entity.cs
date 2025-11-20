@@ -411,7 +411,6 @@ public class Entity : MonoBehaviour
             _meshCombiner.ShowCubes();
         }
 
-        // Устанавливаем флаг ДО запуска корутины, чтобы он был установлен синхронно
         _structureDirty = true;
 
         if (!_detachBatchPending)
@@ -837,7 +836,6 @@ public class Entity : MonoBehaviour
         for (int i = 0; i < _affectedCells.Count; i++)
         {
             Vector3Int c = _affectedCells[i];
-            // Проверяем границы перед обращением к _cubesInfo, так как размеры могли измениться после CollectCubes()
             if (c.x >= 0 && c.y >= 0 && c.z >= 0 &&
                 c.x < _cubesInfoSizeX && c.y < _cubesInfoSizeY && c.z < _cubesInfoSizeZ)
             {

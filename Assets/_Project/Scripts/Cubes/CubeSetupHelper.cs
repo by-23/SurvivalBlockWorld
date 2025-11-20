@@ -1,16 +1,7 @@
 using UnityEngine;
 
-/// <summary>
-/// Утилита для настройки кубов после создания.
-/// Устраняет дублирование кода настройки цвета и типа кубов.
-/// </summary>
 public static class CubeSetupHelper
 {
-    /// <summary>
-    /// Настраивает цвет куба. Поддерживает ColorCube компонент или MaterialPropertyBlock.
-    /// </summary>
-    /// <param name="cube">GameObject куба для настройки</param>
-    /// <param name="color">Цвет для установки</param>
     public static void SetupCubeColor(GameObject cube, Color color)
     {
         if (cube == null)
@@ -19,7 +10,6 @@ public static class CubeSetupHelper
             return;
         }
 
-        // Пробуем использовать ColorCube компонент
         ColorCube colorCube = cube.GetComponent<ColorCube>();
         if (colorCube != null)
         {
@@ -27,7 +17,6 @@ public static class CubeSetupHelper
             return;
         }
 
-        // Если ColorCube нет, используем MaterialPropertyBlock
         MeshRenderer cubeRenderer = cube.GetComponent<MeshRenderer>();
         if (cubeRenderer != null)
         {
@@ -37,11 +26,6 @@ public static class CubeSetupHelper
         }
     }
 
-    /// <summary>
-    /// Устанавливает тип блока (BlockTypeID) для куба.
-    /// </summary>
-    /// <param name="cube">GameObject куба для настройки</param>
-    /// <param name="blockTypeId">ID типа блока</param>
     public static void SetupCubeType(GameObject cube, byte blockTypeId)
     {
         if (cube == null)
@@ -61,12 +45,6 @@ public static class CubeSetupHelper
         }
     }
 
-    /// <summary>
-    /// Настраивает и цвет, и тип куба за один вызов.
-    /// </summary>
-    /// <param name="cube">GameObject куба для настройки</param>
-    /// <param name="color">Цвет для установки</param>
-    /// <param name="blockTypeId">ID типа блока</param>
     public static void SetupCube(GameObject cube, Color color, byte blockTypeId)
     {
         SetupCubeColor(cube, color);

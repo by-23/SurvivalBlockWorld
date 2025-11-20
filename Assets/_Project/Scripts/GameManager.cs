@@ -40,7 +40,7 @@ public class GameManager : MonoBehaviour
     }
 
     [Header("Build Mode")] public bool BuildModeActive = false;
-    [SerializeField] private PlayerMovement _playerMovement; // кеш ссылки на движение игрока
+    [SerializeField] private PlayerMovement _playerMovement;
 
     public void RegisterPlayerMovement(PlayerMovement pm)
     {

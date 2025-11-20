@@ -11,17 +11,17 @@ public class EntityManager : MonoBehaviour
     private string _fileName = "entity.dat";
 
     [Header("References")] [SerializeField]
-    private SaveConfig _config; // опционально: используем только для флага отложенной инициализации
+    private SaveConfig _config;
 
     [SerializeField] private Camera _playerCamera;
     [SerializeField] private EntitySelector _selector;
 
-    [Header("UI")] [SerializeField] private Button _savePlaceButton; // объединённая кнопка сохранения/размещения
-    [SerializeField] private TMPro.TMP_Text _savePlaceButtonText; // текст кнопки
-    [SerializeField] private string _saveButtonText = "Сохранить"; // текст для режима сохранения
-    [SerializeField] private string _placeButtonText = "Разместить"; // текст для режима размещения
-    [SerializeField] private Button _saveItemButtonPrefab; // префаб кнопки сохранённого объекта
-    [SerializeField] private Transform _saveListContainer; // контейнер для кнопок
+    [Header("UI")] [SerializeField] private Button _savePlaceButton;
+    [SerializeField] private TMPro.TMP_Text _savePlaceButtonText;
+    [SerializeField] private string _saveButtonText = "Сохранить";
+    [SerializeField] private string _placeButtonText = "Разместить";
+    [SerializeField] private Button _saveItemButtonPrefab;
+    [SerializeField] private Transform _saveListContainer;
     [SerializeField] private Button _cancelGhostButton;
 
     [SerializeField] private CubeSpawner _cubeSpawner;
@@ -80,13 +80,11 @@ public class EntityManager : MonoBehaviour
 
     private void OnEnable()
     {
-        // Привязка UI-кнопок, если заданы в инспекторе
         if (_savePlaceButton != null)
         {
             _savePlaceButton.onClick.RemoveAllListeners();
             _savePlaceButton.onClick.AddListener(OnSavePlaceButtonPressed);
 
-            // Получаем компонент текста, если не назначен
             if (_savePlaceButtonText == null)
             {
                 _savePlaceButtonText = _savePlaceButton.GetComponentInChildren<TMPro.TMP_Text>();
@@ -128,12 +126,10 @@ public class EntityManager : MonoBehaviour
     {
         if (IsGhostActive())
         {
-            // Если ghost активен - размещаем entity
             ConfirmGhost();
         }
         else
         {
-            // Если ghost не активен - сохраняем entity
             SaveLookedEntity();
         }
     }
@@ -201,7 +197,6 @@ public class EntityManager : MonoBehaviour
             using (var reader = new BinaryReader(fs))
             {
                 string entryName = reader.ReadString();
-                // position (3), rotation (4), scale (3)
                 _ = reader.ReadSingle();
                 _ = reader.ReadSingle();
                 _ = reader.ReadSingle();
@@ -214,7 +209,7 @@ public class EntityManager : MonoBehaviour
                 _ = reader.ReadSingle();
 
                 int count = reader.ReadInt32();
-                long toSkip = (long)count * 31L; // 31 байт на CubeData
+                long toSkip = (long)count * 31L;
                 if (fs.Position + toSkip <= fs.Length)
                 {
                     fs.Position += toSkip;
@@ -253,14 +248,12 @@ public class EntityManager : MonoBehaviour
 
     public Entity GetTargetEntity()
     {
-        // Сначала берём из EntitySelector, если он есть
         if (_selector != null)
         {
             var hovered = _selector.GetHoveredEntity();
             if (hovered != null) return hovered;
         }
 
-        // Фоллбэк: рейкаст из центра экрана от камеры
         var cam = _playerCamera != null ? _playerCamera : Camera.main;
         if (cam == null) return null;
 
@@ -285,7 +278,6 @@ public class EntityManager : MonoBehaviour
                 return;
             }
 
-            // Получаем данные кубов
             target.EnsureCacheValid();
             CubeData[] cubes = target.GetSaveData();
             if (cubes == null || cubes.Length == 0)
@@ -294,7 +286,6 @@ public class EntityManager : MonoBehaviour
                 return;
             }
 
-            // Делаем скриншот
             if (_screenshotManager == null)
             {
                 _screenshotManager = FindAnyObjectByType<ScreenshotManager>();
@@ -303,15 +294,12 @@ public class EntityManager : MonoBehaviour
             string screenshotId = string.Empty;
             if (_screenshotManager != null)
             {
-                // Дожидаемся завершения сохранения файла и индекса — предотвращает гонки
                 screenshotId = await _screenshotManager.CaptureAsync(target, null, 512, 512, _playerCamera);
             }
 
-            // Пивот при сохранении: центр по XZ и самый низ по Y
             Vector3 savedPivot = target.transform.position;
             if (target.TryGetLocalBounds(out Bounds localBounds))
             {
-                // Берём точку (center.x, min.y, center.z) в локальных координатах и переводим в мир
                 Vector3 localBottomCenter = new Vector3(localBounds.center.x, localBounds.min.y, localBounds.center.z);
                 savedPivot = target.transform.TransformPoint(localBottomCenter);
             }
@@ -326,7 +314,6 @@ public class EntityManager : MonoBehaviour
                 screenshotId = screenshotId
             };
 
-            // Пишем в уникальный файл асинхронно в фоне
             string path = GetUniqueSavePath();
             string directory = Path.GetDirectoryName(path);
             if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
@@ -334,7 +321,6 @@ public class EntityManager : MonoBehaviour
             byte[] buffer = await Task.Run(() => BuildSaveBytes(data));
             await File.WriteAllBytesAsync(path, buffer);
 
-            // продолжаем на главном потоке Unity (контекст сохранён)
             await Task.Yield();
             Debug.Log($"Entity сохранён: {path}");
             CreateSaveButtonUI(data.screenshotId, path, data.name);
@@ -390,19 +376,15 @@ public class EntityManager : MonoBehaviour
 
         var btn = Instantiate(_saveItemButtonPrefab, _saveListContainer);
         btn.onClick.RemoveAllListeners();
-        // Сохраняем путь в имени объекта для возможности поиска кнопки при удалении
         btn.gameObject.name = $"SavedEntity_{Path.GetFileName(saveFilePath)}";
         btn.onClick.AddListener(() => LoadSavedEntityFromPath(saveFilePath));
 
-        // Назначаем спрайт скриншота на Image, расположенный на том же объекте, где и Button
         Image image = null;
-        // Сначала пробуем targetGraphic, если он Image
         if (btn.targetGraphic != null && btn.targetGraphic is Image targetImg)
         {
             image = targetImg;
         }
 
-        // Иначе берём Image на том же объекте
         if (image == null)
         {
             image = btn.GetComponent<Image>();
@@ -419,14 +401,12 @@ public class EntityManager : MonoBehaviour
             await _screenshotManager.LoadToImageByIdAsync(screenshotId, image);
         }
 
-        // Текст на кнопке (если есть)
         var text = btn.GetComponentInChildren<TMPro.TMP_Text>();
         if (text != null)
         {
             text.text = string.IsNullOrEmpty(title) ? "Entity" : title;
         }
 
-        // Кнопка удаления, если есть дочерняя Button с именем, содержащим "Delete"
         var childButtons = btn.GetComponentsInChildren<Button>(true);
         for (int i = 0; i < childButtons.Length; i++)
         {
@@ -510,7 +490,6 @@ public class EntityManager : MonoBehaviour
                 return;
             }
 
-            // Создаём пустой Entity и наполняем его кубами
             Entity entity = EntityFactory.CreateEntity(
                 data.position,
                 data.rotation,
@@ -586,7 +565,6 @@ public class EntityManager : MonoBehaviour
                     data.cubes = Array.Empty<CubeData>();
                 }
 
-                // поле скриншота может отсутствовать в старых файлах — защищаемся
                 if (fs.Position < fs.Length)
                 {
                     try
@@ -614,7 +592,7 @@ public class EntityManager : MonoBehaviour
             }
 
             Entity entity = EntityFactory.CreateEntity(
-                Vector3.zero, // позиция будет установлена ghost placer'ом
+                Vector3.zero,
                 Quaternion.identity,
                 data.scale,
                 isKinematic: true,
@@ -638,7 +616,6 @@ public class EntityManager : MonoBehaviour
                 UpdateGhostButtonsState();
             }
 
-            // Переходим в ghost-режим вместо финального размещения
             if (_ghostPlacer != null)
             {
                 _currentGhostEntity = entity;
@@ -661,7 +638,6 @@ public class EntityManager : MonoBehaviour
 
     public void DeleteSavedEntity(string path, string screenshotId)
     {
-        // Удаляем кнопку из UI, если контейнер задан
         if (_saveListContainer != null)
         {
             string fileName = Path.GetFileName(path);
@@ -706,13 +682,11 @@ public class EntityManager : MonoBehaviour
 
                 if (_screenshotManager != null)
                 {
-                    // Режим игры: используем менеджер
                     _screenshotManager.DeleteScreenshot(screenshotId);
                     _ = _screenshotManager.SaveIndexAsync();
                 }
                 else
                 {
-                    // Режим редактора (менеджера нет): удаляем вручную из индекса и с диска
                     string indexPath = Path.Combine(Application.persistentDataPath, "screenshots.json");
                     string json = File.Exists(indexPath) ? File.ReadAllText(indexPath) : string.Empty;
                     if (!string.IsNullOrEmpty(json))
@@ -722,7 +696,6 @@ public class EntityManager : MonoBehaviour
                             ScreenshotIndexDTO dto = JsonUtility.FromJson<ScreenshotIndexDTO>(json);
                             if (dto != null && dto.Entries != null)
                             {
-                                // Найдём путь и удалим запись
                                 string ssPath = null;
                                 for (int i = dto.Entries.Count - 1; i >= 0; i--)
                                 {
@@ -746,7 +719,6 @@ public class EntityManager : MonoBehaviour
                                     }
                                 }
 
-                                // Записываем обновлённый индекс
                                 string outJson = JsonUtility.ToJson(dto, false);
                                 File.WriteAllText(indexPath, outJson);
                             }
@@ -765,7 +737,6 @@ public class EntityManager : MonoBehaviour
         }
     }
 
-    // DTO для работы с индексом скриншотов в редакторе (копия структуры из ScreenshotManager)
     [Serializable]
     private class ScreenshotIndexDTO
     {
@@ -803,17 +774,11 @@ public class EntityManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Проверяет, активен ли ghost entity в данный момент
-    /// </summary>
     public bool IsGhostActive()
     {
         return _ghostPlacer != null && _ghostPlacer.IsActive;
     }
 
-    /// <summary>
-    /// Обновляет состояние кнопок в зависимости от активности ghost
-    /// </summary>
     private void UpdateGhostButtonsState()
     {
         bool isActive = IsGhostActive();
@@ -823,12 +788,10 @@ public class EntityManager : MonoBehaviour
             _cancelGhostButton.gameObject.SetActive(isActive);
         }
 
-        // Обновляем объединённую кнопку сохранения/размещения
         if (_savePlaceButton != null)
         {
-            _savePlaceButton.interactable = true; // кнопка всегда активна
+            _savePlaceButton.interactable = true;
 
-            // Обновляем текст в зависимости от режима
             if (_savePlaceButtonText != null)
             {
                 _savePlaceButtonText.text = isActive ? _placeButtonText : _saveButtonText;

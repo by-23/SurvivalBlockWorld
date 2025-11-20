@@ -2,53 +2,45 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 
-// ArrayPool не подходит для Mesh.CombineMeshes (использует всю длину массива)
-
 [RequireComponent(typeof(Entity))]
 public class EntityMeshCombiner : MonoBehaviour
 {
-    [SerializeField] private Entity _entity; // Кэш ссылки на Entity
+    [SerializeField] private Entity _entity;
     private GameObject _combinedMeshObject;
     private Cube[] _cubes;
     private Rigidbody _rb;
     private bool _isKinematicOriginalState;
     private bool _isCombined;
-    private bool _isCombining; // Флаг для предотвращения одновременных вызовов
+    private bool _isCombining;
 
-    // Публичное свойство для проверки состояния объединения из Entity
     public bool IsCombined => _isCombined;
     public bool IsCombining => _isCombining;
     public int AsyncCombineThreshold => _asyncCombineThreshold;
 
-    // Кэшированные компоненты для оптимизации
     private struct CachedCubeComponents
     {
         public MeshFilter MeshFilter;
         public MeshRenderer MeshRenderer;
         public ColorCube ColorCube;
-        public Color32 Color; // используем Color32 как ключ
-        public Mesh Mesh; // кэш меша (убирает 6075 вызовов get_sharedMesh)
-        public bool IsValid; // флаг валидности (убирает проверки на null)
+        public Color32 Color;
+        public Mesh Mesh;
+        public bool IsValid;
     }
 
     private CachedCubeComponents[] _cachedComponents;
 
 
     private MaterialPropertyBlock _propertyBlock;
-    [SerializeField] private int _asyncCombineThreshold = 256; // Порог для асинхронной сборки
+    [SerializeField] private int _asyncCombineThreshold = 256;
 
     private Material _sourceMaterial;
 
-    // Упрощённая структура: Dictionary напрямую хранит списки CombineInstance по цветам
-    // Pre-allocate capacity для избежания реаллокаций при группировке
     private Dictionary<Color32, System.Collections.Generic.List<CombineInstance>> _colorGroups =
         new Dictionary<Color32, System.Collections.Generic.List<CombineInstance>>(16);
 
-    // Переиспользуемый список для ключей при обходе
     private readonly System.Collections.Generic.List<Color32> _colorKeys =
         new System.Collections.Generic.List<Color32>(16);
 
-    // Object pooling для мешей
     private Queue<Mesh> _meshPool = new Queue<Mesh>();
 
     private class CombinedSegment
@@ -61,7 +53,6 @@ public class EntityMeshCombiner : MonoBehaviour
     private readonly System.Collections.Generic.List<CombinedSegment> _segments =
         new System.Collections.Generic.List<CombinedSegment>(16);
 
-    // Пул массивов CombineInstance по размеру — избавляет от ToArray и крупных аллокаций
     private readonly Dictionary<int, Stack<CombineInstance[]>> _combineArrayPool =
         new Dictionary<int, Stack<CombineInstance[]>>(16);
 
@@ -117,7 +108,6 @@ public class EntityMeshCombiner : MonoBehaviour
 
     private void OnDestroy()
     {
-        // Очистка object pool
         while (_meshPool.Count > 0)
         {
             var mesh = _meshPool.Dequeue();
@@ -143,7 +133,6 @@ public class EntityMeshCombiner : MonoBehaviour
 
     private void CacheCubeComponents()
     {
-        // Берем кэш из Entity если доступен, иначе fallback на поиск в иерархии
         _cubes = (_entity != null && _entity.Cubes != null) ? _entity.Cubes : GetComponentsInChildren<Cube>();
         if (_cubes == null || _cubes.Length == 0) return;
 
@@ -159,11 +148,8 @@ public class EntityMeshCombiner : MonoBehaviour
             var meshRenderer = cube.DirectMeshRenderer;
 
             Mesh mesh = cube.CachedMesh;
-            // Получаем цвет напрямую из ColorCube вместо устаревшего кэша CachedColor32
-            // Кэш может быть инициализирован до установки цвета в ColorCube, что приводит к черным цветам
             Color32 color = cube.ColorCube != null ? cube.ColorCube.GetColor32() : new Color32(255, 255, 255, 255);
 
-            // Быстрая проверка валидности без лишних вызовов
             bool isValid = meshFilter != null && mesh != null && meshRenderer != null;
 
             _cachedComponents[i] = new CachedCubeComponents
@@ -178,7 +164,6 @@ public class EntityMeshCombiner : MonoBehaviour
         }
     }
 
-    // Инвалидируем кэш компонентов кубов (пересоздастся при следующем комбинировании)
     public void InvalidateCubeCache()
     {
         _cachedComponents = null;
@@ -212,7 +197,6 @@ public class EntityMeshCombiner : MonoBehaviour
         if (size <= 0)
             return System.Array.Empty<CombineInstance>();
 
-        // Берем готовый массив нужной длины, чтобы не выделять память каждый CombineMeshes
         if (_combineArrayPool.TryGetValue(size, out var stack) && stack.Count > 0)
             return stack.Pop();
 
@@ -224,7 +208,6 @@ public class EntityMeshCombiner : MonoBehaviour
         if (array == null || array.Length == 0)
             return;
 
-        // Возвращаем массив в пул, длина критична для повторного использования
         if (!_combineArrayPool.TryGetValue(array.Length, out var stack))
         {
             stack = new Stack<CombineInstance[]>(2);
@@ -372,7 +355,6 @@ public class EntityMeshCombiner : MonoBehaviour
 
         try
         {
-            // Перестраиваем кэш только при необходимости (надежно и без лишней работы)
             var entityCubes = _entity != null ? _entity.Cubes : GetComponentsInChildren<Cube>();
             if (_cachedComponents == null || entityCubes == null || _cachedComponents.Length != entityCubes.Length)
             {
@@ -385,13 +367,10 @@ public class EntityMeshCombiner : MonoBehaviour
                 return;
             }
 
-
-            // Гарантируем валидность кэша кубов в Entity (один раз)
             if (_entity != null)
             {
                 _entity.EnsureCacheValid();
 
-                // Разделяем только если структура менялась
                 if (_entity.IsStructureDirty)
                 {
                     var newEntities = _entity.SplitIntoSeparateEntities();
@@ -429,7 +408,6 @@ public class EntityMeshCombiner : MonoBehaviour
                 return;
             }
 
-            // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
             var worldToLocal = transform.worldToLocalMatrix;
             for (int i = 0; i < _cachedComponents.Length; i++)
             {
@@ -455,18 +433,15 @@ public class EntityMeshCombiner : MonoBehaviour
                     QueueRendererDisable(cached.MeshRenderer);
                 }
 
-                // Создаём CombineInstance сразу
                 var ci = new CombineInstance
                 {
                     mesh = cached.Mesh,
                     transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
                 };
 
-                // Группируем по цвету напрямую (Dictionary с pre-allocated capacity)
                 if (!_colorGroups.TryGetValue(cached.Color, out var list))
                 {
-                    list = new System.Collections.Generic.List<CombineInstance>(
-                        32); // pre-allocate для типичного количества кубов одного цвета
+                    list = new System.Collections.Generic.List<CombineInstance>(32);
                     _colorGroups[cached.Color] = list;
                     _colorKeys.Add(cached.Color);
                 }
@@ -510,14 +485,12 @@ public class EntityMeshCombiner : MonoBehaviour
                 var subMesh = GetPooledMesh();
                 subMesh.CombineMeshes(combineArray, true, true);
 
-                // Для кубов задаём границы напрямую при наличии данных
                 if (_entity != null && _entity.TryGetLocalBounds(out var fastBounds))
                     subMesh.bounds = fastBounds;
                 else
                     subMesh.RecalculateBounds();
 
-                var segment =
-                    EnsureSegment(activeSegments++); // Переиспользуем дочерние объекты, чтобы не трогать SetParent
+                var segment = EnsureSegment(activeSegments++);
                 if (segment.Object.activeSelf)
                     segment.Object.SetActive(false);
 
@@ -565,14 +538,11 @@ public class EntityMeshCombiner : MonoBehaviour
     {
         if (!_isCombined) return;
 
-        // Получаем актуальный список кубов из Entity для гарантии корректности
-        // (кэш может быть устаревшим после добавления новых кубов)
         if (_entity != null)
         {
             _entity.EnsureCacheValid();
         }
 
-        // Используем актуальный список кубов вместо кэша
         var currentCubes = (_entity != null && _entity.Cubes != null) ? _entity.Cubes : GetComponentsInChildren<Cube>();
 
         if (currentCubes != null)
@@ -637,7 +607,6 @@ public class EntityMeshCombiner : MonoBehaviour
         _isCombined = false;
     }
 
-    // Асинхронная версия ShowCubes для больших объектов
     public void ShowCubesAsync()
     {
         if (!_isCombined) return;
@@ -649,13 +618,11 @@ public class EntityMeshCombiner : MonoBehaviour
     {
         if (!_isCombined) yield break;
 
-        // Получаем актуальный список кубов из Entity для гарантии корректности
         if (_entity != null)
         {
             _entity.EnsureCacheValid();
         }
 
-        // Используем актуальный список кубов вместо кэша
         var currentCubes = (_entity != null && _entity.Cubes != null) ? _entity.Cubes : GetComponentsInChildren<Cube>();
 
         if (currentCubes != null)
@@ -671,7 +638,6 @@ public class EntityMeshCombiner : MonoBehaviour
                     meshRenderer.enabled = true;
                 }
 
-                // Yield каждые 20 кубов для предотвращения фризов
                 if (i % 20 == 0)
                 {
                     yield return null;
@@ -697,7 +663,6 @@ public class EntityMeshCombiner : MonoBehaviour
                     cached.MeshRenderer.enabled = true;
                 }
 
-                // Yield каждые 20 кубов для предотвращения фризов
                 if (i % 20 == 0)
                 {
                     yield return null;
@@ -737,7 +702,6 @@ public class EntityMeshCombiner : MonoBehaviour
         _isCombined = false;
     }
 
-    // Асинхронная версия для больших мешей
     public void CombineMeshesAsync()
     {
         if (_isCombined) return;
@@ -753,11 +717,9 @@ public class EntityMeshCombiner : MonoBehaviour
 
         try
         {
-            // Гарантируем валидность кэша кубов в Entity
             if (_entity != null)
                 _entity.EnsureCacheValid();
 
-            // Перестраиваем кэш только при необходимости
             var entityCubes = _entity != null ? _entity.Cubes : GetComponentsInChildren<Cube>();
             if (_cachedComponents == null || entityCubes == null || _cachedComponents.Length != entityCubes.Length)
             {
@@ -770,13 +732,10 @@ public class EntityMeshCombiner : MonoBehaviour
                 yield break;
             }
 
-
-            // Проверяем и разделяем кубы на отдельные Entity если необходимо
             if (_entity != null)
             {
                 _entity.EnsureCacheValid();
 
-                // Разделяем только если структура менялась
                 if (_entity.IsStructureDirty)
                 {
                     var newEntities = _entity.SplitIntoSeparateEntities();
@@ -814,12 +773,10 @@ public class EntityMeshCombiner : MonoBehaviour
                 yield break;
             }
 
-            // Один проход: группируем кубы по цветам и сразу создаём CombineInstance
             var worldToLocal = transform.worldToLocalMatrix;
             int cachedLength = _cachedComponents != null ? _cachedComponents.Length : 0;
             for (int i = 0; i < cachedLength; i++)
             {
-                // Проверяем валидность после каждого yield
                 if (_cachedComponents == null || transform == null || i >= _cachedComponents.Length)
                 {
                     ShowCubes();
@@ -851,14 +808,12 @@ public class EntityMeshCombiner : MonoBehaviour
                     QueueRendererDisable(cached.MeshRenderer);
                 }
 
-                // Создаём CombineInstance сразу
                 var ci = new CombineInstance
                 {
                     mesh = cached.Mesh,
                     transform = worldToLocal * cached.MeshFilter.transform.localToWorldMatrix
                 };
 
-                // Группируем по цвету напрямую
                 if (!_colorGroups.TryGetValue(cached.Color, out var list))
                 {
                     list = new System.Collections.Generic.List<CombineInstance>(32);
@@ -868,7 +823,6 @@ public class EntityMeshCombiner : MonoBehaviour
 
                 list.Add(ci);
 
-                // Yield каждые 10 кубов для предотвращения фризов
                 if (i % 10 == 0)
                 {
                     yield return null;
@@ -929,16 +883,14 @@ public class EntityMeshCombiner : MonoBehaviour
                 segment.Filter.sharedMesh = subMesh;
                 segment.Renderer.sharedMaterial = _sourceMaterial;
 
-                // Очищаем PropertyBlock перед установкой цвета для каждого объекта
                 _propertyBlock.Clear();
                 _propertyBlock.SetColor("_BaseColor", (Color)color);
-                _propertyBlock.SetColor("_Color", (Color)color); // Fallback для стандартных шейдеров
+                _propertyBlock.SetColor("_Color", (Color)color);
                 segment.Renderer.SetPropertyBlock(_propertyBlock);
 
                 ReturnCombineArray(combineArray);
                 instances.Clear();
 
-                // Yield каждые 2 цвета для предотвращения фризов
                 if (i % 2 == 0)
                 {
                     yield return null;

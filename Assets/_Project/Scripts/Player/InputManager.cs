@@ -21,7 +21,6 @@ public class InputManager : Singleton<InputManager>
 
     private void Start()
     {
-        // Инициализируем bl_MobileInput
         bl_MobileInput.Initialize();
     }
 
@@ -36,16 +35,11 @@ public class InputManager : Singleton<InputManager>
         {
             _MoveInput = new Vector2(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"));
             _ViewInput = new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y"));
-            //_MouseWheel = Input.GetAxis("Mouse ScrollWheel");
 
             _Fire = Input.GetMouseButton(0);
             _Run = Input.GetKey(KeyCode.LeftShift);
             _Build = Input.GetKeyDown(KeyCode.E);
-
-            //if (Input.GetKeyDown(KeyCode.E))
-            //EnterExitCar();
         }
-
     }
 
     public void EnterExitCar()
@@ -65,8 +59,6 @@ public class InputManager : Singleton<InputManager>
 
     public void RotateProps(float _value)
     {
-        // Player.Instance._BuildingTool.RotateProps(_value);
     }
-    
 }
 

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 public class Bomb : MonoBehaviour
 {
     [SerializeField] private float _explosionRadius = 1.5f;
-    [SerializeField] private int _maxCubesPerFrame = 10; // Максимум кубов обрабатываемых за кадр
+    [SerializeField] private int _maxCubesPerFrame = 10;
     [SerializeField] Camera _camera;
 
 
@@ -34,14 +34,11 @@ public class Bomb : MonoBehaviour
         }
     }
 
-    // Оптимизированный взрыв: распределяем обработку кубов на несколько кадров
-    // Это предотвращает создание сотен Rigidbody и применение сил одновременно
     private IEnumerator ExplosionCoroutine(Vector3 point)
     {
         var colliders = Physics.OverlapSphere(point, _explosionRadius);
         List<Cube> cubesToProcess = new List<Cube>();
 
-        // Собираем все кубы для обработки
         foreach (Collider hitCollider in colliders)
         {
             if (hitCollider.TryGetComponent(out Cube cube))
@@ -57,14 +54,11 @@ public class Bomb : MonoBehaviour
             }
         }
 
-        // Обрабатываем кубы батчами по несколько кадров
-        // Это снижает нагрузку на физику Unity и предотвращает WaitForJobGroupID
         int processed = 0;
         while (processed < cubesToProcess.Count)
         {
             int batchSize = Mathf.Min(_maxCubesPerFrame, cubesToProcess.Count - processed);
 
-            // Обрабатываем батч кубов
             for (int i = 0; i < batchSize; i++)
             {
                 Cube cube = cubesToProcess[processed + i];
@@ -72,7 +66,6 @@ public class Bomb : MonoBehaviour
 
                 cube.Detouch();
 
-                // Получаем или добавляем Rigidbody
                 Rigidbody rb = cube.GetComponent<Rigidbody>();
                 if (rb == null)
                 {
@@ -82,14 +75,11 @@ public class Bomb : MonoBehaviour
                     rb.angularDrag = 0.5f;
                 }
 
-                // Применяем силу взрыва
                 rb.AddExplosionForce(1000f, point, _explosionRadius);
             }
 
             processed += batchSize;
 
-            // Ждем следующий FixedUpdate перед обработкой следующего батча
-            // Это дает Unity Physics время обработать текущие изменения
             yield return new WaitForFixedUpdate();
         }
     }

@@ -55,7 +55,6 @@ public class VehicleForce : MonoBehaviour
     private void Update()
     {
         if (!_Active) return;
-        //if (Player.Instance._playerMode != PlayerMode.VehicleControl) return;
 
         if (_rb)
         {

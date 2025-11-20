@@ -64,11 +64,9 @@ public class TerrainGenerator : MonoBehaviour
             return;
         }
 
-        // Создаем корневой объект для ландшафта
         GameObject terrainObject = new GameObject("GeneratedTerrain");
         _generatedTerrain = terrainObject;
 
-        // Настраиваем слой
         int groundLayer = LayerMask.NameToLayer("Ground");
         if (groundLayer != -1)
         {
@@ -80,21 +78,17 @@ public class TerrainGenerator : MonoBehaviour
                 "Слой 'Ground' не найден. Пожалуйста, создайте его в Project Settings -> Tags and Layers.");
         }
 
-        // Настраиваем Rigidbody
         Rigidbody rb = terrainObject.AddComponent<Rigidbody>();
         rb.isKinematic = true;
         rb.useGravity = false;
         rb.constraints = RigidbodyConstraints.FreezeAll;
 
-        // Временный контейнер для кубов
         GameObject cubesHolder = new GameObject("~CubesHolder");
         cubesHolder.transform.SetParent(terrainObject.transform, false);
 
-        // Подготовка материалов и порогов для цветов
         var colorMaterials = new Dictionary<Color, Material>();
         var colorThresholds = PrepareColorThresholds();
 
-        // Генерация примитивных кубов
         for (int x = 0; x < _width; x++)
         {
             for (int z = 0; z < _depth; z++)
@@ -103,13 +97,10 @@ public class TerrainGenerator : MonoBehaviour
                 cube.transform.SetParent(cubesHolder.transform);
                 cube.transform.localPosition = new Vector3(x, 0, z);
 
-                // Удаляем стандартный коллайдер, т.к. будет один общий
                 DestroyImmediate(cube.GetComponent<BoxCollider>());
 
-                // Выбор цвета по шуму
                 Color selectedColor = GetColorFromNoise(x, z, colorThresholds);
 
-                // Назначение материала
                 Material materialInstance;
                 if (!colorMaterials.TryGetValue(selectedColor, out materialInstance))
                 {
@@ -121,18 +112,12 @@ public class TerrainGenerator : MonoBehaviour
             }
         }
 
-        // Объединение мешей
         CombineMeshes(terrainObject, cubesHolder, groundLayer);
 
-        // Удаление временного контейнера
         DestroyImmediate(cubesHolder);
 
-        // Добавляем единый BoxCollider
         BoxCollider boxCollider = terrainObject.AddComponent<BoxCollider>();
-        // Размер коллайдера равен размерам всей сетки кубов
         boxCollider.size = new Vector3(_width, 1, _depth);
-        // Центр коллайдера должен быть смещен на половину размера, минус половина куба,
-        // так как позиции кубов начинаются с 0, а центр коллайдера отсчитывается от центра объекта.
         boxCollider.center = new Vector3((_width - 1) / 2f, 0, (_depth - 1) / 2f);
     }
 
@@ -172,7 +157,7 @@ public class TerrainGenerator : MonoBehaviour
             }
         }
 
-        return thresholds.Last().Value; // Возвращаем последний цвет, если что-то пошло не так
+        return thresholds.Last().Value;
     }
 
     private void CombineMeshes(GameObject terrainObject, GameObject cubesHolder, int layer)
@@ -211,21 +196,18 @@ public class TerrainGenerator : MonoBehaviour
 
     public void Clear()
     {
-        // Сначала удаляем по прямой ссылке, если она есть
         if (_generatedTerrain != null)
         {
             DestroyImmediate(_generatedTerrain);
-            return; // Выходим, чтобы не искать снова
+            return;
         }
 
-        // В противном случае ищем по имени как запасной вариант
         GameObject oldTerrain = GameObject.Find("GeneratedTerrain");
         if (oldTerrain != null)
         {
             DestroyImmediate(oldTerrain);
         }
 
-        // Также очищаем дочерние объекты, которые могли быть созданы старыми версиями скрипта
         while (transform.childCount > 0)
         {
             DestroyImmediate(transform.GetChild(0).gameObject);

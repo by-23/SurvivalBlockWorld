@@ -24,7 +24,7 @@ public class ColorCube : MonoBehaviour
         if (_gradient)
         {
             _color = color * ShadeMultiplier;
-            _gradient = false; // Отключаем градиент после первого применения
+            _gradient = false;
         }
         else
         {
@@ -34,7 +34,6 @@ public class ColorCube : MonoBehaviour
         _quantizedColor = QuantizeColor(_color);
         ApplyColor(_quantizedColor);
 
-        // Обновляем кэш в Cube после установки цвета
         var cube = GetComponent<Cube>();
         if (cube != null)
         {
@@ -47,12 +46,12 @@ public class ColorCube : MonoBehaviour
 
     private void OnValidate()
     {
-        if (Application.isPlaying) return; // Не выполнять в рантайме, чтобы не мешать Setup
+        if (Application.isPlaying) return;
 
         if (_gradient)
         {
             _color *= ShadeMultiplier;
-            _gradient = false; // Отключаем градиент после применения в редакторе
+            _gradient = false;
         }
 
         _quantizedColor = QuantizeColor(_color);
@@ -68,7 +67,6 @@ public class ColorCube : MonoBehaviour
         if (_propertyBlock == null)
             _propertyBlock = new MaterialPropertyBlock();
 
-        // Снижаем количество уникальных draw call через квантизацию цвета
         _propertyBlock.Clear();
         Color asColor = color;
         _propertyBlock.SetColor(BaseColorId, asColor);

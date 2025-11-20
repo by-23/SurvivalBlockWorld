@@ -1,8 +1,5 @@
 using UnityEngine;
 
-/// <summary>
-/// Handles entity selection when player hovers over objects using raycast
-/// </summary>
 public class EntitySelector : MonoBehaviour
 {
     [Header("References")] [SerializeField]
@@ -67,17 +64,11 @@ public class EntitySelector : MonoBehaviour
         _isHovering = false;
     }
 
-    /// <summary>
-    /// Gets the currently hovered entity
-    /// </summary>
     public Entity GetHoveredEntity()
     {
         return _hoveredEntity;
     }
 
-    /// <summary>
-    /// Checks if player is hovering over any entity
-    /// </summary>
     public bool IsHovering()
     {
         return _isHovering;

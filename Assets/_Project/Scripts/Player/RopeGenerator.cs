@@ -20,7 +20,6 @@ public class RopeGenerator : MonoBehaviour
     [SerializeField] float _slowdownSpeed = 2f;
     const float HookRayDistance = 300f;
 
-    // public Ragdoll _ragdoll;
     [SerializeField] float _deflectPower = 50;
     [SerializeField] LayerMask _layerMask;
     [SerializeField] LayerMask _groundLayerMask;
@@ -41,15 +40,6 @@ public class RopeGenerator : MonoBehaviour
         _player = GetComponentInParent<Player>();
         _ropes ??= new List<Rope>(_ropeCountLimit);
     }
-
-    /*private void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.R))
-            Hook();
-
-        if (Input.GetKeyDown(KeyCode.O))
-            Clear();
-    }*/
 
     void Update()
     {
@@ -103,8 +93,6 @@ public class RopeGenerator : MonoBehaviour
             DetachRope(rope);
         }
 
-        //CharacterManager.instance.JointsDisconnect();
-
         _isCompleted = true;
     }
 
@@ -130,7 +118,6 @@ public class RopeGenerator : MonoBehaviour
 
     Rigidbody ResolveConnectedBody(RaycastHit hit)
     {
-        // Гарантируем валидное тело для соединения хука
         Entity entity = hit.collider.GetComponentInParent<Entity>();
         if (entity != null)
         {
@@ -184,7 +171,6 @@ public class RopeGenerator : MonoBehaviour
 
     void UpdateHookTargets(Rope rope)
     {
-        // Настраиваем цели двух концов каната
         for (int i = 0; i < rope.hooks.Length; i++)
         {
             Hook ropeHook = rope.hooks[i].GetComponent<Hook>();
@@ -220,7 +206,6 @@ public class RopeGenerator : MonoBehaviour
         _attachments.Add(new AttachmentRecord(targetObject, rope));
     }
 
-    // Проверяем цели и отцепляем верёвки от удалённых объектов
     void CleanupDestroyedAttachments()
     {
         if (_attachments.Count == 0)
@@ -252,7 +237,6 @@ public class RopeGenerator : MonoBehaviour
         _attachments.RemoveAll(record => record.Rope == null || record.Target == null);
     }
 
-    // Замедляем объекты, если концы их верёвки сблизились
     void ApplyProximitySlowdown()
     {
         if (_slowdownDistance <= 0f || _slowdownSpeed < 0f)

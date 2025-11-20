@@ -3,10 +3,8 @@ using UnityEngine;
 
 public class Rope : MonoBehaviour
 {
-    [HideInInspector]
-    public LineRenderer render;
-    [HideInInspector]
-    public RopeGenerator ropeGenerator;
+    [HideInInspector] public LineRenderer render;
+    [HideInInspector] public RopeGenerator ropeGenerator;
     public GameObject[] hooks = new GameObject[2];
     float distance;
     public float minDistance = 1;
@@ -30,37 +28,13 @@ public class Rope : MonoBehaviour
 
             distance = Vector3.Distance(hooks[0].transform.position, hooks[1].transform.position);
 
-            if (distance < 5)
-            {
-                // if (hooks[1].transform.parent.GetComponent<Player>())
-                // {
-                //     ropeGenerator._ragdoll = hooks[0].transform.root.GetComponent<Ragdoll>();
-                // }
-            }
             if (distance < minDistance)
             {
-                if(_hook_1)
+                if (_hook_1)
                     _hook_1._notAttraction = true;
 
                 if (_hook_2)
                     _hook_2._notAttraction = true;
-
-                /*Ragdoll _ragdoll_0 = hooks[0].GetComponentInParent<Ragdoll>();
-                Ragdoll _ragdoll_1 = hooks[1].GetComponentInParent<Ragdoll>();
-
-                if (_ragdoll_0)
-                    _ragdoll_0.DestroyRope();
-
-                if (_ragdoll_1)
-                    _ragdoll_1.DestroyRope();
-
-                if (hooks[1].CompareTag("Hook"))
-                {
-                    Clear();
-                }
-
-                Destroy(hooks[0]);
-                hooks[0] = null;*/
             }
             else
             {
@@ -87,14 +61,13 @@ public class Rope : MonoBehaviour
     {
         ropeGenerator?.OnRopeCleared(this);
 
-        if(hooks[0] && hooks[0].gameObject.name != "Point")
+        if (hooks[0] && hooks[0].gameObject.name != "Point")
             Destroy(hooks[0]);
 
         if (hooks[1] && hooks[1].gameObject.name != "Point")
             Destroy(hooks[1]);
 
-        if(gameObject)
+        if (gameObject)
             Destroy(gameObject);
     }
-
 }

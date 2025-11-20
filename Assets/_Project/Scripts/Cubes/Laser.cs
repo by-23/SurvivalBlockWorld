@@ -5,7 +5,7 @@ public class Laser : MonoBehaviour
     public bool _Press;
 
     [SerializeField] Camera _camera;
-    [SerializeField] LayerMask _cubeLayerMask = -1; // Маска слоев для проверки кубов
+    [SerializeField] LayerMask _cubeLayerMask = -1;
 
 
     private void LateUpdate()

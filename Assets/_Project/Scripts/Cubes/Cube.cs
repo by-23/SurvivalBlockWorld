@@ -10,24 +10,21 @@ public class Cube : MonoBehaviour
     public byte BlockTypeID = 0;
 
     private Entity _entity;
-    [SerializeField] private MeshFilter _meshFilter; // Ссылка на MeshFilter
-    [SerializeField] private MeshRenderer _meshRenderer; // Ссылка на MeshRenderer
-    [SerializeField] private ColorCube _colorCube; // Ссылка на ColorCube
+    [SerializeField] private MeshFilter _meshFilter;
+    [SerializeField] private MeshRenderer _meshRenderer;
+    [SerializeField] private ColorCube _colorCube;
     private Rigidbody _rigidbody;
     private Collider _collider;
 
-    // Кэшированные значения для оптимизации (убирают тысячи вызовов get_sharedMesh и get_Color)
     private Mesh _cachedMesh;
     private Color32 _cachedColor32;
     private bool _cacheInitialized;
 
-    // Публичные свойства для обратной совместимости
     public MeshFilter MeshFilter => _meshFilter;
     public MeshRenderer MeshRenderer => _meshRenderer;
     public ColorCube ColorCube => _colorCube;
     public Color Color => _colorCube ? _colorCube.GetColor32() : Color.white;
 
-    // Быстрый доступ к кэшированному мешу (без вызова get_sharedMesh через Unity маршалинг)
     public Mesh CachedMesh
     {
         get
@@ -38,7 +35,6 @@ public class Cube : MonoBehaviour
         }
     }
 
-    // Быстрый доступ к кэшированному цвету (без вызова GetColor32 и проверок на null)
     public Color32 CachedColor32
     {
         get
@@ -49,7 +45,6 @@ public class Cube : MonoBehaviour
         }
     }
 
-    // Прямые ссылки для ещё более быстрого доступа (без проверок свойств)
     public MeshFilter DirectMeshFilter => _meshFilter;
     public MeshRenderer DirectMeshRenderer => _meshRenderer;
 
@@ -63,7 +58,6 @@ public class Cube : MonoBehaviour
         InitializeCache();
     }
 
-    // Инициализирует кэш меша и цвета (вызывается один раз)
     private void InitializeCache()
     {
         if (_cacheInitialized) return;
@@ -73,7 +67,6 @@ public class Cube : MonoBehaviour
         _cacheInitialized = true;
     }
 
-    // Обновляет кэш (вызывается при изменении меша или цвета)
     public void RefreshCache()
     {
         _cacheInitialized = false;
@@ -87,7 +80,6 @@ public class Cube : MonoBehaviour
         if (_meshRenderer == null) _meshRenderer = GetComponent<MeshRenderer>();
         if (_colorCube == null) _colorCube = GetComponent<ColorCube>();
 
-        // Обновляем кэш в редакторе при изменении компонентов
         if (Application.isPlaying)
             RefreshCache();
     }

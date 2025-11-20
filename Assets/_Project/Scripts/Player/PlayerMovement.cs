@@ -7,8 +7,8 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] float _runSpeed = 9;
     [SerializeField] float _gravity = 9.81f;
     [SerializeField] float _jumpHeight = 3;
-    [SerializeField] float _slopeLimit = 45f; // Максимальный угол наклона для ходьбы
-    [SerializeField] float _stepOffset = 0.3f; // Высота ступеньки, которую может преодолеть
+    [SerializeField] float _slopeLimit = 45f;
+    [SerializeField] float _stepOffset = 0.3f;
 
     [Header("Ground Check")] [SerializeField]
     bool _Grounded;
@@ -23,7 +23,6 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 _velocity;
     private float _speed;
 
-    // Режим левитации для строительства
     private bool _levitateMode;
     private bool _levitateUp;
     private bool _levitateDown;
@@ -31,25 +30,22 @@ public class PlayerMovement : MonoBehaviour
 
     void Awake()
     {
-        // Получаем CharacterController или создаем его
         _characterController = GetComponent<CharacterController>();
         if (_characterController == null)
         {
             _characterController = gameObject.AddComponent<CharacterController>();
         }
 
-        // Настраиваем CharacterController для работы с наклонами
         _characterController.height = 2f;
         _characterController.radius = 0.5f;
         _characterController.center = new Vector3(0, 1, 0);
         _characterController.slopeLimit = _slopeLimit;
         _characterController.stepOffset = _stepOffset;
-        _characterController.skinWidth = 0.08f; // Толщина кожи для лучшего контакта
+        _characterController.skinWidth = 0.08f;
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
 
-        // Регистрируемся в GameManager для кеша ссылки
         if (GameManager.Instance != null)
         {
             GameManager.Instance.RegisterPlayerMovement(this);
@@ -89,51 +85,38 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleMovement()
     {
-        // Проверяем режим игрока
         if (Player.Instance != null && Player.Instance._playerMode != PlayerMode.PlayerControl)
             return;
 
-        // Определяем скорость
         if (InputManager.Instance._Run)
             _speed = _runSpeed;
         else
             _speed = _moveSpeed;
 
-        // Получаем ввод
         Vector2 moveInput = InputManager.Instance._MoveInput;
-
-        // Создаем вектор движения относительно камеры
         Vector3 moveDirection = Vector3.zero;
-
-        // Уменьшаем порог для более чувствительного отклика на джойстик
         float deadZone = InputManager.Instance._TOUCH ? 0.05f : 0.1f;
 
         if (moveInput.magnitude > deadZone && Camera.main != null)
         {
-            // Получаем направление камеры (без наклона по Y)
             Vector3 forward = Camera.main.transform.forward;
             Vector3 right = Camera.main.transform.right;
 
-            // Убираем компонент Y из направлений
             forward.y = 0;
             right.y = 0;
 
-            // Нормализуем
             forward.Normalize();
             right.Normalize();
 
-            // Создаем направление движения
             moveDirection = forward * moveInput.y + right * moveInput.x;
             moveDirection.Normalize();
         }
 
-        // Применяем движение
         Vector3 movement = moveDirection * (_speed * Time.deltaTime);
 
-        // Добавляем небольшую силу вниз для лучшего контакта с наклонными поверхностями
         if (!_levitateMode && _Grounded && movement.magnitude > 0.1f)
         {
-            movement.y -= 0.1f; // Небольшая сила вниз для прижатия к поверхности
+            movement.y -= 0.1f;
         }
 
         _characterController.Move(movement);
@@ -143,30 +126,25 @@ public class PlayerMovement : MonoBehaviour
     {
         if (_Grounded)
         {
-            // Если на земле, сбрасываем вертикальную скорость
             if (_velocity.y < 0)
             {
-                _velocity.y = -2f; // Небольшая скорость вниз для лучшего контакта с землей
+                _velocity.y = -2f;
             }
         }
         else
         {
-            // Если в воздухе, применяем гравитацию
             _velocity.y -= _gravity * Time.deltaTime;
         }
 
-        // Применяем вертикальное движение
         _characterController.Move(_velocity * Time.deltaTime);
     }
 
     private void HandleLevitation()
     {
-        // в режиме левитации отключаем гравитацию и управляем по Y кнопками
         float y = 0f;
         if (_levitateUp) y += 1f;
         if (_levitateDown) y -= 1f;
 
-        // гасим вертикальную скорость из гравитации
         _velocity.y = 0f;
         Vector3 vertical = new Vector3(0f, y * _levitateSpeed, 0f) * Time.deltaTime;
 
@@ -196,8 +174,6 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleJump()
     {
-        // Проверяем ввод прыжка с клавиатуры (пробел)
-        // Используем тот же метод Jump(), что и для кнопки UI
         if (Input.GetKeyDown(KeyCode.Space))
         {
             Jump();
@@ -206,31 +182,23 @@ public class PlayerMovement : MonoBehaviour
 
     private void GroundedCheck()
     {
-        // Используем встроенную проверку CharacterController
         _Grounded = _characterController.isGrounded;
 
-        // Дополнительная проверка с помощью Physics.CheckSphere для более точного определения
         Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - _GroundedOffset,
             transform.position.z);
         bool physicsGrounded =
             Physics.CheckSphere(spherePosition, _GroundedRadius, _GroundLayers, QueryTriggerInteraction.Ignore);
 
-        // Используем более точную проверку
         _Grounded = physicsGrounded || _characterController.isGrounded;
 
-        // Дополнительная проверка с помощью Raycast для определения угла поверхности
-        // Используем меньшую дистанцию и проверяем вертикальную скорость, чтобы избежать преждевременного определения приземления
         if (!_Grounded)
         {
             RaycastHit hit;
             Vector3 rayStart = transform.position + Vector3.up * 0.1f;
-            // Используем меньшую дистанцию, близкую к высоте CharacterController
             float raycastDistance = 0.5f;
             if (Physics.Raycast(rayStart, Vector3.down, out hit, raycastDistance, _GroundLayers))
             {
                 float angle = Vector3.Angle(hit.normal, Vector3.up);
-                // Если угол поверхности меньше лимита наклона И вертикальная скорость не слишком большая (не падаем быстро)
-                // Считаем игрока на земле только если он медленно опускается или уже почти приземлился
                 if (angle < _slopeLimit && _velocity.y > -5f)
                 {
                     _Grounded = true;
@@ -251,14 +219,11 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleLaser()
     {
-        // Проверяем режим игрока
         if (Player.Instance != null && Player.Instance._playerMode != PlayerMode.PlayerControl)
             return;
 
-        // Проверяем, что лазер доступен
         if (_laser == null)
         {
-            // Пытаемся найти лазер автоматически
             _laser = FindFirstObjectByType<Laser>();
             if (_laser == null)
             {
@@ -266,14 +231,11 @@ public class PlayerMovement : MonoBehaviour
             }
         }
 
-        // Убеждаемся, что лазер активен
         if (!_laser.gameObject.activeInHierarchy)
         {
             _laser.gameObject.SetActive(true);
         }
 
-        // Обновляем лазер только если изменилось состояние клавиши E
-        // Это позволяет UI кнопкам работать независимо
         bool currentLaserState = InputManager.Instance._Laser;
         if (currentLaserState != _lastLaserState)
         {
@@ -284,18 +246,15 @@ public class PlayerMovement : MonoBehaviour
 
     private void OnDrawGizmosSelected()
     {
-        // Визуализация проверки земли
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(
             new Vector3(transform.position.x, transform.position.y - _GroundedOffset, transform.position.z),
             _GroundedRadius);
 
-        // Визуализация Raycast для проверки наклонов
         Gizmos.color = Color.red;
         Vector3 rayStart = transform.position + Vector3.up * 0.1f;
         Gizmos.DrawRay(rayStart, Vector3.down * 0.5f);
 
-        // Показываем лимит наклона
         Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(transform.position, 0.1f);
     }
