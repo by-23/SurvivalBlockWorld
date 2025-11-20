@@ -175,6 +175,11 @@ public class FirebaseAdapter
                 worldData.LikesCount = (int)Mathf.Max(0, likes);
             }
 
+            if (worldSnapshot.TryGetValue("userId", out string userId))
+            {
+                worldData.CreatorId = userId;
+            }
+
             QuerySnapshot snapshot = await _db.Collection("worlds").Document(worldId)
                 .Collection("chunks").GetSnapshotAsync();
 

@@ -9,6 +9,8 @@ namespace Assets._Project.Scripts.UI
     /// </summary>
     public class GhostEntityPlacer : MonoBehaviour
     {
+        [Header("UI")] [SerializeField] private UIManager _uiManager;
+
         [Header("Placement Settings")] [SerializeField]
         private LayerMask _surfaceLayerMask = 1;
 
@@ -16,6 +18,8 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private float _minGhostDistance = 2f;
 
         [SerializeField] private float _distanceMultiplier = 1f;
+
+        [SerializeField] private float _additionalVerticalOffset = 0f;
 
         [Header("Ghost Materials")] [SerializeField]
         private Material _ghostMaterialGreen;
@@ -55,6 +59,8 @@ namespace Assets._Project.Scripts.UI
         private void Awake()
         {
             _playerCamera = Camera.main;
+            if (_uiManager == null)
+                _uiManager = FindObjectOfType<UIManager>();
         }
 
         private void Update()
@@ -67,11 +73,13 @@ namespace Assets._Project.Scripts.UI
 
         internal void OnTriggerEnterInternal(Collider other)
         {
-            if (_ghostEntity == null || other.transform.root == _ghostEntity.transform.root)
+            if (_ghostEntity == null || other == null)
                 return;
 
-            int otherLayer = other.gameObject.layer;
-            if ((_surfaceLayerMask & (1 << otherLayer)) != 0)
+            if (other.transform.root == _ghostEntity.transform.root)
+                return;
+
+            if (other.isTrigger)
                 return;
 
             _overlappingColliders.Add(other);
@@ -132,6 +140,9 @@ namespace Assets._Project.Scripts.UI
             _isActive = true;
             _minRaycastHitY = float.MinValue;
             UpdateGhostPosition();
+
+            if (_uiManager != null)
+                _uiManager.ShowGhostTools();
         }
 
         public bool TryConfirm()
@@ -144,6 +155,9 @@ namespace Assets._Project.Scripts.UI
                 _materialColorizer.Restore();
                 _materialColorizer = null;
             }
+
+            if (_uiManager != null)
+                _uiManager.HideGhostTools();
 
             DestroyTriggerCollider();
             EnableCubesHolder();
@@ -168,6 +182,9 @@ namespace Assets._Project.Scripts.UI
                     _materialColorizer.Restore();
                     _materialColorizer = null;
                 }
+
+                if (_uiManager != null)
+                    _uiManager.HideGhostTools();
 
                 DestroyTriggerCollider();
                 EnableCubesHolder();
@@ -279,12 +296,14 @@ namespace Assets._Project.Scripts.UI
                 _hasLastValidPosition = true;
             }
 
+            /*
             Vector3 toCamera = cameraPosition - targetPosition;
             toCamera.y = 0f;
             if (toCamera.sqrMagnitude > 0.000001f)
             {
                 _ghostEntity.transform.rotation = Quaternion.LookRotation(-toCamera.normalized, Vector3.up);
             }
+            */
 
             Vector3 centeringOffset = GetWorldCenterOffset();
             if (centeringOffset.sqrMagnitude > 0.000001f)
@@ -303,6 +322,7 @@ namespace Assets._Project.Scripts.UI
                 }
             }
 
+            targetPosition.y += _additionalVerticalOffset;
             _ghostEntity.transform.position = targetPosition;
 
             _canPlace = _overlappingColliders.Count == 0;
@@ -514,6 +534,14 @@ namespace Assets._Project.Scripts.UI
             if (_ghostEntity == null)
                 return Vector3.zero;
             return _ghostEntity.transform.TransformVector(_boundsCenterOffset);
+        }
+
+        public void RotateGhost(float angle)
+        {
+            if (_ghostEntity != null)
+            {
+                _ghostEntity.transform.Rotate(Vector3.up, angle, Space.World);
+            }
         }
     }
 

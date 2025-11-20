@@ -85,6 +85,8 @@ public class Rope : MonoBehaviour
 
     public void Clear()
     {
+        ropeGenerator?.OnRopeCleared(this);
+
         if(hooks[0] && hooks[0].gameObject.name != "Point")
             Destroy(hooks[0]);
 

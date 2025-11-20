@@ -21,6 +21,7 @@ public class GameManager : MonoBehaviour
     }
 
     [Header("World Data")] public string CurrentWorldName = string.Empty;
+    public string CurrentWorldCreatorId = string.Empty;
     public bool PendingExitToMenu = false;
 
     private void Awake()

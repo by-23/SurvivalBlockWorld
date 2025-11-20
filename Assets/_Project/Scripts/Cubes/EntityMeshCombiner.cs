@@ -159,7 +159,9 @@ public class EntityMeshCombiner : MonoBehaviour
             var meshRenderer = cube.DirectMeshRenderer;
 
             Mesh mesh = cube.CachedMesh;
-            Color32 color = cube.CachedColor32;
+            // Получаем цвет напрямую из ColorCube вместо устаревшего кэша CachedColor32
+            // Кэш может быть инициализирован до установки цвета в ColorCube, что приводит к черным цветам
+            Color32 color = cube.ColorCube != null ? cube.ColorCube.GetColor32() : new Color32(255, 255, 255, 255);
 
             // Быстрая проверка валидности без лишних вызовов
             bool isValid = meshFilter != null && mesh != null && meshRenderer != null;
@@ -383,12 +385,6 @@ public class EntityMeshCombiner : MonoBehaviour
                 return;
             }
 
-            // Мало кубов — выгоды от Combine нет
-            if (_cachedComponents.Length <= 2)
-            {
-                _isCombining = false;
-                return;
-            }
 
             // Гарантируем валидность кэша кубов в Entity (один раз)
             if (_entity != null)
@@ -774,11 +770,6 @@ public class EntityMeshCombiner : MonoBehaviour
                 yield break;
             }
 
-            if (_cachedComponents.Length <= 2)
-            {
-                _isCombining = false;
-                yield break;
-            }
 
             // Проверяем и разделяем кубы на отдельные Entity если необходимо
             if (_entity != null)

@@ -36,7 +36,8 @@ public class SaveSystem : MonoBehaviour
         LocalOnly,
         OnlineOnly,
         UserPublished,
-        Community
+        Community,
+        DeveloperPublished
     }
 
 
@@ -339,6 +340,25 @@ public class SaveSystem : MonoBehaviour
             {
                 Debug.LogWarning($"No save data found for world '{worldName}'");
                 return false;
+            }
+
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.CurrentWorldName = worldName;
+                GameManager.Instance.CurrentWorldCreatorId = worldData.CreatorId;
+
+                // Для локальных сохранений, если ID создателя пуст, считаем, что это мир текущего пользователя.
+                if (string.IsNullOrEmpty(GameManager.Instance.CurrentWorldCreatorId) &&
+                    (source == WorldStorageSource.Auto || source == WorldStorageSource.LocalOnly ||
+                     source == WorldStorageSource.UserPublished))
+                {
+                    if (!UserManager.IsInitialized)
+                    {
+                        await UserManager.InitializeUserIdAsync(_firebaseAdapter);
+                    }
+
+                    GameManager.Instance.CurrentWorldCreatorId = UserManager.UserId;
+                }
             }
 
             progressCallback?.Invoke(0.4f);
@@ -925,6 +945,134 @@ public class SaveSystem : MonoBehaviour
         }
 
         return await _firebaseAdapter.GetUserWorldsMetadataAsync(userId);
+    }
+
+    public async System.Threading.Tasks.Task<List<WorldMetadata>> GetDeveloperWorldsMetadataAsync()
+    {
+        if (!_config.useFirebase || string.IsNullOrEmpty(_config.DeveloperUserId))
+        {
+            return new List<WorldMetadata>();
+        }
+
+        if (_firebaseAdapter == null)
+        {
+            if (_config == null)
+            {
+                _config = Resources.Load<SaveConfig>("SaveConfig");
+                if (_config == null)
+                {
+                    Debug.LogError("SaveConfig not found in Resources! Cannot initialize FirebaseAdapter.");
+                    return new List<WorldMetadata>();
+                }
+            }
+
+            if (_chunkManager == null)
+            {
+                _chunkManager = new ChunkManager(_config);
+            }
+
+            _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+        }
+
+        return await _firebaseAdapter.GetUserWorldsMetadataAsync(_config.DeveloperUserId);
+    }
+
+    public async System.Threading.Tasks.Task<bool> DeleteDeveloperWorldAsync(string worldName)
+    {
+        if (!_config.useFirebase || string.IsNullOrEmpty(_config.DeveloperUserId))
+        {
+            Debug.LogError(
+                "Delete developer world failed: Firebase is not configured or Developer User ID is not set in SaveConfig.");
+            return false;
+        }
+
+        try
+        {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Delete failed: World name cannot be empty.");
+                return false;
+            }
+
+            if (_firebaseAdapter == null)
+            {
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+
+            bool success = await _firebaseAdapter.DeleteWorldFromFirestore(worldName, _config.DeveloperUserId);
+
+            if (success)
+            {
+                Debug.Log($"Developer world '{worldName}' deleted successfully.");
+            }
+            else
+            {
+                Debug.LogError(
+                    $"Failed to delete developer world '{worldName}'. It might not exist or you are not the owner.");
+            }
+
+            return success;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"DeleteDeveloperWorldAsync failed for world '{worldName}': {e.Message}");
+            return false;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<bool> SaveWorldAsDeveloperAsync(string worldName)
+    {
+        if (!_config.useFirebase || string.IsNullOrEmpty(_config.DeveloperUserId))
+        {
+            Debug.LogError(
+                "Save as developer failed: Firebase is not configured or Developer User ID is not set in SaveConfig.");
+            return false;
+        }
+
+        // Эта логика дублирует часть SaveWorldAsync, но предназначена только для сохранения в Firebase
+        try
+        {
+            if (string.IsNullOrEmpty(worldName))
+            {
+                Debug.LogError("Save failed: World name cannot be empty.");
+                return false;
+            }
+
+            string screenshotPath = TakeScreenshot(worldName);
+            List<CubeData> allCubes = CollectAllCubesFromScene();
+            Dictionary<Vector3Int, ChunkData> chunks = _chunkManager.OrganizeCubesIntoChunks(allCubes);
+
+            WorldSaveData worldData = new WorldSaveData(
+                worldName,
+                _config.worldBoundsMin,
+                _config.worldBoundsMax
+            )
+            {
+                Chunks = chunks,
+                ScreenshotPath = screenshotPath
+            };
+
+            if (_firebaseAdapter == null)
+            {
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+
+            bool success = await _firebaseAdapter.SaveWorldToFirestore(worldData, _config.DeveloperUserId);
+            if (!success)
+            {
+                Debug.LogError(
+                    $"Failed to save world '{worldName}' to Firebase as developer. Check FirebaseAdapter logs.");
+                return false;
+            }
+
+            Debug.Log($"World '{worldName}' successfully saved to Firebase as a developer map.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"SaveWorldAsDeveloperAsync failed for '{worldName}': {e.Message}");
+            return false;
+        }
     }
 
     public bool DeleteLocalWorld(string worldName)

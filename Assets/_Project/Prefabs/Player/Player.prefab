@@ -85,7 +85,7 @@ MonoBehaviour:
   _deflectPower: 50
   _layerMask:
     serializedVersion: 2
-    m_Bits: 1537
+    m_Bits: 1545
   _camera: {fileID: 137428015986575511}
   _ropes: []
 --- !u!1 &118514933107935417

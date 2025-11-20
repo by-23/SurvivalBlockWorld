@@ -5,7 +5,8 @@ public class ColorCube : MonoBehaviour
     public bool _gradient, _remove;
     public Color _color = Color.white;
 
-    Color _gradColor;
+    private const float ShadeMultiplier = 0.85f;
+
     private Color32 _quantizedColor;
     private MaterialPropertyBlock _propertyBlock;
 
@@ -20,20 +21,18 @@ public class ColorCube : MonoBehaviour
 
     public void Setup(Color color)
     {
-        _color = color;
-
         if (_gradient)
         {
-            _gradColor = _color * Random.Range(0.8f, 0.9f);
-
-            _quantizedColor = QuantizeColor(_gradColor);
-            ApplyColor(_quantizedColor);
+            _color = color * ShadeMultiplier;
+            _gradient = false; // Отключаем градиент после первого применения
         }
         else
         {
-            _quantizedColor = QuantizeColor(_color);
-            ApplyColor(_quantizedColor);
+            _color = color;
         }
+
+        _quantizedColor = QuantizeColor(_color);
+        ApplyColor(_quantizedColor);
 
         // Обновляем кэш в Cube после установки цвета
         var cube = GetComponent<Cube>();
@@ -48,18 +47,16 @@ public class ColorCube : MonoBehaviour
 
     private void OnValidate()
     {
+        if (Application.isPlaying) return; // Не выполнять в рантайме, чтобы не мешать Setup
+
         if (_gradient)
         {
-            _gradColor = _color * Random.Range(0.8f, 0.9f);
+            _color *= ShadeMultiplier;
+            _gradient = false; // Отключаем градиент после применения в редакторе
+        }
 
-            _quantizedColor = QuantizeColor(_gradColor);
-            ApplyColor(_quantizedColor);
-        }
-        else
-        {
-            _quantizedColor = QuantizeColor(_color);
-            ApplyColor(_quantizedColor);
-        }
+        _quantizedColor = QuantizeColor(_color);
+        ApplyColor(_quantizedColor);
     }
 
     private void ApplyColor(Color32 color)
@@ -96,8 +93,7 @@ public class ColorCube : MonoBehaviour
     {
         if (_quantizedColor.a == 0)
         {
-            var source = _gradient ? _gradColor : _color;
-            _quantizedColor = QuantizeColor(source);
+            _quantizedColor = QuantizeColor(_color);
         }
 
         return _quantizedColor;

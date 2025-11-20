@@ -27,6 +27,7 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Bomb _raycastDetoucher;
         [SerializeField] private Button _bombButton;
         [SerializeField] private Button _jumpButton;
+        [SerializeField] private Button _hookButton;
 
         [SerializeField] private Button _moverButton;
 
@@ -34,6 +35,7 @@ namespace Assets._Project.Scripts.UI
         private Button _menuButton;
 
         [SerializeField] private GameObject _exitMenuPanel;
+        public GameObject ExitMenuPanel => _exitMenuPanel;
         [SerializeField] private TMP_InputField _exitMenuNameInput;
         [SerializeField] private Button _exitAndSaveButton;
         [SerializeField] private Button _exitWithoutSaveButton;
@@ -56,6 +58,10 @@ namespace Assets._Project.Scripts.UI
         [Header("Build Mode UI")] [SerializeField]
         private GameObject _levitateButtonsPanel;
 
+        [SerializeField] private Button _rotateGhostButton;
+        [SerializeField] private float _ghostRotationAngle = 90f;
+        [SerializeField] private GhostEntityPlacer _ghostEntityPlacer;
+
         [SerializeField] private EntityMover _entityMover;
         [SerializeField] private EntityManager _entityManager;
         private bool _lastHoldingState;
@@ -65,6 +71,7 @@ namespace Assets._Project.Scripts.UI
         private void Awake()
         {
             SceneManager.sceneLoaded += OnSceneLoaded;
+            _hookButton.onClick.AddListener(OnHookButtonPressed);
         }
 
         private void OnDestroy()
@@ -235,6 +242,7 @@ namespace Assets._Project.Scripts.UI
                 _lastGhostActiveState = _entityManager.IsGhostActive();
             }
 
+            if (_rotateGhostButton != null) _rotateGhostButton.gameObject.SetActive(false);
             UpdateMoverButtonState();
         }
 
@@ -257,6 +265,11 @@ namespace Assets._Project.Scripts.UI
 
         private void SetupButtons()
         {
+            if (_menuButton != null)
+            {
+                _menuButton.onClick.AddListener(RequestExitToMenu);
+            }
+
             if (_exitAndSaveButton != null)
             {
                 _exitAndSaveButton.onClick.AddListener(OnExitAndSavePressed);
@@ -280,6 +293,11 @@ namespace Assets._Project.Scripts.UI
             if (_jumpButton != null)
             {
                 _jumpButton.onClick.AddListener(OnJumpButtonPressed);
+            }
+
+            if (_rotateGhostButton != null)
+            {
+                _rotateGhostButton.onClick.AddListener(OnRotateGhostPressed);
             }
         }
 
@@ -643,6 +661,13 @@ namespace Assets._Project.Scripts.UI
 
         public void RequestExitToMenu()
         {
+            if (GameManager.Instance != null && !string.IsNullOrEmpty(GameManager.Instance.CurrentWorldCreatorId) &&
+                GameManager.Instance.CurrentWorldCreatorId != UserManager.UserId)
+            {
+                OnExitWithoutSavePressed();
+                return;
+            }
+
             if (_exitMenuPanel != null)
             {
                 _exitMenuPanel.SetActive(true);
@@ -784,6 +809,30 @@ namespace Assets._Project.Scripts.UI
             if (_raycastDetoucher != null)
             {
                 _raycastDetoucher.Raycast();
+            }
+        }
+
+        private void OnRotateGhostPressed()
+        {
+            if (_ghostEntityPlacer != null && _ghostEntityPlacer.IsActive)
+            {
+                _ghostEntityPlacer.RotateGhost(_ghostRotationAngle);
+            }
+        }
+
+        public void ShowGhostTools()
+        {
+            if (_rotateGhostButton != null)
+            {
+                _rotateGhostButton.gameObject.SetActive(true);
+            }
+        }
+
+        public void HideGhostTools()
+        {
+            if (_rotateGhostButton != null)
+            {
+                _rotateGhostButton.gameObject.SetActive(false);
             }
         }
 

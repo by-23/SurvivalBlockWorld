@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Collections;
 using UnityEngine;
-using Unity.VisualScripting;
 
 public class RopeGenerator : MonoBehaviour
 {
@@ -17,26 +16,30 @@ public class RopeGenerator : MonoBehaviour
     [SerializeField] Hook _hookPrefab;
 
     [SerializeField] Rope _ropePrefab;
+    [SerializeField] float _slowdownDistance = 3f;
+    [SerializeField] float _slowdownSpeed = 2f;
+    const float HookRayDistance = 300f;
 
     // public Ragdoll _ragdoll;
     [SerializeField] float _deflectPower = 50;
     [SerializeField] LayerMask _layerMask;
+    [SerializeField] LayerMask _groundLayerMask;
     [SerializeField] Camera _camera;
     public List<Rope> _ropes;
+    readonly List<AttachmentRecord> _attachments = new();
 
     private InputManager _input;
     private Rope _rope;
-    private bool _isCompleted;
+    private bool _isCompleted = true;
     private Vector3 _oldAngles;
     private Player _player;
 
     void Awake()
     {
         _instance = this;
-
-        _player = GetComponentInParent<Player>();
-
         _isCompleted = true;
+        _player = GetComponentInParent<Player>();
+        _ropes ??= new List<Rope>(_ropeCountLimit);
     }
 
     /*private void Update()
@@ -48,110 +51,35 @@ public class RopeGenerator : MonoBehaviour
             Clear();
     }*/
 
+    void Update()
+    {
+        CleanupDestroyedAttachments();
+        ApplyProximitySlowdown();
+    }
+
     public void Hook()
     {
-        Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
-        Ray ray = _camera.ScreenPointToRay(screenCenterPoint);
-        if (Physics.Raycast(ray, out RaycastHit hit, 300, _layerMask))
+        if (!TryGetHookHit(out RaycastHit hit))
+            return;
+
+        Hook hook = CreateHook(hit);
+        hook.joint.connectedBody = ResolveConnectedBody(hit);
+        GameObject targetObject = hit.collider ? hit.collider.gameObject : null;
+
+        if (_isCompleted)
         {
-            Hook hook = Instantiate(_hookPrefab);
-            hook.transform.position = hit.point;
-            hook.transform.SetParent(hit.collider.gameObject.transform);
-
-            Rigidbody rb = hit.transform.GetComponent<Rigidbody>();
-
-            /*Cube cube = hook.GetComponentInParent<Cube>();
-
-            if (cube)
-                cube.gameObject.name = "Hook";*/
-
-            // Проверяем, является ли объект Entity
-            Entity entity = hit.collider.GetComponentInParent<Entity>();
-            if (entity != null)
-            {
-                // Включаем физику на Entity
-                entity.EnablePhysics();
-                hook.joint.connectedBody = entity.GetComponent<Rigidbody>();
-            }
-            else if (rb)
-            {
-                // Включаем физику на существующем Rigidbody если он kinematic
-                if (rb.isKinematic)
-                {
-                    rb.isKinematic = false;
-                }
-
-                hook.joint.connectedBody = rb;
-            }
-            else
-            {
-                // Создаем новый Rigidbody с включенной физикой
-                Rigidbody _addRB = hit.collider.AddComponent<Rigidbody>();
-                _addRB.isKinematic = false; // Включаем физику
-                _addRB.mass = 1f; // Устанавливаем разумную массу
-                _addRB.drag = 0.5f; // Добавляем сопротивление для стабильности
-                _addRB.angularDrag = 0.5f; // Добавляем угловое сопротивление
-
-                hook.joint.connectedBody = _addRB;
-            }
-
-            if (_isCompleted)
-            {
-                /// Clear Ropes ///
-                if (_ropes.Count >= _ropeCountLimit)
-                    Clear();
-                /// Clear Ropes END ///
-
-                _rope = Instantiate(_ropePrefab).GetComponent<Rope>();
-                _rope.ropeGenerator = this;
-
-                _ropes.Add(_rope);
-
-                _rope.hooks[0] = hook.gameObject;
-                _rope.hooks[1] = _handPivot.gameObject;
-            }
-            else
-            {
-                if (!_rope)
-                {
-                    _isCompleted = !_isCompleted;
-                    _rope = null;
-                    return;
-                }
-
-                _rope.hooks[1] = hook.gameObject;
-
-
-                for (int i = 0; i < _rope.hooks.Length; i++)
-                {
-                    var _hook = _rope.hooks[i].GetComponent<Hook>();
-
-                    if (_hook)
-                    {
-                        if (_hook.enabled)
-                        {
-                            _hook.rope = _rope;
-
-                            if (i == 0)
-                            {
-                                _hook.target = _rope.hooks[1].transform;
-                            }
-                            else if (i == 1)
-                            {
-                                _hook.target = _rope.hooks[0].transform;
-                            }
-
-                            // Ragdoll ragdoll = _rope.hooks[i].GetComponentInParent<Ragdoll>();
-                            //
-                            // if (ragdoll)
-                            //     ragdoll.ChangeKinematic(_rope);
-                        }
-                    }
-                }
-            }
-
-            _isCompleted = !_isCompleted;
+            PrepareNewRope(hook, targetObject);
+            _isCompleted = false;
+            return;
         }
+
+        if (CompleteCurrentRope(hook, targetObject))
+        {
+            _isCompleted = true;
+            return;
+        }
+
+        _isCompleted = true;
     }
 
     public void Cancel()
@@ -160,8 +88,8 @@ public class RopeGenerator : MonoBehaviour
 
         if (_ropes.Count != 0)
         {
-            _ropes[_ropes.Count - 1].Clear();
-            _ropes.RemoveAt(_ropes.Count - 1);
+            Rope rope = _ropes[_ropes.Count - 1];
+            DetachRope(rope);
         }
 
         _isCompleted = true;
@@ -169,16 +97,255 @@ public class RopeGenerator : MonoBehaviour
 
     public void Clear()
     {
-        foreach (Rope rope in _ropes)
+        for (int i = _ropes.Count - 1; i >= 0; i--)
         {
-            if (rope)
-                rope.Clear();
+            Rope rope = _ropes[i];
+            DetachRope(rope);
         }
-
-        _ropes.Clear();
 
         //CharacterManager.instance.JointsDisconnect();
 
         _isCompleted = true;
+    }
+
+    bool TryGetHookHit(out RaycastHit hit)
+    {
+        hit = default;
+
+        if (!_camera)
+            return false;
+
+        Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        Ray ray = _camera.ScreenPointToRay(screenCenterPoint);
+        return Physics.Raycast(ray, out hit, HookRayDistance, _layerMask);
+    }
+
+    Hook CreateHook(RaycastHit hit)
+    {
+        Hook hook = Instantiate(_hookPrefab);
+        hook.transform.position = hit.point;
+        hook.transform.SetParent(hit.collider.transform, true);
+        return hook;
+    }
+
+    Rigidbody ResolveConnectedBody(RaycastHit hit)
+    {
+        // Гарантируем валидное тело для соединения хука
+        Entity entity = hit.collider.GetComponentInParent<Entity>();
+        if (entity != null)
+        {
+            entity.EnablePhysics();
+            Rigidbody entityRb = entity.GetComponent<Rigidbody>();
+            if (entityRb)
+                return entityRb;
+        }
+
+        Rigidbody rb = hit.rigidbody ? hit.rigidbody : hit.collider.GetComponent<Rigidbody>();
+        if (rb)
+        {
+            if (rb.isKinematic && !IsGroundLayer(hit.collider.gameObject.layer))
+                rb.isKinematic = false;
+            return rb;
+        }
+
+        bool isGround = IsGroundLayer(hit.collider.gameObject.layer);
+        Rigidbody addedRb = hit.collider.gameObject.AddComponent<Rigidbody>();
+        addedRb.isKinematic = isGround;
+        addedRb.mass = 1f;
+        addedRb.drag = 0.5f;
+        addedRb.angularDrag = 0.5f;
+        return addedRb;
+    }
+
+    void PrepareNewRope(Hook hook, GameObject targetObject)
+    {
+        if (_ropes.Count >= _ropeCountLimit)
+            Clear();
+
+        _rope = Instantiate(_ropePrefab);
+        _rope.ropeGenerator = this;
+        _ropes.Add(_rope);
+
+        _rope.hooks[0] = hook.gameObject;
+        _rope.hooks[1] = _handPivot.gameObject;
+        RegisterAttachment(targetObject, _rope);
+    }
+
+    bool CompleteCurrentRope(Hook hook, GameObject targetObject)
+    {
+        if (!_rope)
+            return false;
+
+        _rope.hooks[1] = hook.gameObject;
+        UpdateHookTargets(_rope);
+        RegisterAttachment(targetObject, _rope);
+        return true;
+    }
+
+    void UpdateHookTargets(Rope rope)
+    {
+        // Настраиваем цели двух концов каната
+        for (int i = 0; i < rope.hooks.Length; i++)
+        {
+            Hook ropeHook = rope.hooks[i].GetComponent<Hook>();
+
+            if (!ropeHook || !ropeHook.enabled)
+                continue;
+
+            ropeHook.rope = rope;
+            ropeHook.target = i == 0 ? rope.hooks[1].transform : rope.hooks[0].transform;
+        }
+    }
+
+    bool IsGroundLayer(int layer)
+    {
+        return (_groundLayerMask.value & (1 << layer)) != 0;
+    }
+
+    void RegisterAttachment(GameObject targetObject, Rope rope)
+    {
+        if (!targetObject || !rope)
+            return;
+
+        if (targetObject == _handPivot.gameObject)
+            return;
+
+        for (int i = 0; i < _attachments.Count; i++)
+        {
+            AttachmentRecord record = _attachments[i];
+            if (record.Rope == rope && record.Target == targetObject)
+                return;
+        }
+
+        _attachments.Add(new AttachmentRecord(targetObject, rope));
+    }
+
+    // Проверяем цели и отцепляем верёвки от удалённых объектов
+    void CleanupDestroyedAttachments()
+    {
+        if (_attachments.Count == 0)
+            return;
+
+        HashSet<Rope> ropesToDetach = null;
+
+        foreach (AttachmentRecord record in _attachments)
+        {
+            if (record.Target != null)
+                continue;
+
+            if (!record.Rope)
+                continue;
+
+            ropesToDetach ??= new HashSet<Rope>();
+            ropesToDetach.Add(record.Rope);
+        }
+
+        if (ropesToDetach == null)
+        {
+            _attachments.RemoveAll(record => record.Rope == null);
+            return;
+        }
+
+        foreach (Rope rope in ropesToDetach)
+            DetachRope(rope);
+
+        _attachments.RemoveAll(record => record.Rope == null || record.Target == null);
+    }
+
+    // Замедляем объекты, если концы их верёвки сблизились
+    void ApplyProximitySlowdown()
+    {
+        if (_slowdownDistance <= 0f || _slowdownSpeed < 0f)
+            return;
+
+        if (_ropes == null || _ropes.Count == 0)
+            return;
+
+        float slowdownDistanceSqr = _slowdownDistance * _slowdownDistance;
+        float targetSpeed = Mathf.Max(0f, _slowdownSpeed);
+
+        for (int i = 0; i < _ropes.Count; i++)
+        {
+            Rope rope = _ropes[i];
+            if (!rope || rope.hooks == null || rope.hooks.Length < 2)
+                continue;
+
+            GameObject firstHook = rope.hooks[0];
+            GameObject secondHook = rope.hooks[1];
+
+            if (!firstHook || !secondHook)
+                continue;
+
+            Vector3 delta = firstHook.transform.position - secondHook.transform.position;
+            if (delta.sqrMagnitude >= slowdownDistanceSqr)
+                continue;
+
+            ApplyRigidbodySlowdown(GetConnectedBody(firstHook), targetSpeed);
+            ApplyRigidbodySlowdown(GetConnectedBody(secondHook), targetSpeed);
+        }
+    }
+
+    Rigidbody GetConnectedBody(GameObject hookObject)
+    {
+        if (!hookObject)
+            return null;
+
+        if (!hookObject.TryGetComponent(out Hook hook) || !hook.joint)
+            return null;
+
+        return hook.joint.connectedBody;
+    }
+
+    void ApplyRigidbodySlowdown(Rigidbody rb, float targetSpeed)
+    {
+        if (!rb || rb.isKinematic)
+            return;
+
+        Vector3 velocity = rb.velocity;
+        float targetSqr = targetSpeed * targetSpeed;
+
+        if (velocity.sqrMagnitude <= targetSqr)
+            return;
+
+        rb.velocity = velocity.normalized * targetSpeed;
+    }
+
+    void DetachRope(Rope rope)
+    {
+        if (!rope)
+            return;
+
+        rope.Clear();
+    }
+
+    void RemoveAttachmentsForRope(Rope rope)
+    {
+        _attachments.RemoveAll(record => record.Rope == rope);
+    }
+
+    public void OnRopeCleared(Rope rope)
+    {
+        if (!rope)
+            return;
+
+        RemoveAttachmentsForRope(rope);
+        _ropes.Remove(rope);
+
+        if (_rope == rope)
+            _rope = null;
+
+        _isCompleted = true;
+    }
+
+    class AttachmentRecord
+    {
+        public readonly GameObject Target;
+        public readonly Rope Rope;
+
+        public AttachmentRecord(GameObject targetObject, Rope ropeInstance)
+        {
+            Target = targetObject;
+            Rope = ropeInstance;
+        }
     }
 }

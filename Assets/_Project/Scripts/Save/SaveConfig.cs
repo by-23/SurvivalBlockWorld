@@ -30,6 +30,8 @@ public class SaveConfig : ScriptableObject
     [Header("Entity Settings")] [Tooltip("Scale factor for entities when loading from save data")]
     public float entityScale = 0.35f;
 
+    [Header("Developer Settings")] public string DeveloperUserId = "defaultDeveloperId";
+
     public string GetSavePath()
     {
         return System.IO.Path.Combine(Application.persistentDataPath, saveFileName);

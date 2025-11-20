@@ -94,6 +94,13 @@ public class Entity : MonoBehaviour
         if (_cubesHolder != null)
             return _cubesHolder;
 
+        Transform cubesHolderTransform = transform.Find("Cubes");
+        if (cubesHolderTransform != null)
+        {
+            _cubesHolder = cubesHolderTransform.gameObject;
+            return _cubesHolder;
+        }
+
         _cubesHolder = new GameObject("Cubes");
         _cubesHolder.transform.SetParent(transform);
         _cubesHolder.transform.localPosition = Vector3.zero;

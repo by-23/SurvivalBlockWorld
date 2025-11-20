@@ -30,6 +30,7 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Button addColorButton;
         [SerializeField] private Button colorButtonPrefab;
         [SerializeField] private Button applyColorButton;
+        [SerializeField] private Button cancelColorButton;
 
         [Header("Color Picker")] [SerializeField]
         private GameObject colorPickerPanel;
@@ -89,6 +90,11 @@ namespace Assets._Project.Scripts.UI
                 applyColorButton.onClick.AddListener(OnApplyColorButtonClicked);
             }
 
+            if (cancelColorButton != null)
+            {
+                cancelColorButton.onClick.AddListener(OnCancelColorButtonClicked);
+            }
+
             if (colorPickerPanel != null)
             {
                 colorPickerPanel.SetActive(false);
@@ -99,6 +105,7 @@ namespace Assets._Project.Scripts.UI
             CacheCamera();
 
             _pendingColor = _selectedColor;
+            UpdateCreateButtonState();
         }
 
         private void CacheCamera()
@@ -361,6 +368,7 @@ namespace Assets._Project.Scripts.UI
 
             SetupGhostCubeMaterial();
             ShowGhostCube();
+            UpdateCreateButtonState();
         }
 
         private void OnApplyColorButtonClicked()
@@ -389,12 +397,24 @@ namespace Assets._Project.Scripts.UI
 
             SetupGhostCubeMaterial();
             ShowGhostCube();
+            UpdateCreateButtonState();
 
             // Закрываем палитру после применения цвета
             if (colorPickerPanel != null)
             {
                 colorPickerPanel.SetActive(false);
             }
+        }
+
+        private void OnCancelColorButtonClicked()
+        {
+            _pendingColor = _selectedColor;
+            UpdatePickerPreview(_selectedColor);
+
+            _isColorPicking = false;
+            _hasHoverColor = false;
+
+            CancelColorPick();
         }
 
         private bool ColorButtonExists(Color color)
@@ -454,6 +474,14 @@ namespace Assets._Project.Scripts.UI
         private void OnCreateButtonClicked()
         {
             CreateCube();
+        }
+
+        private void UpdateCreateButtonState()
+        {
+            if (createButton == null) return;
+
+            bool hasColorSelected = _selectedColorButton != null;
+            createButton.interactable = hasColorSelected;
         }
 
         private void OnDeleteButtonClicked()
@@ -563,6 +591,30 @@ namespace Assets._Project.Scripts.UI
 
             bool isOccupied = IsPositionOccupied(magnetizedPosition);
             UpdateGhostMaterial(isOccupied);
+        }
+
+        private bool IsSnappingAllowed(Transform cubeTransform)
+        {
+            if (cubeTransform == null) return false;
+
+            // Проверяем, не наклонен ли куб
+            if (IsCubeTilted(cubeTransform))
+            {
+                return false;
+            }
+
+            // Проверяем совпадение поворота с ghost-кубом
+            if (_ghostRoot != null)
+            {
+                float angleDifference = Quaternion.Angle(_ghostRoot.transform.rotation, cubeTransform.rotation);
+                // Допуск в 1 градус для сравнения
+                if (angleDifference > 1f)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private bool IsCubeTilted(Transform cubeTransform)
@@ -817,25 +869,21 @@ namespace Assets._Project.Scripts.UI
 
             Ray ray = new Ray(cameraPosition, cameraForward);
 
-            if (Physics.Raycast(ray, out RaycastHit cubeHit, 50f))
-            {
-                GameObject hitObject = cubeHit.collider.gameObject;
-                Cube hitCube = hitObject.GetComponent<Cube>();
-
-                if (hitCube != null)
-                {
-                    // Пропускаем наклоненные кубы
-                    if (!IsCubeTilted(hitCube.transform))
-                    {
-                        return SnapToNearestSideFromPlayer(cameraPosition, hitObject.transform.position);
-                    }
-                }
-            }
-
             if (Physics.Raycast(ray, out RaycastHit hit, 50f))
             {
+                Cube hitCube = hit.collider.GetComponent<Cube>();
+
+                // Приоритет: если луч попал в ровный куб, прилипаем к стороне попадания.
+                if (hitCube != null && IsSnappingAllowed(hitCube.transform))
+                {
+                    Vector3 placementNormal = GetClosestSideToDirection(hit.normal);
+                    return hitCube.transform.position + placementNormal * _cubeSize;
+                }
+
+                // Фоллбэк: если не попали в куб, или куб наклонен, ищем другие варианты.
                 Vector3 spherecastResult = FindNearestCubeWithSpherecast(hit.point, cameraPosition);
 
+                // Если рядом кубов нет, но попали в землю - ставим на землю.
                 if (spherecastResult == Vector3.zero &&
                     ((1 << hit.collider.gameObject.layer) & _groundLayerMask) != 0)
                 {
@@ -846,10 +894,8 @@ namespace Assets._Project.Scripts.UI
 
                 return spherecastResult;
             }
-            else
-            {
-                return Vector3.zero;
-            }
+
+            return Vector3.zero;
         }
 
         private Vector3 FindNearestCubeWithSpherecast(Vector3 hitPoint, Vector3 cameraPosition)
@@ -868,8 +914,8 @@ namespace Assets._Project.Scripts.UI
                 Cube cube = hit.collider.GetComponent<Cube>();
                 if (cube != null)
                 {
-                    // Пропускаем наклоненные кубы
-                    if (IsCubeTilted(cube.transform))
+                    // Пропускаем кубы с несовместимым поворотом
+                    if (!IsSnappingAllowed(cube.transform))
                         continue;
 
                     cubeHits.Add(hit);
@@ -975,17 +1021,19 @@ namespace Assets._Project.Scripts.UI
 
         protected override bool IsPositionOccupied(Vector3 position)
         {
-            Collider[] colliders = Physics.OverlapBox(position, Vector3.one * (_cubeSize * 0.49f));
+            Vector3 halfExtents = Vector3.one * (_cubeSize * 0.49f);
+            Collider[] colliders = Physics.OverlapBox(position, halfExtents, Quaternion.identity,
+                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
 
             foreach (Collider cubeCollider in colliders)
             {
-                if (_ghostRoot != null && cubeCollider.gameObject == _ghostRoot)
+                if (cubeCollider == null)
                     continue;
 
-                if (cubeCollider.GetComponent<Cube>() != null)
-                {
-                    return true;
-                }
+                if (_ghostRoot != null && cubeCollider.transform.root == _ghostRoot.transform)
+                    continue; // Игнорируем собственный ghost-куб
+
+                return true;
             }
 
             return false;
@@ -1016,8 +1064,8 @@ namespace Assets._Project.Scripts.UI
                 Cube cube = nearbyCollider.GetComponent<Cube>();
                 if (cube != null)
                 {
-                    // Пропускаем наклоненные кубы
-                    if (IsCubeTilted(cube.transform))
+                    // Пропускаем кубы с несовместимым поворотом
+                    if (!IsSnappingAllowed(cube.transform))
                         continue;
 
                     Vector3 cubePosition = nearbyCollider.transform.position;
@@ -1357,7 +1405,7 @@ namespace Assets._Project.Scripts.UI
             Vector3 diff = pos1 - pos2;
             float distance = diff.magnitude;
             // Кубы соприкасаются, если расстояние примерно равно размеру куба (с небольшой погрешностью)
-            float tolerance = _cubeSize * 0.1f;
+            float tolerance = _cubeSize * 0.01f;
             return Mathf.Abs(distance - _cubeSize) < tolerance;
         }
 

@@ -56,6 +56,7 @@ MonoBehaviour:
   colorButtonPrefab: {fileID: 2539358945995382460, guid: 47157ec1d57384f0090cf386de2c480d,
     type: 3}
   applyColorButton: {fileID: 0}
+  cancelColorButton: {fileID: 0}
   colorPickerPanel: {fileID: 0}
   paletteImage: {fileID: 0}
   previewImage: {fileID: 0}
@@ -68,7 +69,7 @@ MonoBehaviour:
     type: 3}
   _ghostCubePrefab: {fileID: 7642547984514944024, guid: dd53ea0c92a354139b3a4cabd4e77bf5,
     type: 3}
-  _groupingTimerDuration: 2
+  _groupingTimerDuration: 3
 --- !u!1 &2459096628326300435
 GameObject:
   m_ObjectHideFlags: 0
@@ -160,15 +161,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _surfaceLayerMask:
     serializedVersion: 2
-    m_Bits: 65545
-  _surfaceOffset: 0.1
+    m_Bits: 66569
   _maxGhostDistance: 50
   _minGhostDistance: 5
   _distanceMultiplier: 1
+  _additionalVerticalOffset: 0.1
   _ghostMaterialGreen: {fileID: 2100000, guid: c2e5da4fa9f59e84096ab0ad2d4deff7, type: 2}
   _ghostMaterialRed: {fileID: 2100000, guid: 7f48292e9165348dfbe135eb468b0582, type: 2}
   _ghostTransparency: 1
-  _snapToSurface: 1
 --- !u!1 &3271551172133880201
 GameObject:
   m_ObjectHideFlags: 0

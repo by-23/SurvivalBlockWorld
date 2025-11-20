@@ -13,6 +13,7 @@ public class WorldSaveData
     public long Timestamp;
     public Dictionary<Vector3Int, ChunkData> Chunks = new Dictionary<Vector3Int, ChunkData>();
     public int LikesCount;
+    public string CreatorId;
 
     public WorldSaveData(string name, Vector3Int boundsMin, Vector3Int boundsMax)
     {
@@ -22,6 +23,7 @@ public class WorldSaveData
         Timestamp = DateTime.UtcNow.Ticks;
         ScreenshotPath = string.Empty;
         LikesCount = 0;
+        CreatorId = string.Empty;
     }
 
     public byte[] PackToBinary()
@@ -48,6 +50,7 @@ public class WorldSaveData
             }
 
             writer.Write(LikesCount);
+            writer.Write(CreatorId ?? "");
 
             return ms.ToArray();
         }
@@ -89,6 +92,11 @@ public class WorldSaveData
             if (reader.BaseStream.Position < reader.BaseStream.Length)
             {
                 world.LikesCount = reader.ReadInt32();
+            }
+            
+            if (reader.BaseStream.Position < reader.BaseStream.Length)
+            {
+                world.CreatorId = reader.ReadString();
             }
 
             return world;

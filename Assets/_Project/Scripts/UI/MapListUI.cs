@@ -17,11 +17,11 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Transform _publishedMapListContainer;
 
         [SerializeField] private GameObject _localMapListObject;
-        [SerializeField] private GameObject _publishedMapListObject;
+        [SerializeField] private GameObject _developerMapListObject;
 
         [SerializeField] private GameObject _mapItemPrefab;
         [SerializeField] private Button _localMapsButton;
-        [SerializeField] private Button _publishedMapsButton;
+        [SerializeField] private Button _developerMapsButton;
         [SerializeField] private Button _communityMapsButton;
         [SerializeField] private Button _startNewGameButton; // Кнопка «Новая игра»
 
@@ -93,7 +93,7 @@ namespace Assets._Project.Scripts.UI
             if (_startNewGameButton != null)
             {
                 _startNewGameButton.onClick.RemoveAllListeners();
-                _startNewGameButton.onClick.AddListener(PromptNewMapName);
+                _startNewGameButton.onClick.AddListener(() => StartNewGame());
             }
 
             if (_localMapsButton != null)
@@ -108,10 +108,10 @@ namespace Assets._Project.Scripts.UI
                 _communityMapsButton.onClick.AddListener(OnCommunityListButtonPressed);
             }
 
-            if (_publishedMapsButton != null)
+            if (_developerMapsButton != null)
             {
-                _publishedMapsButton.onClick.RemoveAllListeners();
-                _publishedMapsButton.onClick.AddListener(OnPublishedListButtonPressed);
+                _developerMapsButton.onClick.RemoveAllListeners();
+                _developerMapsButton.onClick.AddListener(OnPublishedListButtonPressed);
             }
 
             if (_confirmNewMapButton != null)
@@ -230,13 +230,28 @@ namespace Assets._Project.Scripts.UI
                         }
                     }
                 }
+                else if (source == SaveSystem.WorldStorageSource.DeveloperPublished)
+                {
+                    var developerWorlds = await _saveSystem.GetDeveloperWorldsMetadataAsync();
+                    if (developerWorlds != null)
+                    {
+                        foreach (var metadata in developerWorlds)
+                        {
+                            CreateMapItem(metadata,
+                                GetContainerForSource(SaveSystem.WorldStorageSource.DeveloperPublished),
+                                SaveSystem.WorldStorageSource.DeveloperPublished);
+                        }
+                    }
+                }
                 else if (source == SaveSystem.WorldStorageSource.Community)
                 {
                     _userLikedWorlds = await _saveSystem.GetUserLikedWorldsAsync();
                     var allWorlds = await _saveSystem.GetAllWorldsMetadata();
                     if (allWorlds != null)
                     {
-                        foreach (var metadata in allWorlds)
+                        string developerId = _saveSystem.Config.DeveloperUserId;
+                        var communityWorlds = allWorlds.Where(w => w.UserId != developerId);
+                        foreach (var metadata in communityWorlds)
                         {
                             CreateMapItem(metadata, GetContainerForSource(SaveSystem.WorldStorageSource.Community),
                                 SaveSystem.WorldStorageSource.Community);
@@ -306,6 +321,13 @@ namespace Assets._Project.Scripts.UI
                 mapItemView.SetPublishButtonEnabled(false);
                 mapItemView.SetDeleteButtonEnabled(true);
             }
+            else if (source == SaveSystem.WorldStorageSource.DeveloperPublished)
+            {
+                mapItemView.SetLikesEnabled(false);
+                mapItemView.SetLikesVisible(false);
+                mapItemView.SetPublishButtonEnabled(false);
+                mapItemView.SetDeleteButtonEnabled(false);
+            }
             else
             {
                 mapItemView.SetLikesEnabled(false);
@@ -347,7 +369,7 @@ namespace Assets._Project.Scripts.UI
 
         private void OnPublishedListButtonPressed()
         {
-            ToggleList(SaveSystem.WorldStorageSource.UserPublished);
+            ToggleList(SaveSystem.WorldStorageSource.DeveloperPublished);
         }
 
         private void ToggleList(SaveSystem.WorldStorageSource targetSource)
@@ -377,6 +399,7 @@ namespace Assets._Project.Scripts.UI
 
             bool showLocal = _activeListSource.Value == SaveSystem.WorldStorageSource.LocalOnly;
             bool showOnline = _activeListSource.Value == SaveSystem.WorldStorageSource.UserPublished ||
+                              _activeListSource.Value == SaveSystem.WorldStorageSource.DeveloperPublished ||
                               _activeListSource.Value == SaveSystem.WorldStorageSource.Community;
 
             if (_localMapListObject != null)
@@ -384,9 +407,9 @@ namespace Assets._Project.Scripts.UI
                 _localMapListObject.SetActive(showLocal);
             }
 
-            if (_publishedMapListObject != null)
+            if (_developerMapListObject != null)
             {
-                _publishedMapListObject.SetActive(showOnline);
+                _developerMapListObject.SetActive(showOnline);
             }
         }
 
@@ -397,9 +420,9 @@ namespace Assets._Project.Scripts.UI
                 _localMapListObject.SetActive(false);
             }
 
-            if (_publishedMapListObject != null)
+            if (_developerMapListObject != null)
             {
-                _publishedMapListObject.SetActive(false);
+                _developerMapListObject.SetActive(false);
             }
         }
 
@@ -417,11 +440,11 @@ namespace Assets._Project.Scripts.UI
                                                     _activeListSource.Value != SaveSystem.WorldStorageSource.Community;
             }
 
-            if (_publishedMapsButton != null)
+            if (_developerMapsButton != null)
             {
-                _publishedMapsButton.interactable = !_activeListSource.HasValue ||
+                _developerMapsButton.interactable = !_activeListSource.HasValue ||
                                                     _activeListSource.Value !=
-                                                    SaveSystem.WorldStorageSource.UserPublished;
+                                                    SaveSystem.WorldStorageSource.DeveloperPublished;
             }
         }
 
@@ -811,6 +834,13 @@ namespace Assets._Project.Scripts.UI
             if (isInMenu)
             {
                 await LoadMapSceneAsync();
+            }
+
+            // Если это новая игра (имя карты не указано), сбрасываем данные
+            if (string.IsNullOrEmpty(mapName) && GameManager.Instance != null)
+            {
+                GameManager.Instance.CurrentWorldName = string.Empty;
+                GameManager.Instance.CurrentWorldCreatorId = UserManager.UserId;
             }
 
             // Если указано имя карты, загружаем её
