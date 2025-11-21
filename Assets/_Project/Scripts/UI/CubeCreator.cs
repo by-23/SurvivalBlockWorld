@@ -1145,8 +1145,13 @@ namespace Assets._Project.Scripts.UI
 
             GameObject newCube = Instantiate(_cubePrefab, spawnPosition, Quaternion.identity);
 
+            // Применяем случайный оттенок к цвету
+            float[] shadeOptions = { 0.80f, 0.85f, 0.90f };
+            float randomShade = shadeOptions[Random.Range(0, shadeOptions.Length)];
+            Color shadedColor = _selectedColor * randomShade;
+
             // Настраиваем цвет и тип куба через утилиту
-            CubeSetupHelper.SetupCube(newCube, _selectedColor, 0);
+            CubeSetupHelper.SetupCube(newCube, shadedColor, 0);
 
             Cube cubeComponent = newCube.GetComponent<Cube>();
             if (cubeComponent != null)
