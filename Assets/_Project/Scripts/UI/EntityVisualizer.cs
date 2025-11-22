@@ -1,6 +1,4 @@
 using UnityEngine;
-using AYellowpaper.SerializedCollections;
-using UnityEngine.UI;
 
 namespace Assets._Project.Scripts.UI
 {
@@ -15,10 +13,7 @@ namespace Assets._Project.Scripts.UI
 
         [SerializeField] private float _raycastDistance = 200f;
 
-        [Header("Tool Configuration")] [SerializeField]
-        private string _activeToolName = "SaveSpawn";
-
-        [Header("Outline Settings")] [SerializeField]
+        [Header("Tool Configuration")] [Header("Outline Settings")] [SerializeField]
         private Color _outlineColor = Color.blue;
 
         [SerializeField] private float _outlineWidth = 5f;
@@ -27,12 +22,26 @@ namespace Assets._Project.Scripts.UI
         private Entity _currentlyHighlightedEntity;
         private EntityOutlineHighlight _cachedOutlineComponent;
         private bool _isVisualizerActive = false;
+        private EntityManager _entityManager;
 
         private void Awake()
         {
             if (_playerCamera == null)
             {
                 _playerCamera = Camera.main;
+            }
+        }
+
+        private void Start()
+        {
+            FindEntityManager();
+        }
+
+        private void FindEntityManager()
+        {
+            if (_entityManager == null)
+            {
+                _entityManager = FindFirstObjectByType<EntityManager>();
             }
         }
 
@@ -47,6 +56,37 @@ namespace Assets._Project.Scripts.UI
         private void PerformVisualizationRaycast()
         {
             if (_playerCamera == null) return;
+
+            // Проверяем, что выбран инструмент копирования entity (EntitySpawner)
+            // EntityManager находится на EntitySpawner GameObject, поэтому проверяем его активность
+            if (_entityManager == null)
+            {
+                FindEntityManager();
+            }
+
+            bool isCopyToolActive = _entityManager != null && _entityManager.gameObject.activeInHierarchy;
+            if (!isCopyToolActive)
+            {
+                // Если не инструмент копирования, убираем подсветку и выходим
+                if (_currentlyHighlightedEntity != null)
+                {
+                    OnEntityUnhit();
+                }
+
+                return;
+            }
+
+            // Проверяем, что ghost не активен
+            if (_entityManager.IsGhostActive())
+            {
+                // Если ghost активен, убираем подсветку и выходим
+                if (_currentlyHighlightedEntity != null)
+                {
+                    OnEntityUnhit();
+                }
+
+                return;
+            }
 
             Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
             Ray ray = _playerCamera.ScreenPointToRay(screenCenterPoint);
@@ -126,10 +166,8 @@ namespace Assets._Project.Scripts.UI
         /// <summary>
         /// Activates the visualizer for a specific tool
         /// </summary>
-        /// <param name="toolName">Name of the tool to activate for</param>
-        public void ActivateForTool(string toolName)
+        public void ActivateForTool()
         {
-            _activeToolName = toolName;
             _isVisualizerActive = true;
         }
 

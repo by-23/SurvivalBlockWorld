@@ -149,15 +149,36 @@ public class TerrainGenerator : MonoBehaviour
         float noiseValue =
             Mathf.PerlinNoise((x + _colorOffsetX) * _colorNoiseScale, (z + _colorOffsetZ) * _colorNoiseScale);
 
+        Color selectedColor = Color.white;
         foreach (var threshold in thresholds)
         {
             if (noiseValue <= threshold.Key)
             {
-                return threshold.Value;
+                selectedColor = threshold.Value;
+                break;
             }
         }
 
-        return thresholds.Last().Value;
+        if (selectedColor == Color.white && thresholds.Count > 0)
+        {
+            selectedColor = thresholds.Last().Value;
+        }
+
+        // Применяем случайный оттенок из трех вариантов: 0.80, 0.85 или 0.90
+        float[] shadeOptions = { 0.80f, 0.85f, 0.90f };
+        float shadeNoise = Mathf.PerlinNoise((x + _colorOffsetX + 500f) * _colorNoiseScale * 2f,
+            (z + _colorOffsetZ + 500f) * _colorNoiseScale * 2f);
+        int shadeIndex = Mathf.FloorToInt(shadeNoise * shadeOptions.Length);
+        shadeIndex = Mathf.Clamp(shadeIndex, 0, shadeOptions.Length - 1);
+        float selectedShade = shadeOptions[shadeIndex];
+
+        // Применяем оттенок к цвету
+        return new Color(
+            selectedColor.r * selectedShade,
+            selectedColor.g * selectedShade,
+            selectedColor.b * selectedShade,
+            selectedColor.a
+        );
     }
 
     private void CombineMeshes(GameObject terrainObject, GameObject cubesHolder, int layer)

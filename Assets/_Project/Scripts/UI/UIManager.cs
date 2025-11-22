@@ -527,11 +527,11 @@ namespace Assets._Project.Scripts.UI
                     }
                 }
 
-                // Активируем визуализатор если выбран инструмент "SaveSpawn" или "Move"
+                // Активируем визуализатор если выбран инструмент копирования entity (EntitySpawner)
                 if (_entityVisualizer != null &&
-                    (selectedTool.name.Contains("SaveSpawn") || selectedTool.name.Contains("Move")))
+                    (selectedTool.name.Contains("EntitySpawner") || selectedTool.name.Contains("Move")))
                 {
-                    _entityVisualizer.ActivateForTool(_activeToolName);
+                    _entityVisualizer.ActivateForTool();
                 }
             }
 
