@@ -6,6 +6,9 @@ public class Laser : MonoBehaviour
 
     [SerializeField] Camera _camera;
     [SerializeField] LayerMask _cubeLayerMask = -1;
+    [SerializeField] Transform _StartPoint;
+    [SerializeField] LineRenderer _Laser;
+    [SerializeField] GameObject _laserEndEffect;
 
 
     private void LateUpdate()
@@ -13,6 +16,10 @@ public class Laser : MonoBehaviour
         if (_Press)
         {
             Raycast();
+        }
+        else
+        {
+            HideLaser();
         }
     }
 
@@ -22,6 +29,21 @@ public class Laser : MonoBehaviour
         {
             _Press = _press;
         }
+    }
+
+    private void LaserActive(Vector3 endPoint)
+    {
+        _laserEndEffect.SetActive(true);
+        _laserEndEffect.transform.position = endPoint;
+
+        _Laser.gameObject.SetActive(true);
+        _Laser.SetPosition(0, _StartPoint.position);
+        _Laser.SetPosition(1, endPoint);
+    }
+    private void HideLaser()
+    {
+        _laserEndEffect.SetActive(false);
+        _Laser.gameObject.SetActive(false);
     }
 
     public void Raycast()
@@ -34,8 +56,13 @@ public class Laser : MonoBehaviour
         Vector2 screenCenterPoint = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Ray ray = _camera.ScreenPointToRay(screenCenterPoint);
 
-        if (Physics.Raycast(ray, out RaycastHit hit, 200, _cubeLayerMask))
+        if (Physics.Raycast(ray, out RaycastHit hit, 1000, _cubeLayerMask))
         {
+
+
+            LaserActive(hit.point);
+
+
             if (hit.collider.TryGetComponent(out Cube cube))
             {
                 cube.Destroy();

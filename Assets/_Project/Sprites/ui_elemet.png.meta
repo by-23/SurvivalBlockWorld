@@ -534,6 +534,48 @@ TextureImporter:
       indices: 
       edges: []
       weights: []
+    - serializedVersion: 2
+      name: ui_elemet_19
+      rect:
+        serializedVersion: 2
+        x: 62
+        y: 13
+        width: 2
+        height: 2
+      alignment: 0
+      pivot: {x: 0.5, y: 0.5}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: 2e486d990ac3d86409b2772d2553e09a
+      internalID: 1995163080
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: ui_elemet_20
+      rect:
+        serializedVersion: 2
+        x: 31
+        y: 0
+        width: 7
+        height: 7
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b14f8ec5beaf3634090483017bf09931
+      internalID: 1999675411
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
     outline: []
     physicsShape: []
     bones: []
@@ -556,7 +598,9 @@ TextureImporter:
       ui_elemet_16: 1709073468
       ui_elemet_17: -970686491
       ui_elemet_18: -1523610681
+      ui_elemet_19: 1995163080
       ui_elemet_2: -1115363241
+      ui_elemet_20: 1999675411
       ui_elemet_3: 1116177745
       ui_elemet_4: -1266089462
       ui_elemet_5: -1135177466

@@ -1,12 +1,19 @@
+using Assets._Project.Scripts.UI;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using Assets._Project.Scripts.UI;
+using UnityEngine.Networking;
+using static UnityEngine.GraphicsBuffer;
 
 public class EntityManager : MonoBehaviour
 {
+    private static EntityManager _instance;
+
+
     [Header("Local Save Settings")] [SerializeField]
     private string _fileName = "entity.dat";
 
@@ -15,11 +22,11 @@ public class EntityManager : MonoBehaviour
 
     [SerializeField] private Camera _playerCamera;
     [SerializeField] private EntitySelector _selector;
+    [SerializeField] private EntityMover _mover;
 
     [Header("UI")] [SerializeField] private Button _savePlaceButton;
-    [SerializeField] private TMPro.TMP_Text _savePlaceButtonText;
-    [SerializeField] private string _saveButtonText = "Сохранить";
-    [SerializeField] private string _placeButtonText = "Разместить";
+    [SerializeField] private Image _savePlaceIcon;
+    [SerializeField] private Sprite _SaveIcon, _PlaceIcon;
     [SerializeField] private Button _saveItemButtonPrefab;
     [SerializeField] private Transform _saveListContainer;
     [SerializeField] private Button _cancelGhostButton;
@@ -28,13 +35,18 @@ public class EntityManager : MonoBehaviour
     [SerializeField] private Assets._Project.Scripts.UI.GhostEntityPlacer _ghostPlacer;
     [SerializeField] private ScreenshotManager _screenshotManager;
     private Entity _currentGhostEntity;
+    private SaveSystem _saveSystem;
+    private Dictionary<string, string> _localPathToFirebaseId = new Dictionary<string, string>();
+
+    public bool IsEntityInFirebase(string path)
+    {
+        return _localPathToFirebaseId.ContainsKey(path);
+    }
 
     [Header("Entity Settings")] [SerializeField]
     private float _maxWaitTimeForStop = 120f;
 
     [SerializeField] private float _destroyDuration = 1f;
-
-    private static EntityManager _instance;
 
     public static float MaxWaitTimeForStop => _instance != null ? _instance._maxWaitTimeForStop : 120f;
     public static float DestroyDuration => _instance != null ? _instance._destroyDuration : 1f;
@@ -76,6 +88,8 @@ public class EntityManager : MonoBehaviour
     private void Awake()
     {
         _instance = this;
+        SaveTakeButtonActive(false);
+        _saveSystem = FindFirstObjectByType<SaveSystem>();
     }
 
     private void OnEnable()
@@ -85,9 +99,9 @@ public class EntityManager : MonoBehaviour
             _savePlaceButton.onClick.RemoveAllListeners();
             _savePlaceButton.onClick.AddListener(OnSavePlaceButtonPressed);
 
-            if (_savePlaceButtonText == null)
+            if (_savePlaceIcon != null)
             {
-                _savePlaceButtonText = _savePlaceButton.GetComponentInChildren<TMPro.TMP_Text>();
+                _savePlaceIcon.sprite = _SaveIcon;
             }
         }
 
@@ -102,8 +116,8 @@ public class EntityManager : MonoBehaviour
             _ghostPlacer = FindFirstObjectByType<Assets._Project.Scripts.UI.GhostEntityPlacer>();
         }
 
-        RefreshSavedList();
         UpdateGhostButtonsState();
+        LoadSharedEntitiesFromFirebase();
     }
 
     private void OnDisable()
@@ -380,25 +394,37 @@ public class EntityManager : MonoBehaviour
         btn.onClick.AddListener(() => LoadSavedEntityFromPath(saveFilePath));
 
         Image image = null;
-        if (btn.targetGraphic != null && btn.targetGraphic is Image targetImg)
-        {
-            image = targetImg;
-        }
 
         if (image == null)
-        {
-            image = btn.GetComponent<Image>();
-        }
+            image = btn.GetComponent<SaveSlotObj>()._iconImg;
 
         if (_screenshotManager == null)
         {
             _screenshotManager = FindAnyObjectByType<ScreenshotManager>();
         }
 
-        if (image != null && _screenshotManager != null && !string.IsNullOrEmpty(screenshotId))
+        if (image != null && !string.IsNullOrEmpty(screenshotId))
         {
             image.preserveAspect = true;
-            await _screenshotManager.LoadToImageByIdAsync(screenshotId, image);
+
+            // Если в ячейке хранится URL — грузим картинку напрямую из сети
+            if (IsUrl(screenshotId))
+            {
+                await LoadImageFromUrlAsync(screenshotId, image);
+            }
+            // Иначе считаем, что это локальный id скриншота и используем ScreenshotManager
+            else
+            {
+                if (_screenshotManager == null)
+                {
+                    _screenshotManager = FindAnyObjectByType<ScreenshotManager>();
+                }
+
+                if (_screenshotManager != null)
+                {
+                    await _screenshotManager.LoadToImageByIdAsync(screenshotId, image);
+                }
+            }
         }
 
         var text = btn.GetComponentInChildren<TMPro.TMP_Text>();
@@ -408,11 +434,14 @@ public class EntityManager : MonoBehaviour
         }
 
         var childButtons = btn.GetComponentsInChildren<Button>(true);
+
         for (int i = 0; i < childButtons.Length; i++)
         {
             var cb = childButtons[i];
             if (cb == btn) continue;
-            if (cb.name.IndexOf("Delete", StringComparison.OrdinalIgnoreCase) >= 0)
+
+            string buttonName = cb.name.ToLower();
+            if (buttonName.IndexOf("delete", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 cb.onClick.RemoveAllListeners();
                 cb.onClick.AddListener(() =>
@@ -420,7 +449,6 @@ public class EntityManager : MonoBehaviour
                     DeleteSavedEntity(saveFilePath, screenshotId);
                     Destroy(btn.gameObject);
                 });
-                break;
             }
         }
     }
@@ -626,7 +654,9 @@ public class EntityManager : MonoBehaviour
             else
             {
                 Debug.LogWarning("GhostPlacer не найден, размещаем entity напрямую");
-                entity.transform.position = data.position;
+
+                Vector3Int targetPos = new Vector3Int((int)data.position.x, (int)data.position.y, (int)data.position.z);
+                entity.transform.position = targetPos;
                 entity.transform.rotation = data.rotation;
             }
         }
@@ -636,8 +666,44 @@ public class EntityManager : MonoBehaviour
         }
     }
 
-    public void DeleteSavedEntity(string path, string screenshotId)
+    public async void DeleteFromFirebaseOnly(string path)
     {
+        if (!_localPathToFirebaseId.TryGetValue(path, out string firebaseId))
+        {
+            Debug.LogWarning("Entity не найден в Firebase");
+            return;
+        }
+
+        if (_saveSystem != null && _config != null && _config.useFirebase)
+        {
+            try
+            {
+                var firebaseAdapter = GetFirebaseAdapter();
+                if (firebaseAdapter != null)
+                {
+                    bool success = await firebaseAdapter.DeleteSharedEntityAsync(firebaseId);
+                    if (success)
+                    {
+                        _localPathToFirebaseId.Remove(path);
+                        Debug.Log($"Entity удален из Firebase: {firebaseId}");
+                    }
+                    else
+                    {
+                        Debug.LogError("Не удалось удалить entity из Firebase");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Ошибка удаления entity из Firebase: {e.Message}");
+            }
+        }
+    }
+
+    public async void DeleteSavedEntity(string path, string screenshotId)
+    {
+        bool isSharedEntity = _localPathToFirebaseId.TryGetValue(path, out string firebaseId);
+
         if (_saveListContainer != null)
         {
             string fileName = Path.GetFileName(path);
@@ -666,6 +732,11 @@ public class EntityManager : MonoBehaviour
             if (!string.IsNullOrEmpty(path) && File.Exists(path))
             {
                 File.Delete(path);
+
+                if (isSharedEntity)
+                {
+                    _localPathToFirebaseId.Remove(path);
+                }
             }
         }
         catch (Exception e)
@@ -779,6 +850,70 @@ public class EntityManager : MonoBehaviour
         return _ghostPlacer != null && _ghostPlacer.IsActive;
     }
 
+    public bool TryGetFirebaseEntityId(string localPath, out string firebaseId)
+    {
+        return _localPathToFirebaseId.TryGetValue(localPath, out firebaseId);
+    }
+
+    private bool IsUrl(string value)
+    {
+        return !string.IsNullOrEmpty(value) &&
+               (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                value.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task LoadImageFromUrlAsync(string url, Image target)
+    {
+        if (target == null || string.IsNullOrEmpty(url))
+            return;
+
+        using (var request = UnityWebRequestTexture.GetTexture(url))
+        {
+            var operation = request.SendWebRequest();
+            while (!operation.isDone)
+            {
+                await Task.Yield();
+            }
+
+#if UNITY_2020_1_OR_NEWER
+            if (request.result != UnityWebRequest.Result.Success)
+#else
+            if (request.isNetworkError || request.isHttpError)
+#endif
+            {
+                Debug.LogWarning(
+                    $"[EntityManager] Не удалось загрузить скриншот по URL: {url}. Error: {request.error}");
+                return;
+            }
+
+            var texture = DownloadHandlerTexture.GetContent(request);
+            if (texture == null)
+            {
+                Debug.LogWarning($"[EntityManager] Пустой texture из URL: {url}");
+                return;
+            }
+
+            var sprite = Sprite.Create(texture,
+                new Rect(0, 0, texture.width, texture.height),
+                new Vector2(0.5f, 0.5f));
+
+            if (target != null)
+            {
+                target.color = Color.white;
+                target.sprite = sprite;
+                target.enabled = true;
+            }
+        }
+    }
+
+    public void SaveTakeButtonActive(bool active)
+    {
+        if (IsGhostActive()) active = true;
+        if (_mover.IsHolding) active = false;
+
+        _savePlaceButton.gameObject.SetActive(active);
+    }
+
     private void UpdateGhostButtonsState()
     {
         bool isActive = IsGhostActive();
@@ -792,12 +927,279 @@ public class EntityManager : MonoBehaviour
         {
             _savePlaceButton.interactable = true;
 
-            if (_savePlaceButtonText != null)
+            if (_savePlaceIcon != null)
             {
-                _savePlaceButtonText.text = isActive ? _placeButtonText : _saveButtonText;
+                _savePlaceIcon.sprite = isActive ? _PlaceIcon : _SaveIcon;
             }
         }
     }
+
+    private FirebaseAdapter GetFirebaseAdapter()
+    {
+        if (_saveSystem == null)
+        {
+            _saveSystem = FindFirstObjectByType<SaveSystem>();
+        }
+
+        if (_saveSystem == null)
+        {
+            return null;
+        }
+
+        return _saveSystem.GetFirebaseAdapter();
+    }
+
+    public async void SaveEntityToFirebaseFromEditor(string saveFilePath, string screenshotId, string title)
+    {
+        Debug.Log(
+            $"[EntityManager] SaveEntityToFirebaseFromEditor start. Path='{saveFilePath}', ScreenshotId='{screenshotId}', Title='{title}'");
+
+        if (_config == null || !_config.useFirebase)
+        {
+            Debug.LogWarning("[EntityManager] Firebase отключен в конфигурации или SaveConfig не назначен");
+            return;
+        }
+
+        if (_localPathToFirebaseId.ContainsKey(saveFilePath))
+        {
+            Debug.LogWarning($"Entity уже сохранен в Firebase: {_localPathToFirebaseId[saveFilePath]}");
+            return;
+        }
+
+        try
+        {
+            if (!File.Exists(saveFilePath))
+            {
+                Debug.LogError($"[EntityManager] Файл не найден: {saveFilePath}");
+                return;
+            }
+
+            SingleEntitySave data;
+            using (var fs = new FileStream(saveFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader = new BinaryReader(fs))
+            {
+                data = new SingleEntitySave();
+                data.name = reader.ReadString();
+
+                Vector3 pos;
+                pos.x = reader.ReadSingle();
+                pos.y = reader.ReadSingle();
+                pos.z = reader.ReadSingle();
+                data.position = pos;
+
+                Quaternion rot;
+                rot.x = reader.ReadSingle();
+                rot.y = reader.ReadSingle();
+                rot.z = reader.ReadSingle();
+                rot.w = reader.ReadSingle();
+                data.rotation = rot;
+
+                Vector3 scl;
+                scl.x = reader.ReadSingle();
+                scl.y = reader.ReadSingle();
+                scl.z = reader.ReadSingle();
+                data.scale = scl;
+
+                int count = reader.ReadInt32();
+                if (count > 0)
+                {
+                    data.cubes = new CubeData[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        data.cubes[i] = CubeData.ReadFrom(reader);
+                    }
+                }
+                else
+                {
+                    data.cubes = Array.Empty<CubeData>();
+                }
+
+                if (fs.Position < fs.Length)
+                {
+                    try
+                    {
+                        data.screenshotId = reader.ReadString();
+                    }
+                    catch
+                    {
+                        data.screenshotId = screenshotId ?? string.Empty;
+                    }
+                }
+                else
+                {
+                    data.screenshotId = screenshotId ?? string.Empty;
+                }
+            }
+
+            Debug.Log(
+                $"[EntityManager] Прочитан файл entity. Cubes={data.cubes?.Length ?? 0}, ScreenshotId='{data.screenshotId}'");
+
+            if (data.cubes == null || data.cubes.Length == 0)
+            {
+                Debug.LogWarning("[EntityManager] Нет данных кубов для сохранения в Firebase");
+                return;
+            }
+
+            var firebaseAdapter = GetFirebaseAdapter();
+            if (firebaseAdapter == null)
+            {
+                Debug.LogError("[EntityManager] FirebaseAdapter не доступен (GetFirebaseAdapter вернул null)");
+                return;
+            }
+
+            Debug.Log("[EntityManager] FirebaseAdapter получен, начинаем сохранение в Firebase...");
+
+            string entityId = $"entity_{DateTime.Now:yyyyMMdd_HHmmssfff}_{Guid.NewGuid().ToString().Substring(0, 8)}";
+            bool success = await firebaseAdapter.SaveSharedEntityAsync(
+                entityId,
+                data.cubes,
+                data.screenshotId
+            );
+
+            Debug.Log($"[EntityManager] Результат SaveSharedEntityAsync для '{entityId}': success={success}");
+
+            if (success)
+            {
+                Debug.Log($"[EntityManager] Результат SaveSharedEntityAsync для '{entityId}': success={success}");
+
+                // Сначала удаляем локальный исходный файл и скриншот
+                DeleteSavedEntity(saveFilePath, data.screenshotId);
+
+                // Загружаем данные сущности из Firebase, чтобы получить финальный screenshotId (URL после загрузки в Storage)
+                string finalScreenshotId = string.Empty;
+                try
+                {
+                    var sharedEntityData = await firebaseAdapter.LoadSharedEntityAsync(entityId);
+                    if (sharedEntityData != null)
+                    {
+                        finalScreenshotId = sharedEntityData.ScreenshotId ?? string.Empty;
+                    }
+                }
+                catch (Exception loadEx)
+                {
+                    Debug.LogWarning(
+                        $"[EntityManager] Не удалось получить данные shared entity '{entityId}' после сохранения: {loadEx.Message}");
+                }
+
+                // Затем создаём локальный "shared" файл, как при загрузке из Firebase,
+                // чтобы элемент сразу остался в списке и был привязан к entityId
+                string sharedFileName = $"entity_shared_{entityId}.dat";
+                string sharedPath = Path.Combine(Application.persistentDataPath, sharedFileName);
+
+                Vector3 defaultScale = _config != null ? Vector3.one * _config.entityScale : Vector3.one;
+                SingleEntitySave sharedData = new SingleEntitySave
+                {
+                    name = string.IsNullOrEmpty(title) ? "Shared Entity" : title,
+                    position = Vector3.zero,
+                    rotation = Quaternion.identity,
+                    scale = defaultScale,
+                    cubes = data.cubes,
+                    // Сохраняем финальный screenshotId (обычно URL), чтобы UI мог сразу подгрузить картинку
+                    screenshotId = finalScreenshotId
+                };
+
+                try
+                {
+                    string directory = Path.GetDirectoryName(sharedPath);
+                    if (!Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
+                    byte[] buffer = await Task.Run(() => BuildSaveBytes(sharedData));
+                    await File.WriteAllBytesAsync(sharedPath, buffer);
+
+                    _localPathToFirebaseId[sharedPath] = entityId;
+                }
+                catch (Exception createEx)
+                {
+                    Debug.LogWarning(
+                        $"[EntityManager] Не удалось создать shared-файл для '{entityId}': {createEx.Message}");
+                }
+
+                RefreshSavedList();
+            }
+            else
+            {
+                Debug.LogError("SaveEntityToFirebaseFromEditor: Не удалось сохранить entity в Firebase");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Ошибка сохранения entity в Firebase: {e.Message}");
+        }
+    }
+
+    private async void LoadSharedEntitiesFromFirebase()
+    {
+        if (_config == null || !_config.useFirebase)
+        {
+            return;
+        }
+
+        try
+        {
+            var firebaseAdapter = GetFirebaseAdapter();
+            if (firebaseAdapter == null)
+            {
+                return;
+            }
+
+            var metadataList = await firebaseAdapter.GetAllSharedEntitiesMetadataAsync();
+            if (metadataList == null || metadataList.Count == 0)
+            {
+                RefreshSavedList();
+                return;
+            }
+
+            foreach (var metadata in metadataList)
+            {
+                var entityData = await firebaseAdapter.LoadSharedEntityAsync(metadata.EntityId);
+                if (entityData == null || entityData.Cubes == null || entityData.Cubes.Length == 0)
+                {
+                    continue;
+                }
+
+                string fileName = $"entity_shared_{metadata.EntityId}.dat";
+                string path = Path.Combine(Application.persistentDataPath, fileName);
+
+                bool fileExists = File.Exists(path);
+                bool hasMapping = _localPathToFirebaseId.ContainsKey(path);
+
+                if (!fileExists || (!hasMapping && fileExists))
+                {
+                    Vector3 defaultScale = _config != null ? Vector3.one * _config.entityScale : Vector3.one;
+                    SingleEntitySave saveData = new SingleEntitySave
+                    {
+                        name = "Shared Entity",
+                        position = Vector3.zero,
+                        rotation = Quaternion.identity,
+                        scale = defaultScale,
+                        cubes = entityData.Cubes,
+                        screenshotId = entityData.ScreenshotId
+                    };
+
+                    string directory = Path.GetDirectoryName(path);
+                    if (!Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
+                    byte[] buffer = await Task.Run(() => BuildSaveBytes(saveData));
+                    await File.WriteAllBytesAsync(path, buffer);
+                    _localPathToFirebaseId[path] = metadata.EntityId;
+                }
+            }
+
+            RefreshSavedList();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Ошибка загрузки общих entities из Firebase: {e.Message}");
+        }
+    }
 }
+
+
 
 

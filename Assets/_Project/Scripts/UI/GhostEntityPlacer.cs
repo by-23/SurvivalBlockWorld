@@ -82,6 +82,21 @@ namespace Assets._Project.Scripts.UI
             if (other.isTrigger)
                 return;
 
+            // Игнорируем коллайдеры поверхности земли, которые находятся ниже или на уровне нижней части объекта
+            if (_cachedLowestLocalBottomY != float.MaxValue)
+            {
+                float entityBottomY = _ghostEntity.transform.position.y +
+                                      (_cachedLowestLocalBottomY * _ghostEntity.transform.lossyScale.y);
+                Bounds otherBounds = other.bounds;
+
+                // Если верхняя часть коллайдера находится близко к нижней части объекта (в пределах 0.2f),
+                // это поверхность земли, на которой стоит объект
+                float tolerance = 0.2f;
+                if (otherBounds.max.y <= entityBottomY + tolerance &&
+                    otherBounds.min.y < entityBottomY)
+                    return;
+            }
+
             _overlappingColliders.Add(other);
         }
 
@@ -323,7 +338,8 @@ namespace Assets._Project.Scripts.UI
             }
 
             targetPosition.y += _additionalVerticalOffset;
-            _ghostEntity.transform.position = targetPosition;
+            Vector3Int targetPos = new Vector3Int((int)targetPosition.x, (int)targetPosition.y, (int)targetPosition.z);
+            _ghostEntity.transform.position = targetPos;
 
             _canPlace = _overlappingColliders.Count == 0;
 

@@ -308,10 +308,10 @@ namespace Assets._Project.Scripts.UI
             var btn = Instantiate(colorButtonPrefab, colorButtonsParent);
 
             // окрашиваем Image
-            var img = btn.GetComponent<Image>();
+            var img = btn.GetComponent<SaveSlotObj>();
             if (img != null)
             {
-                img.color = c;
+                img.SetColor(c);
             }
 
             // настраиваем ColorBlock для корректного выбора
@@ -352,11 +352,11 @@ namespace Assets._Project.Scripts.UI
             _selectedColorButton = clickedButton;
             _selectedColorButton.interactable = false;
 
-            Image buttonImage = clickedButton.GetComponent<Image>();
-            if (buttonImage != null)
+            SaveSlotObj saveSlotObj = clickedButton.GetComponent<SaveSlotObj>();
+            if (saveSlotObj != null)
             {
-                ColorBlock colorBlock = clickedButton.colors;
-                _pendingColor = colorBlock.normalColor;
+                Color color = saveSlotObj.GetColor(); ;
+                _pendingColor = color;
                 _selectedColor = _pendingColor;
             }
 
@@ -426,10 +426,10 @@ namespace Assets._Project.Scripts.UI
             {
                 if (button == addColorButton || button == applyColorButton) continue;
 
-                Image buttonImage = button.GetComponent<Image>();
-                if (buttonImage != null)
+                SaveSlotObj saveSlotObj = button.GetComponent<SaveSlotObj>();
+                if (saveSlotObj != null)
                 {
-                    Color buttonColor = buttonImage.color;
+                    Color buttonColor = saveSlotObj.GetColor();
                     // Сравниваем цвета с небольшой погрешностью
                     if (ColorApproximatelyEqual(buttonColor, color))
                     {
@@ -458,10 +458,10 @@ namespace Assets._Project.Scripts.UI
             {
                 if (button == addColorButton || button == applyColorButton) continue;
 
-                Image buttonImage = button.GetComponent<Image>();
-                if (buttonImage != null)
+                SaveSlotObj saveSlotObj = button.GetComponent<SaveSlotObj>();
+                if (saveSlotObj != null)
                 {
-                    Color buttonColor = buttonImage.color;
+                    Color buttonColor = saveSlotObj.GetColor();
                     if (ColorApproximatelyEqual(buttonColor, color))
                     {
                         OnColorButtonClicked(button);
@@ -587,9 +587,11 @@ namespace Assets._Project.Scripts.UI
                 magnetizedPosition = FindAlternativePosition(magnetizedPosition);
             }
 
-            _ghostRoot.transform.position = magnetizedPosition;
+            Vector3Int ghostPos = new Vector3Int((int)magnetizedPosition.x, (int)magnetizedPosition.y, (int)magnetizedPosition.z);
 
-            bool isOccupied = IsPositionOccupied(magnetizedPosition);
+            _ghostRoot.transform.position = ghostPos;
+
+            bool isOccupied = IsPositionOccupied(ghostPos);
             UpdateGhostMaterial(isOccupied);
         }
 
@@ -1143,7 +1145,9 @@ namespace Assets._Project.Scripts.UI
                 return;
             }
 
-            GameObject newCube = Instantiate(_cubePrefab, spawnPosition, Quaternion.identity);
+            Vector3Int spawnPos = new Vector3Int((int)spawnPosition.x, (int)spawnPosition.y, (int)spawnPosition.z);
+
+            GameObject newCube = Instantiate(_cubePrefab, spawnPos, Quaternion.identity);
 
             // Применяем случайный оттенок к цвету
             float[] shadeOptions = { 0.80f, 0.85f, 0.90f };

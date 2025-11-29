@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.IO;
+using System.Threading.Tasks;
+using System;
 
 public class MapItemView : MonoBehaviour
 {
@@ -9,6 +11,7 @@ public class MapItemView : MonoBehaviour
     private TextMeshProUGUI _mapNameText;
 
     [SerializeField] private Image _screenshotImage;
+    [SerializeField] private Image _likeIcon;
     [SerializeField] private Button _loadButton;
     [SerializeField] private Button _deleteButton;
     [SerializeField] private Button _likeButton;
@@ -36,6 +39,8 @@ public class MapItemView : MonoBehaviour
     public System.Action<string, int> OnLikeValueChanged;
     public System.Action<string> OnPublishRequested;
 
+    Sprite _currentMapIcon;
+
     private void Awake()
     {
         if (_loadButton != null)
@@ -51,7 +56,7 @@ public class MapItemView : MonoBehaviour
         if (_likeButton != null)
         {
             _likeButton.onClick.AddListener(OnLikeButtonClicked);
-            _likeButtonGraphic = _likeButton.targetGraphic;
+            _likeButtonGraphic = _likeIcon;
         }
 
         if (_publishButton != null)
@@ -67,6 +72,11 @@ public class MapItemView : MonoBehaviour
 
         UpdateLikesUI();
         UpdatePublishUI();
+    }
+
+    public Sprite GetScreenshotSprite()
+    {
+        return _screenshotImage?.sprite;
     }
 
     public void SetMapData(string mapName, string screenshotPath, int likesCount)
@@ -107,27 +117,91 @@ public class MapItemView : MonoBehaviour
             return;
         }
 
+        _ = LoadScreenshotAsync(screenshotPath);
+    }
+
+    private async Task LoadScreenshotAsync(string screenshotPath)
+    {
+        if (_screenshotImage == null || string.IsNullOrEmpty(screenshotPath))
+        {
+            return;
+        }
+
         try
         {
-            if (File.Exists(screenshotPath))
-            {
-                byte[] imageData = File.ReadAllBytes(screenshotPath);
-                Texture2D texture = new Texture2D(2, 2);
-                texture.LoadImage(imageData);
+            byte[] imageData = null;
 
-                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
-                    new Vector2(0.5f, 0.5f));
-                _screenshotImage.sprite = sprite;
+            if (IsUrl(screenshotPath))
+            {
+                imageData = await DownloadImageFromUrlAsync(screenshotPath);
+            }
+            else if (File.Exists(screenshotPath))
+            {
+                imageData = await File.ReadAllBytesAsync(screenshotPath);
             }
             else
             {
                 Debug.LogWarning($"Screenshot file not found: {screenshotPath}");
-                // You could set a default image here
+                return;
+            }
+
+            if (imageData == null || imageData.Length == 0)
+            {
+                Debug.LogWarning($"Screenshot data is empty: {screenshotPath}");
+                return;
+            }
+
+            Texture2D texture = new Texture2D(2, 2);
+            if (texture.LoadImage(imageData))
+            {
+                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f));
+                _screenshotImage.sprite = sprite;
+                _currentMapIcon = sprite;
+            }
+            else
+            {
+                Debug.LogWarning($"Failed to load image data from: {screenshotPath}");
             }
         }
-        catch (System.Exception e)
+        catch (Exception e)
         {
             Debug.LogError($"Failed to load screenshot from {screenshotPath}: {e.Message}");
+        }
+    }
+
+    private bool IsUrl(string path)
+    {
+        return !string.IsNullOrEmpty(path) && (path.StartsWith("http://") || path.StartsWith("https://"));
+    }
+
+    private async Task<byte[]> DownloadImageFromUrlAsync(string url)
+    {
+        try
+        {
+            using (UnityEngine.Networking.UnityWebRequest request = UnityEngine.Networking.UnityWebRequest.Get(url))
+            {
+                var operation = request.SendWebRequest();
+                while (!operation.isDone)
+                {
+                    await Task.Yield();
+                }
+
+                if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                {
+                    return request.downloadHandler.data;
+                }
+                else
+                {
+                    Debug.LogError($"Failed to download image from URL: {url}, Error: {request.error}");
+                    return null;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Exception while downloading image from URL {url}: {e.Message}");
+            return null;
         }
     }
 

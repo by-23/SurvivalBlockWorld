@@ -14,13 +14,15 @@ namespace Assets._Project.Scripts.UI
     /// </summary>
     public class ScreenshotManager : MonoBehaviour
     {
+        [Header("Настройки скриншота")] [SerializeField]
         private Vector3 _cameraOffset = new Vector3(10f, 4f, -10f);
-        private bool _useObjectSpaceOffset = true;
-        private int _screenshotWidth = 100;
-        private int _screenshotHeight = 100;
-        private float _framingPadding = 1.1f;
-        private int _screenshotSubjectLayer = 30;
-        private Color _screenshotBackgroundColor = new Color(0f, 0f, 0f, 0f);
+
+        [SerializeField] private bool _useObjectSpaceOffset = true;
+        [SerializeField] private int _screenshotWidth = 100;
+        [SerializeField] private int _screenshotHeight = 100;
+        [SerializeField] private float _framingPadding = 1.1f;
+        [SerializeField] private int _screenshotSubjectLayer = 30;
+        [SerializeField] private Color _screenshotBackgroundColor = new Color(0f, 0f, 0f, 0f);
         private SaveSystem _saveSystem;
 
         private string SavesDirectoryPath => Application.persistentDataPath;

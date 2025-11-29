@@ -43,7 +43,7 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Camera _playerCamera;
         private Entity _heldEntity;
         private Rigidbody _heldRigidbody;
-        private bool _isHolding;
+        public bool _isHolding;
         private float _currentHoldDistance; // Расстояние на котором объект был взят
         private HashSet<Collider> _collidingColliders = new HashSet<Collider>();
         private Dictionary<Collider, bool> _originalTriggerStates = new Dictionary<Collider, bool>();
@@ -320,6 +320,8 @@ namespace Assets._Project.Scripts.UI
         {
             string text = _isHolding ? _throwText : _takeText;
 
+            if (_entityManager) _entityManager.SaveTakeButtonActive(false);
+
             if (_buttonTextTmp != null)
             {
                 _buttonTextTmp.text = text;
@@ -344,7 +346,8 @@ namespace Assets._Project.Scripts.UI
             float distanceToClosestPoint = Vector3.Dot(offsetFromEntityCenter, cameraForward);
 
             Vector3 targetPosition = cameraPosition + cameraForward * (_currentHoldDistance - distanceToClosestPoint);
-            _heldEntity.transform.position = targetPosition;
+            Vector3Int targetPos = new Vector3Int((int)targetPosition.x, (int)targetPosition.y, (int)targetPosition.z);
+            _heldEntity.transform.position = targetPos;
 
             // Обновляем цвет в зависимости от пересечений
             if (_materialColorizer != null)

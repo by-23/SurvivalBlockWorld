@@ -25,7 +25,7 @@ Transform:
   m_GameObject: {fileID: 223565140}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0.25, y: 0.25, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -47,7 +47,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &1934978226
 Transform:
   m_ObjectHideFlags: 0
@@ -82,10 +82,15 @@ MonoBehaviour:
     type: 3}
   _ropePrefab: {fileID: 441094357886443519, guid: 726ec9728aa412e429345ddd418f620a,
     type: 3}
+  _slowdownDistance: 5
+  _slowdownSpeed: 2
   _deflectPower: 50
   _layerMask:
     serializedVersion: 2
     m_Bits: 1545
+  _groundLayerMask:
+    serializedVersion: 2
+    m_Bits: 8
   _camera: {fileID: 137428015986575511}
   _ropes: []
 --- !u!1 &118514933107935417

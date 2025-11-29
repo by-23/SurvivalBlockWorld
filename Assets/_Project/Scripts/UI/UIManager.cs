@@ -165,40 +165,67 @@ namespace Assets._Project.Scripts.UI
 
             if (string.IsNullOrEmpty(screenshotPath))
             {
-                // Если путь пустой, устанавливаем черный фон
+                _loadingScreenshotImage.color = Color.black;
+                return;
+            }
+
+            _ = LoadScreenshotToImageAsync(screenshotPath);
+        }
+
+        private async System.Threading.Tasks.Task LoadScreenshotToImageAsync(string screenshotPath)
+        {
+            if (_loadingScreenshotImage == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(screenshotPath))
+            {
                 _loadingScreenshotImage.color = Color.black;
                 return;
             }
 
             try
             {
-                if (File.Exists(screenshotPath))
-                {
-                    byte[] imageData = File.ReadAllBytes(screenshotPath);
-                    Texture2D texture = new Texture2D(2, 2);
+                byte[] imageData = null;
 
-                    if (texture.LoadImage(imageData))
-                    {
-                        _loadingScreenshotImage.color = Color.white;
-                        Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
-                            new Vector2(0.5f, 0.5f));
-                        _loadingScreenshotImage.sprite = sprite;
-                        _loadingScreenshotImage.enabled = true;
-                        // Белый фон для видимости изображения
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"Failed to load image from: {screenshotPath}");
-                        _loadingScreenshotImage.enabled = false;
-                        // Черный фон при ошибке загрузки
-                        _loadingScreenshotImage.color = Color.black;
-                    }
+                if (IsUrl(screenshotPath))
+                {
+                    imageData = await DownloadImageFromUrlAsync(screenshotPath);
+                }
+                else if (File.Exists(screenshotPath))
+                {
+                    imageData = await System.IO.File.ReadAllBytesAsync(screenshotPath);
                 }
                 else
                 {
                     Debug.LogWarning($"Screenshot file not found: {screenshotPath}");
                     _loadingScreenshotImage.enabled = false;
-                    // Черный фон если файл не найден
+                    _loadingScreenshotImage.color = Color.black;
+                    return;
+                }
+
+                if (imageData == null || imageData.Length == 0)
+                {
+                    Debug.LogWarning($"Screenshot data is empty: {screenshotPath}");
+                    _loadingScreenshotImage.enabled = false;
+                    _loadingScreenshotImage.color = Color.black;
+                    return;
+                }
+
+                Texture2D texture = new Texture2D(2, 2);
+                if (texture.LoadImage(imageData))
+                {
+                    _loadingScreenshotImage.color = Color.white;
+                    Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
+                        new Vector2(0.5f, 0.5f));
+                    _loadingScreenshotImage.sprite = sprite;
+                    _loadingScreenshotImage.enabled = true;
+                }
+                else
+                {
+                    Debug.LogWarning($"Failed to load image from: {screenshotPath}");
+                    _loadingScreenshotImage.enabled = false;
                     _loadingScreenshotImage.color = Color.black;
                 }
             }
@@ -206,8 +233,42 @@ namespace Assets._Project.Scripts.UI
             {
                 Debug.LogError($"Failed to load screenshot from {screenshotPath}: {e.Message}");
                 _loadingScreenshotImage.enabled = false;
-                // Черный фон при исключении
                 _loadingScreenshotImage.color = Color.black;
+            }
+        }
+
+        private bool IsUrl(string path)
+        {
+            return !string.IsNullOrEmpty(path) && (path.StartsWith("http://") || path.StartsWith("https://"));
+        }
+
+        private async System.Threading.Tasks.Task<byte[]> DownloadImageFromUrlAsync(string url)
+        {
+            try
+            {
+                using (UnityEngine.Networking.UnityWebRequest request = UnityEngine.Networking.UnityWebRequest.Get(url))
+                {
+                    var operation = request.SendWebRequest();
+                    while (!operation.isDone)
+                    {
+                        await System.Threading.Tasks.Task.Yield();
+                    }
+
+                    if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                    {
+                        return request.downloadHandler.data;
+                    }
+                    else
+                    {
+                        Debug.LogError($"Failed to download image from URL: {url}, Error: {request.error}");
+                        return null;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Exception while downloading image from URL {url}: {e.Message}");
+                return null;
             }
         }
 
@@ -357,7 +418,7 @@ namespace Assets._Project.Scripts.UI
             bool buildActive = GameManager.Instance != null && GameManager.Instance.BuildModeActive;
 
             // Блокируем кнопку перемещения, если активен ghost или режим строительства
-            _moverButton.interactable = !buildActive && !isGhostActive;
+            _moverButton.gameObject.SetActive(!buildActive && !isGhostActive);
         }
 
         private void UpdateToolButtonsState()

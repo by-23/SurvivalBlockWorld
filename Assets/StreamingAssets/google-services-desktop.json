@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "578191768961",
-    "project_id": "survivalblockworld",
-    "storage_bucket": "survivalblockworld.firebasestorage.app"
+    "project_number": "164315853474",
+    "project_id": "blocks-sandbox-51f65",
+    "storage_bucket": "blocks-sandbox-51f65.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:578191768961:android:62c36980a82283d052fc80",
+        "mobilesdk_app_id": "1:164315853474:android:8f33b57c06902f42509dfb",
         "android_client_info": {
-          "package_name": "com.blockssandbox.com"
+          "package_name": "com.blocks_sandbox.com"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCj0EVnMUlQyI0wEE5MDqzVCFzZhvrCeYU"
+          "current_key": "AIzaSyCrZI7SXMazJzu7tvSM8CGRPidt-F_uEHg"
         }
       ],
       "services": {

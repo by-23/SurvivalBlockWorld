@@ -195,7 +195,13 @@ public class SaveSystem : MonoBehaviour
 
             progressCallback?.Invoke(0.1f);
 
-            string screenshotPath = TakeScreenshot(worldName);
+            bool requestLocal = destination == SaveDestination.Local || destination == SaveDestination.LocalAndOnline;
+            bool requestOnline = destination == SaveDestination.Online || destination == SaveDestination.LocalAndOnline;
+
+            bool shouldSaveLocal = requestLocal && _config.useLocalCache;
+            bool shouldSaveOnline = requestOnline && _config.useFirebase;
+
+            string screenshotPath = await TakeScreenshotAsync(worldName, shouldSaveLocal);
 
             progressCallback?.Invoke(0.2f);
 
@@ -220,12 +226,6 @@ public class SaveSystem : MonoBehaviour
             };
 
             progressCallback?.Invoke(0.7f);
-
-            bool requestLocal = destination == SaveDestination.Local || destination == SaveDestination.LocalAndOnline;
-            bool requestOnline = destination == SaveDestination.Online || destination == SaveDestination.LocalAndOnline;
-
-            bool shouldSaveLocal = requestLocal && _config.useLocalCache;
-            bool shouldSaveOnline = requestOnline && _config.useFirebase;
 
             if (!shouldSaveLocal && !shouldSaveOnline)
             {
@@ -270,6 +270,20 @@ public class SaveSystem : MonoBehaviour
                     Debug.LogError(
                         $"Failed to save world '{worldName}' to Firebase. Check FirebaseAdapter logs above for details.");
                     return false;
+                }
+
+                // Удаляем временный скриншот, если сохраняли только в Firebase
+                // Проверяем, что путь указывает на временную папку
+                if (!shouldSaveLocal && !string.IsNullOrEmpty(screenshotPath) &&
+                    screenshotPath.Contains(Application.temporaryCachePath) && File.Exists(screenshotPath))
+                {
+                    try
+                    {
+                        File.Delete(screenshotPath);
+                    }
+                    catch (Exception e)
+                    {
+                    }
                 }
             }
 
@@ -660,7 +674,7 @@ public class SaveSystem : MonoBehaviour
         }
     }
 
-    private string TakeScreenshot(string worldName)
+    private async System.Threading.Tasks.Task<string> TakeScreenshotAsync(string worldName, bool saveToDisk = true)
     {
         if (_screenshotCamera == null)
         {
@@ -686,10 +700,49 @@ public class SaveSystem : MonoBehaviour
             RenderTexture.active = null;
             Destroy(rt);
             byte[] bytes = screenShot.EncodeToPNG();
-            string filename = System.IO.Path.Combine(Application.persistentDataPath, worldName + ".png");
-            System.IO.File.WriteAllBytes(filename, bytes);
+            Destroy(screenShot);
+
+            string filename;
+            if (saveToDisk)
+            {
+                filename = Path.Combine(Application.persistentDataPath, worldName + ".png");
+                await File.WriteAllBytesAsync(filename, bytes);
+            }
+            else
+            {
+                // Сохраняем во временный файл для загрузки в Firebase
+                // Убеждаемся, что директория существует
+                string tempDir = Application.temporaryCachePath;
+                if (!Directory.Exists(tempDir))
+                {
+                    Directory.CreateDirectory(tempDir);
+                }
+
+                filename = Path.Combine(tempDir, $"temp_{worldName}_{Guid.NewGuid()}.png");
+                await File.WriteAllBytesAsync(filename, bytes);
+
+                // Убеждаемся, что файл записан
+                await System.Threading.Tasks.Task.Yield();
+                if (File.Exists(filename))
+                {
+                    var fileInfo = new FileInfo(filename);
+                    if (fileInfo.Length > 0)
+                    {
+                        Debug.Log(
+                            $"Temporary screenshot saved to {filename} for Firebase upload (size: {fileInfo.Length} bytes)");
+                    }
+                    else
+                    {
+                        Debug.LogError($"Temporary screenshot file is empty: {filename}");
+                    }
+                }
+                else
+                {
+                    Debug.LogError($"Failed to create temporary screenshot file: {filename}");
+                }
+            }
+
             _screenshotCamera.gameObject.SetActive(false);
-            Debug.Log($"Screenshot saved to {filename}");
             return filename;
         }
         catch (Exception e)
@@ -1038,7 +1091,8 @@ public class SaveSystem : MonoBehaviour
                 return false;
             }
 
-            string screenshotPath = TakeScreenshot(worldName);
+            // Не сохраняем скриншот локально, так как сохраняем только в Firebase
+            string screenshotPath = await TakeScreenshotAsync(worldName, saveToDisk: false);
             List<CubeData> allCubes = CollectAllCubesFromScene();
             Dictionary<Vector3Int, ChunkData> chunks = _chunkManager.OrganizeCubesIntoChunks(allCubes);
 
@@ -1058,6 +1112,21 @@ public class SaveSystem : MonoBehaviour
             }
 
             bool success = await _firebaseAdapter.SaveWorldToFirestore(worldData, _config.DeveloperUserId);
+
+            // Удаляем временный скриншот после загрузки в Firebase
+            if (!string.IsNullOrEmpty(screenshotPath) && File.Exists(screenshotPath))
+            {
+                try
+                {
+                    File.Delete(screenshotPath);
+                    Debug.Log($"Temporary screenshot deleted: {screenshotPath}");
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"Failed to delete temporary screenshot: {e.Message}");
+                }
+            }
+
             if (!success)
             {
                 Debug.LogError(
@@ -1277,6 +1346,43 @@ public class SaveSystem : MonoBehaviour
             Debug.LogWarning($"IsWorldPublishedAsync failed for '{worldName}': {e.Message}");
             return false;
         }
+    }
+
+    public FirebaseAdapter GetFirebaseAdapter()
+    {
+        if (_config == null || !_config.useFirebase)
+        {
+            return null;
+        }
+
+        if (_firebaseAdapter == null)
+        {
+            if (_config == null)
+            {
+                _config = Resources.Load<SaveConfig>("SaveConfig");
+                if (_config == null)
+                {
+                    return null;
+                }
+            }
+
+            if (_chunkManager == null)
+            {
+                _chunkManager = new ChunkManager(_config);
+            }
+
+            try
+            {
+                _firebaseAdapter = new FirebaseAdapter(_config, _chunkManager);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error creating FirebaseAdapter: {e.Message}");
+                return null;
+            }
+        }
+
+        return _firebaseAdapter;
     }
 }
 

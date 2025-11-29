@@ -7,6 +7,7 @@ public class EntitySelector : MonoBehaviour
 
     [SerializeField] private float _raycastDistance = 200f;
 
+    private EntityManager _EntityManager;
     private Entity _hoveredEntity;
     private bool _isHovering;
 
@@ -16,6 +17,8 @@ public class EntitySelector : MonoBehaviour
         {
             _playerCamera = Camera.main;
         }
+
+        _EntityManager = GetComponent<EntityManager>();
     }
 
     private void Update()
@@ -56,12 +59,16 @@ public class EntitySelector : MonoBehaviour
     {
         _hoveredEntity = entity;
         _isHovering = true;
+
+        if (_EntityManager) _EntityManager.SaveTakeButtonActive(true);
     }
 
     private void OnEntityUnhover()
     {
         _hoveredEntity = null;
         _isHovering = false;
+
+        if (_EntityManager) _EntityManager.SaveTakeButtonActive(false);
     }
 
     public Entity GetHoveredEntity()

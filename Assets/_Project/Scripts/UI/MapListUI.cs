@@ -11,7 +11,17 @@ namespace Assets._Project.Scripts.UI
 {
     public class MapListUI : MonoBehaviour
     {
-        [Header("UI References")] [SerializeField]
+        public enum MapList
+        {
+            myWorld,
+            developerWorld,
+            communityWorld
+        }
+
+        public MapList _MapPage;
+
+        [Header("UI References")]
+        [SerializeField]
         private Transform _localMapListContainer;
 
         [SerializeField] private Transform _publishedMapListContainer;
@@ -20,38 +30,47 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private GameObject _developerMapListObject;
 
         [SerializeField] private GameObject _mapItemPrefab;
-        [SerializeField] private Button _localMapsButton;
-        [SerializeField] private Button _developerMapsButton;
-        [SerializeField] private Button _communityMapsButton;
         [SerializeField] private Button _startNewGameButton; // Кнопка «Новая игра»
 
-        [Header("Configuration")] [SerializeField]
+        [Space]
+        [Header("Up Panel Buttons")]
+        [SerializeField]
+        private Button _localMapsButton;
+
+        [SerializeField] private Button _developerMapsButton;
+        [SerializeField] private Button _communityMapsButton;
+        [SerializeField] private Sprite _selectButtonSprite, _unSelectButtonSprite;
+        [SerializeField] private Color _selectButtonColor, _unSelectButtonColor;
+
+        [Header("Configuration")]
+        [SerializeField]
         private SaveSystem _saveSystem;
 
-        [Header("Map Selection UI")] [SerializeField]
+        [Header("Map Selection UI")]
+        [SerializeField]
         private GameObject _mapsMenu;
 
-        // [SerializeField] private GameObject _newGame;
-        [SerializeField] private GameObject _loadingPanel;
-
-        [Header("New Map UI")] [SerializeField]
+        [Header("New Map UI")]
+        [SerializeField]
         private GameObject _newMapPanel;
 
         [SerializeField] private TMP_InputField _newMapNameInput;
         [SerializeField] private Button _confirmNewMapButton;
         [SerializeField] private Button _cancelNewMapButton;
 
-        [Header("Scene Settings")] [SerializeField]
+        [Header("Scene Settings")]
+        [SerializeField]
         private int _mapSceneIndex = 1; // Индекс сцены карты в Build Settings
 
         private readonly List<MapItemEntry> _mapItems = new List<MapItemEntry>();
         private bool _isLoading;
-        private Image _loadingBackgroundImage;
         private float _originalTimeScale = 1f;
         private bool _isLoadingScene = false;
         private bool _listsLoaded;
         private SaveSystem.WorldStorageSource? _activeListSource;
         private HashSet<string> _userLikedWorlds = new HashSet<string>();
+        private string _currentLoadingMapName;
+        private Sprite _currentLoadingScreenshot;
 
         public event Action<string, SaveSystem.WorldStorageSource> OnMapLoadRequested;
         public event Action<string, SaveSystem.WorldStorageSource> OnMapDeleteRequested;
@@ -79,9 +98,9 @@ namespace Assets._Project.Scripts.UI
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             // Скрываем экран загрузки после полной загрузки сцены, если он был показан
-            if (_isLoadingScene && _loadingPanel != null)
+            if (_isLoadingScene && LoadingScreen.instance)
             {
-                _loadingPanel.SetActive(false);
+                LoadingScreen.instance.View(false, null, "");
                 _isLoadingScene = false;
             }
         }
@@ -111,7 +130,7 @@ namespace Assets._Project.Scripts.UI
             if (_developerMapsButton != null)
             {
                 _developerMapsButton.onClick.RemoveAllListeners();
-                _developerMapsButton.onClick.AddListener(OnPublishedListButtonPressed);
+                _developerMapsButton.onClick.AddListener(OnDeveloperListButtonPressed);
             }
 
             if (_confirmNewMapButton != null)
@@ -359,16 +378,25 @@ namespace Assets._Project.Scripts.UI
 
         private void OnLocalListButtonPressed()
         {
+            if (_MapPage == MapList.myWorld) return;
+
+            _MapPage = MapList.myWorld;
             ToggleList(SaveSystem.WorldStorageSource.LocalOnly);
         }
 
         private void OnCommunityListButtonPressed()
         {
+            if (_MapPage == MapList.communityWorld) return;
+
+            _MapPage = MapList.communityWorld;
             ToggleList(SaveSystem.WorldStorageSource.Community);
         }
 
-        private void OnPublishedListButtonPressed()
+        private void OnDeveloperListButtonPressed()
         {
+            if (_MapPage == MapList.developerWorld) return;
+
+            _MapPage = MapList.developerWorld;
             ToggleList(SaveSystem.WorldStorageSource.DeveloperPublished);
         }
 
@@ -428,23 +456,50 @@ namespace Assets._Project.Scripts.UI
 
         private void UpdateListButtonsState()
         {
-            if (_localMapsButton != null)
-            {
-                _localMapsButton.interactable = !_activeListSource.HasValue ||
-                                                _activeListSource.Value != SaveSystem.WorldStorageSource.LocalOnly;
-            }
+            if (_localMapsButton == null || _communityMapsButton == null || _developerMapsButton == null) return;
 
-            if (_communityMapsButton != null)
-            {
-                _communityMapsButton.interactable = !_activeListSource.HasValue ||
-                                                    _activeListSource.Value != SaveSystem.WorldStorageSource.Community;
-            }
 
-            if (_developerMapsButton != null)
+            if (_MapPage == MapList.myWorld)
             {
-                _developerMapsButton.interactable = !_activeListSource.HasValue ||
-                                                    _activeListSource.Value !=
-                                                    SaveSystem.WorldStorageSource.DeveloperPublished;
+                _localMapsButton.targetGraphic.color = _selectButtonColor;
+                _localMapsButton.image.sprite = _selectButtonSprite;
+                _localMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 115);
+
+                _communityMapsButton.targetGraphic.color = _unSelectButtonColor;
+                _communityMapsButton.image.sprite = _unSelectButtonSprite;
+                _communityMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 105);
+
+                _developerMapsButton.targetGraphic.color = _unSelectButtonColor;
+                _developerMapsButton.image.sprite = _unSelectButtonSprite;
+                _developerMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 105);
+            }
+            else if (_MapPage == MapList.communityWorld)
+            {
+                _localMapsButton.targetGraphic.color = _unSelectButtonColor;
+                _localMapsButton.image.sprite = _unSelectButtonSprite;
+                _localMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 105);
+
+                _communityMapsButton.targetGraphic.color = _selectButtonColor;
+                _communityMapsButton.image.sprite = _selectButtonSprite;
+                _communityMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 115);
+
+                _developerMapsButton.targetGraphic.color = _unSelectButtonColor;
+                _developerMapsButton.image.sprite = _unSelectButtonSprite;
+                _developerMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 105);
+            }
+            else if (_MapPage == MapList.developerWorld)
+            {
+                _localMapsButton.targetGraphic.color = _unSelectButtonColor;
+                _localMapsButton.image.sprite = _unSelectButtonSprite;
+                _localMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 105);
+
+                _communityMapsButton.targetGraphic.color = _unSelectButtonColor;
+                _communityMapsButton.image.sprite = _unSelectButtonSprite;
+                _communityMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 105);
+
+                _developerMapsButton.targetGraphic.color = _selectButtonColor;
+                _developerMapsButton.image.sprite = _selectButtonSprite;
+                _developerMapsButton.targetGraphic.rectTransform.sizeDelta = new Vector2(390, 115);
             }
         }
 
@@ -644,7 +699,11 @@ namespace Assets._Project.Scripts.UI
         {
             gameObject.SetActive(false);
 
-            ShowLoadingPanel();
+            MapItemEntry mapItem = _mapItems.FirstOrDefault(m => m.MapName == mapName);
+            Sprite screenshot = mapItem?.View?.GetScreenshotSprite();
+            _currentLoadingMapName = mapName;
+            _currentLoadingScreenshot = screenshot;
+            ShowLoadingPanel(mapName, screenshot);
 
             // Pause the game
             _originalTimeScale = Time.timeScale;
@@ -756,7 +815,7 @@ namespace Assets._Project.Scripts.UI
 
         private void OnLoadingStartedHandler()
         {
-            ShowLoadingPanel();
+            //ShowLoadingPanel();
         }
 
         private void OnLoadingCompletedHandler()
@@ -778,7 +837,7 @@ namespace Assets._Project.Scripts.UI
             }
 
             // Показываем экран загрузки перед загрузкой сцены
-            ShowLoadingPanel();
+            ShowLoadingPanel(_currentLoadingMapName ?? "", _currentLoadingScreenshot);
             _isLoadingScene = true;
             AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(_mapSceneIndex);
 
@@ -814,17 +873,15 @@ namespace Assets._Project.Scripts.UI
             HideAllLists();
             UpdateListButtonsState();
 
-            if (_loadingPanel != null)
-            {
-                _loadingPanel.SetActive(false);
-            }
+            if (LoadingScreen.instance)
+                LoadingScreen.instance.View(false, null, "");
         }
 
         public async void StartNewGame(string mapName = null)
         {
             gameObject.SetActive(false);
 
-            ShowLoadingPanel();
+            ShowLoadingPanel(mapName, null);
 
             _originalTimeScale = Time.timeScale;
             Time.timeScale = 0f;
@@ -908,15 +965,10 @@ namespace Assets._Project.Scripts.UI
             Debug.Log($"Удалено {entities.Length} Entity из сцены");
         }
 
-        public void ShowLoadingPanel()
+        public void ShowLoadingPanel(string name, Sprite icon)
         {
-            if (_loadingPanel != null)
-            {
-                _loadingPanel.SetActive(true);
-
-                // Setup dark background
-                SetupLoadingBackground();
-            }
+            if (LoadingScreen.instance)
+                LoadingScreen.instance.View(true, icon, name);
 
             // Вызываем событие для отключения управления
             UIManager.NotifyFullscreenUIOpened();
@@ -924,64 +976,14 @@ namespace Assets._Project.Scripts.UI
 
         public void HideLoadingPanel()
         {
-            if (_loadingPanel != null)
-            {
-                _loadingPanel.SetActive(false);
-            }
+            if (LoadingScreen.instance)
+                LoadingScreen.instance.View(false, null, "");
+
 
             _isLoadingScene = false;
 
             // Вызываем событие для включения управления
             UIManager.NotifyFullscreenUIClosed();
-        }
-
-        private void SetupLoadingBackground()
-        {
-            if (_loadingPanel == null) return;
-
-            try
-            {
-                // Find or create the background image component for darkening
-                if (_loadingBackgroundImage == null)
-                {
-                    // Get the LoadingScreen GameObject
-                    GameObject loadingScreenObj = _loadingPanel;
-
-                    // Check if there's already a background image
-                    Image existingImage = loadingScreenObj.GetComponent<Image>();
-                    if (existingImage == null)
-                    {
-                        // Add Image component to LoadingScreen for dark background
-                        _loadingBackgroundImage = loadingScreenObj.AddComponent<Image>();
-
-                        // Set it to fill the entire screen
-                        RectTransform rectTransform = loadingScreenObj.GetComponent<RectTransform>();
-                        if (rectTransform != null)
-                        {
-                            rectTransform.anchorMin = new Vector2(0, 0);
-                            rectTransform.anchorMax = new Vector2(1, 1);
-                            rectTransform.offsetMin = Vector2.zero;
-                            rectTransform.offsetMax = Vector2.zero;
-                        }
-
-                        // Set dark color (black with some transparency for darker effect)
-                        _loadingBackgroundImage.color = new Color(0f, 0f, 0f, 0.8f);
-                    }
-                    else
-                    {
-                        _loadingBackgroundImage = existingImage;
-                        _loadingBackgroundImage.color = new Color(0f, 0f, 0f, 0.8f);
-                    }
-                }
-                else
-                {
-                    _loadingBackgroundImage.color = new Color(0f, 0f, 0f, 0.8f);
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Failed to setup loading background: {e.Message}");
-            }
         }
 
         public void PromptNewMapName()
@@ -1018,7 +1020,11 @@ namespace Assets._Project.Scripts.UI
             }
 
             gameObject.SetActive(false);
-            ShowLoadingPanel();
+            MapItemEntry mapItem = _mapItems.FirstOrDefault(m => m.MapName == worldName);
+            Sprite screenshot = mapItem?.View?.GetScreenshotSprite();
+            _currentLoadingMapName = worldName;
+            _currentLoadingScreenshot = screenshot;
+            ShowLoadingPanel(worldName, screenshot);
 
             _originalTimeScale = Time.timeScale;
             Time.timeScale = 0f;

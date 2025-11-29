@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 using Firebase.Firestore;
+using Firebase.Storage;
 
 public class FirebaseAdapter
 {
@@ -38,10 +40,29 @@ public class FirebaseAdapter
                 existingUserId = existingUserIdValue;
             }
 
+            string screenshotUrl = string.Empty;
+            if (!string.IsNullOrEmpty(worldData.ScreenshotPath))
+            {
+                if (worldData.ScreenshotPath.StartsWith("http://") || worldData.ScreenshotPath.StartsWith("https://"))
+                {
+                    screenshotUrl = worldData.ScreenshotPath;
+                }
+                else if (File.Exists(worldData.ScreenshotPath))
+                {
+                    screenshotUrl =
+                        await UploadScreenshotToStorageAsync(worldData.WorldName, worldData.ScreenshotPath,
+                            "world_screenshots");
+                    if (string.IsNullOrEmpty(screenshotUrl))
+                    {
+                        screenshotUrl = worldData.ScreenshotPath;
+                    }
+                }
+            }
+
             var worldMetadata = new Dictionary<string, object>
             {
                 { "worldName", worldData.WorldName },
-                { "screenshotPath", worldData.ScreenshotPath },
+                { "screenshotPath", screenshotUrl },
                 { "worldBoundsMinX", worldData.WorldBoundsMin.x },
                 { "worldBoundsMinY", worldData.WorldBoundsMin.y },
                 { "worldBoundsMinZ", worldData.WorldBoundsMin.z },
@@ -62,7 +83,6 @@ public class FirebaseAdapter
             }
 
             await worldRef.SetAsync(worldMetadata, SetOptions.MergeAll);
-            Debug.Log($"World metadata for '{worldData.WorldName}' saved to Firestore.");
 
             foreach (var chunk in worldData.Chunks.Values)
             {
@@ -577,6 +597,406 @@ public class FirebaseAdapter
             return false;
         }
     }
+
+    public async Task<bool> SaveSharedEntityAsync(string entityId, CubeData[] cubes, string screenshotId)
+    {
+        try
+        {
+            if (cubes == null || cubes.Length == 0)
+            {
+                Debug.LogWarning($"[FirebaseAdapter] Cannot save entity '{entityId}': no cubes data");
+                return false;
+            }
+
+            DocumentReference entityRef = _db.Collection("sharedEntities").Document(entityId);
+
+            string finalScreenshotId = string.Empty;
+            if (!string.IsNullOrEmpty(screenshotId))
+            {
+                // Если это уже URL, просто сохраняем его
+                if (screenshotId.StartsWith("http://") || screenshotId.StartsWith("https://"))
+                {
+                    finalScreenshotId = screenshotId;
+                }
+                else
+                {
+                    // Пытаемся найти локальный путь через ScreenshotManager и загрузить в Firebase
+                    var screenshotManager =
+                        UnityEngine.Object.FindAnyObjectByType<Assets._Project.Scripts.UI.ScreenshotManager>();
+                    if (screenshotManager != null &&
+                        screenshotManager.TryGetPath(screenshotId, out string screenshotPath) &&
+                        !string.IsNullOrEmpty(screenshotPath) &&
+                        File.Exists(screenshotPath))
+                    {
+                        Debug.Log(
+                            $"[FirebaseAdapter] Найден локальный путь к скриншоту для entity '{entityId}': {screenshotPath}");
+                        string uploadedUrl =
+                            await UploadScreenshotToStorageAsync(entityId, screenshotPath, "entity_screenshots");
+                        if (string.IsNullOrEmpty(uploadedUrl))
+                        {
+                            Debug.LogWarning(
+                                $"[FirebaseAdapter] Не удалось загрузить скриншот в Storage для entity '{entityId}', сохраняем исходный id");
+                            finalScreenshotId = screenshotId;
+                        }
+                        else
+                        {
+                            Debug.Log(
+                                $"[FirebaseAdapter] Скриншот загружен в Storage для entity '{entityId}'. Url='{uploadedUrl}'");
+                            finalScreenshotId = uploadedUrl;
+                        }
+                    }
+                    else
+                    {
+                        // Фолбэк — сохраняем как есть (на случай, если это уже какой-то внешний id)
+                        Debug.LogWarning(
+                            $"[FirebaseAdapter] Не удалось получить локальный путь скриншота по id '{screenshotId}' для entity '{entityId}', сохраняем id как есть");
+                        finalScreenshotId = screenshotId;
+                    }
+                }
+            }
+
+            var entityData = new Dictionary<string, object>
+            {
+                { "screenshotId", finalScreenshotId ?? string.Empty },
+                { "timestamp", Timestamp.GetCurrentTimestamp() }
+            };
+
+            await entityRef.SetAsync(entityData);
+
+            // Упаковываем все кубы в один base64-поле, чтобы не плодить сотни документов
+            string packedCubesBase64;
+            using (var ms = new MemoryStream())
+            using (var writer = new BinaryWriter(ms))
+            {
+                writer.Write(cubes.Length);
+                for (int i = 0; i < cubes.Length; i++)
+                {
+                    cubes[i].WriteTo(writer);
+                }
+
+                writer.Flush();
+                packedCubesBase64 = Convert.ToBase64String(ms.ToArray());
+            }
+
+            DocumentReference packedRef = entityRef.Collection("data").Document("cubes");
+            var packedDoc = new Dictionary<string, object>
+            {
+                { "data", packedCubesBase64 },
+                { "timestamp", Timestamp.GetCurrentTimestamp() }
+            };
+            await packedRef.SetAsync(packedDoc);
+
+            Debug.Log($"Shared entity '{entityId}' saved to Firestore (packed {cubes.Length} cubes).");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error saving shared entity '{entityId}' to Firestore: {e.Message}");
+            return false;
+        }
+    }
+
+    public async Task<SharedEntityData> LoadSharedEntityAsync(string entityId)
+    {
+        try
+        {
+            DocumentReference entityRef = _db.Collection("sharedEntities").Document(entityId);
+            DocumentSnapshot entitySnapshot = await entityRef.GetSnapshotAsync();
+
+            if (!entitySnapshot.Exists)
+            {
+                Debug.LogWarning($"Shared entity '{entityId}' not found in Firestore.");
+                return null;
+            }
+
+            string screenshotId = entitySnapshot.TryGetValue("screenshotId", out string ssId) ? ssId : string.Empty;
+
+            List<CubeData> cubes = new List<CubeData>();
+
+            // 1) Пытаемся загрузить новый упакованный формат
+            DocumentReference packedRef = entityRef.Collection("data").Document("cubes");
+            DocumentSnapshot packedSnapshot = await packedRef.GetSnapshotAsync();
+            if (packedSnapshot.Exists && packedSnapshot.TryGetValue("data", out string packedBase64))
+            {
+                try
+                {
+                    byte[] bytes = Convert.FromBase64String(packedBase64);
+                    using (var ms = new MemoryStream(bytes))
+                    using (var reader = new BinaryReader(ms))
+                    {
+                        int count = reader.ReadInt32();
+                        for (int i = 0; i < count; i++)
+                        {
+                            cubes.Add(CubeData.ReadFrom(reader));
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"Failed to parse packed shared entity '{entityId}': {e.Message}");
+                    cubes.Clear();
+                }
+            }
+
+            // 2) Фолбэк на старый формат (подколлекция 'cubes'), чтобы не сломать уже сохранённые данные
+            if (cubes.Count == 0)
+            {
+                QuerySnapshot cubesSnapshot = await entityRef.Collection("cubes").GetSnapshotAsync();
+                foreach (DocumentSnapshot cubeDoc in cubesSnapshot.Documents)
+                {
+                    Vector3 cubePos = new Vector3(
+                        cubeDoc.GetValue<float>("positionX"),
+                        cubeDoc.GetValue<float>("positionY"),
+                        cubeDoc.GetValue<float>("positionZ")
+                    );
+
+                    Color32 cubeColor = new Color32(
+                        (byte)Mathf.Clamp(cubeDoc.GetValue<float>("colorR") * 255f, 0, 255),
+                        (byte)Mathf.Clamp(cubeDoc.GetValue<float>("colorG") * 255f, 0, 255),
+                        (byte)Mathf.Clamp(cubeDoc.GetValue<float>("colorB") * 255f, 0, 255),
+                        (byte)Mathf.Clamp(cubeDoc.GetValue<float>("colorA") * 255f, 0, 255)
+                    );
+
+                    byte blockTypeId = (byte)cubeDoc.GetValue<int>("blockTypeId");
+                    int cubeEntityId = cubeDoc.TryGetValue("entityId", out int eId) ? eId : 0;
+
+                    Quaternion cubeRotation = Quaternion.identity;
+                    if (cubeDoc.TryGetValue("rotationX", out float rx) &&
+                        cubeDoc.TryGetValue("rotationY", out float ry) &&
+                        cubeDoc.TryGetValue("rotationZ", out float rz) &&
+                        cubeDoc.TryGetValue("rotationW", out float rw))
+                    {
+                        cubeRotation = new Quaternion(rx, ry, rz, rw);
+                    }
+
+                    cubes.Add(new CubeData(cubePos, cubeColor, blockTypeId, cubeEntityId, cubeRotation));
+                }
+            }
+
+            return new SharedEntityData
+            {
+                EntityId = entityId,
+                Cubes = cubes.ToArray(),
+                ScreenshotId = screenshotId
+            };
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error loading shared entity '{entityId}' from Firestore: {e.Message}");
+            return null;
+        }
+    }
+
+    public async Task<List<SharedEntityMetadata>> GetAllSharedEntitiesMetadataAsync()
+    {
+        try
+        {
+            QuerySnapshot snapshot = await _db.Collection("sharedEntities").GetSnapshotAsync();
+            List<SharedEntityMetadata> entities = new List<SharedEntityMetadata>();
+
+            foreach (DocumentSnapshot document in snapshot.Documents)
+            {
+                try
+                {
+                    string entityId = document.Id;
+                    string screenshotId = document.TryGetValue("screenshotId", out string ssId) ? ssId : string.Empty;
+                    long timestamp = document.TryGetValue("timestamp", out Timestamp ts) ? ts.ToDateTime().Ticks : 0;
+
+                    entities.Add(new SharedEntityMetadata
+                    {
+                        EntityId = entityId,
+                        ScreenshotId = screenshotId,
+                        Timestamp = timestamp
+                    });
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"Error processing shared entity metadata for {document.Id}: {e.Message}");
+                }
+            }
+
+            return entities;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to get shared entities metadata: {e.Message}");
+            return new List<SharedEntityMetadata>();
+        }
+    }
+
+    public async Task<bool> DeleteSharedEntityAsync(string entityId)
+    {
+        try
+        {
+            DocumentReference entityRef = _db.Collection("sharedEntities").Document(entityId);
+
+            // Удаляем новый упакованный документ (если есть)
+            DocumentReference packedRef = entityRef.Collection("data").Document("cubes");
+            await packedRef.DeleteAsync();
+
+            // Для обратной совместимости пробуем удалить старый формат (подколлекция 'cubes'),
+            // если он ещё существует. Это может занять время только для старых данных.
+            QuerySnapshot cubesSnapshot = await entityRef.Collection("cubes").GetSnapshotAsync();
+            foreach (DocumentSnapshot cubeDoc in cubesSnapshot.Documents)
+            {
+                await cubeDoc.Reference.DeleteAsync();
+            }
+
+            await entityRef.DeleteAsync();
+
+            Debug.Log($"Shared entity '{entityId}' deleted from Firestore.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error deleting shared entity '{entityId}' from Firestore: {e.Message}");
+            return false;
+        }
+    }
+
+    private async Task<string> UploadScreenshotToStorageAsync(string objectId, string localFilePath, string folder)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(localFilePath))
+            {
+                return string.Empty;
+            }
+
+            int maxRetries = 10;
+            int retryDelay = 100;
+            for (int i = 0; i < maxRetries; i++)
+            {
+                if (File.Exists(localFilePath))
+                {
+                    try
+                    {
+                        using (var fs = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        {
+                            if (fs.Length > 0)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    catch (IOException)
+                    {
+                        if (i < maxRetries - 1)
+                        {
+                            await Task.Delay(retryDelay);
+                            continue;
+                        }
+                    }
+                }
+
+                if (i < maxRetries - 1)
+                {
+                    await Task.Delay(retryDelay);
+                }
+            }
+
+            if (!File.Exists(localFilePath))
+            {
+                return string.Empty;
+            }
+
+            byte[] fileBytes;
+            try
+            {
+                fileBytes = await File.ReadAllBytesAsync(localFilePath);
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+
+            if (fileBytes == null || fileBytes.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            var firebaseApp = Firebase.FirebaseApp.DefaultInstance;
+            if (firebaseApp == null)
+            {
+                return string.Empty;
+            }
+
+            FirebaseStorage storage = FirebaseStorage.DefaultInstance;
+            if (storage == null)
+            {
+                return string.Empty;
+            }
+
+            string sanitizedId = SaveConfig.SanitizeFileName(objectId);
+            string storagePath = $"{folder}/{sanitizedId}.png";
+
+            string expectedBucket = firebaseApp.Options?.StorageBucket;
+            if (string.IsNullOrEmpty(expectedBucket))
+            {
+                return string.Empty;
+            }
+
+            StorageReference screenshotRef;
+            try
+            {
+                screenshotRef = storage.GetReference(storagePath);
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                MetadataChange metadata = new MetadataChange();
+                metadata.ContentType = "image/png";
+
+                StorageMetadata result = await screenshotRef.PutBytesAsync(fileBytes, metadata);
+                if (result == null)
+                {
+                    return string.Empty;
+                }
+
+                await Task.Delay(500);
+
+                Uri downloadUri = null;
+                int urlRetries = 5;
+                for (int i = 0; i < urlRetries; i++)
+                {
+                    try
+                    {
+                        downloadUri = await screenshotRef.GetDownloadUrlAsync();
+                        if (downloadUri != null)
+                        {
+                            break;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        if (i < urlRetries - 1)
+                        {
+                            await Task.Delay(1000 * (i + 1));
+                        }
+                        else
+                        {
+                            throw;
+                        }
+                    }
+                }
+
+                string downloadUrl = downloadUri?.ToString() ?? string.Empty;
+                return downloadUrl;
+            }
+            catch (StorageException)
+            {
+                return string.Empty;
+            }
+        }
+        catch (Exception)
+        {
+            return string.Empty;
+        }
+    }
 }
 
 [Serializable]
@@ -587,6 +1007,22 @@ public class WorldMetadata
     public long Timestamp;
     public int Likes;
     public string UserId;
+}
+
+[Serializable]
+public class SharedEntityData
+{
+    public string EntityId;
+    public CubeData[] Cubes;
+    public string ScreenshotId;
+}
+
+[Serializable]
+public class SharedEntityMetadata
+{
+    public string EntityId;
+    public string ScreenshotId;
+    public long Timestamp;
 }
 
 [Serializable]

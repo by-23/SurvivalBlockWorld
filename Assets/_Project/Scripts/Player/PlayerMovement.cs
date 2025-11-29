@@ -43,9 +43,6 @@ public class PlayerMovement : MonoBehaviour
         _characterController.stepOffset = _stepOffset;
         _characterController.skinWidth = 0.08f;
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-
         if (GameManager.Instance != null)
         {
             GameManager.Instance.RegisterPlayerMovement(this);
@@ -67,20 +64,6 @@ public class PlayerMovement : MonoBehaviour
         }
 
         HandleLaser();
-
-        if (Input.GetKeyDown(KeyCode.RightBracket))
-        {
-            if (Cursor.lockState == CursorLockMode.Locked)
-            {
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
-            }
-            else
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-            }
-        }
     }
 
     private void HandleMovement()
