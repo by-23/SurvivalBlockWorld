@@ -106,6 +106,15 @@ namespace Assets._Project.Scripts.UI
 
             _pendingColor = _selectedColor;
             UpdateCreateButtonState();
+
+            // Подписываемся на событие изменения режима строительства
+            GameManager.OnBuildModeChanged += OnBuildModeChanged;
+        }
+
+        private void OnDisable()
+        {
+            // Отписываемся от события при деактивации
+            GameManager.OnBuildModeChanged -= OnBuildModeChanged;
         }
 
         private void CacheCamera()
@@ -123,6 +132,31 @@ namespace Assets._Project.Scripts.UI
             if (Input.GetKeyDown(KeyCode.F))
             {
                 OnCreateButtonClicked();
+            }
+        }
+
+        private void OnBuildModeChanged(bool isActive)
+        {
+            // При выходе из режима строительства запускаем комбинирование
+            if (!isActive)
+            {
+                OnBuildModeExited();
+            }
+        }
+
+        private void OnBuildModeExited()
+        {
+            // Останавливаем таймер, если он запущен
+            if (_groupingCoroutine != null)
+            {
+                StopCoroutine(_groupingCoroutine);
+                _groupingCoroutine = null;
+            }
+
+            // Немедленно группируем кубы при выходе из режима строительства
+            if (_placedCubes.Count > 0)
+            {
+                GroupPlacedCubesIntoEntities();
             }
         }
 
@@ -355,7 +389,8 @@ namespace Assets._Project.Scripts.UI
             SaveSlotObj saveSlotObj = clickedButton.GetComponent<SaveSlotObj>();
             if (saveSlotObj != null)
             {
-                Color color = saveSlotObj.GetColor(); ;
+                Color color = saveSlotObj.GetColor();
+                ;
                 _pendingColor = color;
                 _selectedColor = _pendingColor;
             }
@@ -587,7 +622,8 @@ namespace Assets._Project.Scripts.UI
                 magnetizedPosition = FindAlternativePosition(magnetizedPosition);
             }
 
-            Vector3Int ghostPos = new Vector3Int((int)magnetizedPosition.x, (int)magnetizedPosition.y, (int)magnetizedPosition.z);
+            Vector3Int ghostPos = new Vector3Int((int)magnetizedPosition.x, (int)magnetizedPosition.y,
+                (int)magnetizedPosition.z);
 
             _ghostRoot.transform.position = ghostPos;
 
@@ -1163,39 +1199,11 @@ namespace Assets._Project.Scripts.UI
                 // Добавляем куб в список для группировки
                 _placedCubes.Add(cubeComponent);
 
-                // Перезапускаем таймер группировки
-                RestartGroupingTimer();
+                // В режиме строительства не запускаем таймер - комбинирование произойдет при выходе
+                // Таймер больше не используется
             }
         }
 
-        /// <summary>
-        /// Перезапускает таймер группировки кубов
-        /// </summary>
-        private void RestartGroupingTimer()
-        {
-            if (_groupingCoroutine != null)
-            {
-                StopCoroutine(_groupingCoroutine);
-            }
-
-            _groupingCoroutine = StartCoroutine(GroupingTimerCoroutine());
-        }
-
-        /// <summary>
-        /// Корутина таймера, которая группирует кубы после истечения времени
-        /// </summary>
-        private IEnumerator GroupingTimerCoroutine()
-        {
-            yield return new WaitForSeconds(_groupingTimerDuration);
-
-            // Группируем кубы, если они есть
-            if (_placedCubes.Count > 0)
-            {
-                GroupPlacedCubesIntoEntities();
-            }
-
-            _groupingCoroutine = null;
-        }
 
         /// <summary>
         /// Группирует размещенные кубы в сущности по принципу соприкосновения

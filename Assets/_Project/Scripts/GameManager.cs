@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using System.IO;
+using System;
 
 public class GameManager : MonoBehaviour
 {
@@ -42,6 +43,8 @@ public class GameManager : MonoBehaviour
     [Header("Build Mode")] public bool BuildModeActive = false;
     [SerializeField] private PlayerMovement _playerMovement;
 
+    public static event Action<bool> OnBuildModeChanged;
+
     public void RegisterPlayerMovement(PlayerMovement pm)
     {
         if (pm != null)
@@ -60,6 +63,8 @@ public class GameManager : MonoBehaviour
             _playerMovement.SetLevitateMode(active);
 
         UpdateAllEntitiesPhysics();
+
+        OnBuildModeChanged?.Invoke(active);
     }
 
     private void UpdateAllEntitiesPhysics()

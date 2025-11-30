@@ -20,8 +20,7 @@ namespace Assets._Project.Scripts.UI
 
         public MapList _MapPage;
 
-        [Header("UI References")]
-        [SerializeField]
+        [Header("UI References")] [SerializeField]
         private Transform _localMapListContainer;
 
         [SerializeField] private Transform _publishedMapListContainer;
@@ -32,9 +31,7 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private GameObject _mapItemPrefab;
         [SerializeField] private Button _startNewGameButton; // Кнопка «Новая игра»
 
-        [Space]
-        [Header("Up Panel Buttons")]
-        [SerializeField]
+        [Space] [Header("Up Panel Buttons")] [SerializeField]
         private Button _localMapsButton;
 
         [SerializeField] private Button _developerMapsButton;
@@ -42,24 +39,23 @@ namespace Assets._Project.Scripts.UI
         [SerializeField] private Sprite _selectButtonSprite, _unSelectButtonSprite;
         [SerializeField] private Color _selectButtonColor, _unSelectButtonColor;
 
-        [Header("Configuration")]
-        [SerializeField]
+        [Header("Configuration")] [SerializeField]
         private SaveSystem _saveSystem;
 
-        [Header("Map Selection UI")]
-        [SerializeField]
+        [Header("Map Selection UI")] [SerializeField]
         private GameObject _mapsMenu;
 
-        [Header("New Map UI")]
-        [SerializeField]
+        [Header("New Map UI")] [SerializeField]
         private GameObject _newMapPanel;
 
         [SerializeField] private TMP_InputField _newMapNameInput;
         [SerializeField] private Button _confirmNewMapButton;
         [SerializeField] private Button _cancelNewMapButton;
 
-        [Header("Scene Settings")]
-        [SerializeField]
+        [Header("Loading UI")] [SerializeField]
+        private GameObject _loadingIndicator;
+
+        [Header("Scene Settings")] [SerializeField]
         private int _mapSceneIndex = 1; // Индекс сцены карты в Build Settings
 
         private readonly List<MapItemEntry> _mapItems = new List<MapItemEntry>();
@@ -150,6 +146,11 @@ namespace Assets._Project.Scripts.UI
                 _newMapPanel.SetActive(false);
             }
 
+            if (_loadingIndicator != null)
+            {
+                _loadingIndicator.SetActive(false);
+            }
+
             HideAllLists();
 
             if (SceneManager.GetActiveScene().buildIndex == 0)
@@ -202,6 +203,11 @@ namespace Assets._Project.Scripts.UI
             _isLoading = true;
             OnLoadingStarted?.Invoke();
             _listsLoaded = false;
+
+            if (_loadingIndicator != null)
+            {
+                _loadingIndicator.SetActive(true);
+            }
 
             try
             {
@@ -290,6 +296,10 @@ namespace Assets._Project.Scripts.UI
             finally
             {
                 _isLoading = false;
+                if (_loadingIndicator != null)
+                {
+                    _loadingIndicator.SetActive(false);
+                }
             }
         }
 
@@ -631,12 +641,23 @@ namespace Assets._Project.Scripts.UI
             if (string.IsNullOrEmpty(mapName))
                 return;
 
+            MapItemView mapItemView = GetMapItemView(mapName);
+            if (mapItemView != null)
+            {
+                mapItemView.SetPublishButtonInteractable(false);
+            }
+
             if (_saveSystem == null)
                 _saveSystem = FindAnyObjectByType<SaveSystem>();
 
             if (_saveSystem == null)
             {
                 Debug.LogError("SaveSystem not found when trying to publish/unpublish.");
+                if (mapItemView != null)
+                {
+                    mapItemView.SetPublishButtonInteractable(true);
+                }
+
                 return;
             }
 
@@ -669,6 +690,11 @@ namespace Assets._Project.Scripts.UI
                     Debug.LogError($"Failed to publish map '{mapName}'.");
                 }
             }
+
+            if (mapItemView != null)
+            {
+                mapItemView.SetPublishButtonInteractable(true);
+            }
         }
 
         private async void CheckAndSetPublishedState(MapItemView mapItemView, string mapName)
@@ -693,6 +719,19 @@ namespace Assets._Project.Scripts.UI
                     break;
                 }
             }
+        }
+
+        private MapItemView GetMapItemView(string mapName)
+        {
+            foreach (var mapItem in _mapItems)
+            {
+                if (mapItem?.View != null && mapItem.MapName == mapName)
+                {
+                    return mapItem.View;
+                }
+            }
+
+            return null;
         }
 
         private async void OnMapLoadRequestedAsync(string mapName, SaveSystem.WorldStorageSource source)

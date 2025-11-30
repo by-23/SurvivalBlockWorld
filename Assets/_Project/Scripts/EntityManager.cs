@@ -1087,10 +1087,11 @@ public class EntityManager : MonoBehaviour
                 string sharedPath = Path.Combine(Application.persistentDataPath, sharedFileName);
 
                 Vector3 defaultScale = _config != null ? Vector3.one * _config.entityScale : Vector3.one;
+                Vector3 centerPos = CalculateCubesCenter(data.cubes);
                 SingleEntitySave sharedData = new SingleEntitySave
                 {
                     name = string.IsNullOrEmpty(title) ? "Shared Entity" : title,
-                    position = Vector3.zero,
+                    position = centerPos,
                     rotation = Quaternion.identity,
                     scale = defaultScale,
                     cubes = data.cubes,
@@ -1169,10 +1170,11 @@ public class EntityManager : MonoBehaviour
                 if (!fileExists || (!hasMapping && fileExists))
                 {
                     Vector3 defaultScale = _config != null ? Vector3.one * _config.entityScale : Vector3.one;
+                    Vector3 centerPos = CalculateCubesCenter(entityData.Cubes);
                     SingleEntitySave saveData = new SingleEntitySave
                     {
                         name = "Shared Entity",
-                        position = Vector3.zero,
+                        position = centerPos,
                         rotation = Quaternion.identity,
                         scale = defaultScale,
                         cubes = entityData.Cubes,
@@ -1197,6 +1199,24 @@ public class EntityManager : MonoBehaviour
         {
             Debug.LogError($"Ошибка загрузки общих entities из Firebase: {e.Message}");
         }
+    }
+
+    private Vector3 CalculateCubesCenter(CubeData[] cubes)
+    {
+        if (cubes == null || cubes.Length == 0)
+            return Vector3.zero;
+
+        Vector3 min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+        Vector3 max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+
+        for (int i = 0; i < cubes.Length; i++)
+        {
+            Vector3 pos = cubes[i].Position;
+            min = Vector3.Min(min, pos);
+            max = Vector3.Max(max, pos);
+        }
+
+        return (min + max) * 0.5f;
     }
 }
 

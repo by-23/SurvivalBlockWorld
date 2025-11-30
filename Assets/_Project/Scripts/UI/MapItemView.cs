@@ -296,6 +296,14 @@ public class MapItemView : MonoBehaviour
         }
     }
 
+    public void SetPublishButtonInteractable(bool interactable)
+    {
+        if (_publishButton != null)
+        {
+            _publishButton.interactable = interactable;
+        }
+    }
+
     public void SetDeleteButtonEnabled(bool isEnabled)
     {
         if (_deleteButton != null)
